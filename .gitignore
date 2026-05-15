@@ -1,0 +1,55 @@
+# Vagrant
+.vagrant/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+#IA
+.claude/
+.cursor/
+.deepseek/
+.gemini/
+.google/
+.openai/
+.anthropic/
+.perplexity/
+.perplexity/
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+# AWS
+aws-ids.sh
+aws-ids.ps1
+
+# OVAs exportados
+*.ova
+*.box
+
+# SSH keys
+*.pem
+credentials/lab-key.pub
+lab-key.pub

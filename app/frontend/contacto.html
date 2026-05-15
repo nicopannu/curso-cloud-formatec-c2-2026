@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CloudCuyo - Buzon</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <div class="page">
+    <header class="topbar"><div class="brand"><span class="logo">CloudCuyo</span><span class="tagline">Buzon comercial</span></div><div class="year">2010</div></header>
+    <nav class="menu"><a href="index.html">Inicio</a><a class="hot" href="portal.html">Portal Clientes</a><a href="soluciones.html">Soluciones</a><a href="hosting.html">Hosting</a><a href="contacto.html">Buzon</a></nav>
+    <main class="panel">
+      <h1>Buzon de contacto</h1>
+      <p>Complete el formulario. El mensaje se guarda en la base de datos del backend.</p>
+      <form id="contactForm" class="legacy-form">
+        <label>Nombre y apellido <input name="name" required></label>
+        <label>Email <input name="email" type="email" required></label>
+        <label>Categoria
+          <select name="category">
+            <option>ventas</option>
+            <option>soporte</option>
+            <option>reclamo</option>
+            <option>empleo</option>
+          </select>
+        </label>
+        <label>Mensaje <textarea name="message" rows="5" required></textarea></label>
+        <button type="submit" class="button">Enviar mensaje</button>
+      </form>
+      <div id="formResult" class="status"></div>
+    </main>
+    <footer>CloudCuyo S.A. - Buzon legacy candidato a refactor serverless</footer>
+  </div>
+  <script src="assets/js/main.js"></script>
+</body>
+</html>
