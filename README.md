@@ -2,6 +2,23 @@
 
 Proyecto educativo para el módulo de migración cloud. Simula una empresa ficticia (**CloudCuyo S.A.**) con infraestructura on-premise legacy y una migración progresiva a AWS aplicando el **framework 6R**.
 
+## Branches
+
+Cada lab tiene su propia branch. Clonar o cambiar a la branch correspondiente antes de empezar:
+
+| Branch | Contenido |
+|---|---|
+| `main` | Documentación general, estructura del repo |
+| `m2-c1-lab` | Módulo 2 - Clase 1: REHOST + REPLATFORM (Guia 1 y Guia 2) |
+
+```bash
+git clone https://github.com/nicopannu/curso-cloud-formatec-c2-2026.git
+cd curso-cloud-formatec-c2-2026
+
+# Cambiar a la branch del lab
+git checkout m2-c1-lab
+```
+
 ---
 
 ## Estructura del repositorio
