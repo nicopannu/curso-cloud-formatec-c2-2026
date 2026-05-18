@@ -636,20 +636,28 @@ aws ec2 describe-images \
 
 ## Fase 5: Lanzar instancias EC2
 
-Esta fase se realiza desde la **AWS Console**. Usar CloudShell solo para validaciones o troubleshooting.
+Esta fase se realiza completamente desde la **AWS Console**. No ejecutar comandos en esta fase; todos los valores se seleccionan desde la interfaz.
 
 > **Importante:** si existe un Load Balancer (`LB01`) público, los servidores `frontend01` y `frontend02` no necesitan IP pública ni subnet pública. El diseño recomendado es: `LB01` en subnet pública, `frontend01`, `frontend02`, `api01` y `db01` en subnet privada. El Security Group del frontend debe aceptar HTTP solo desde el Security Group del LB.
 
 ### 5.1. Identificar datos necesarios
 
-Antes de lanzar instancias, anotar estos valores desde la consola:
+Antes de lanzar instancias, abrir estas pantallas y anotar los valores del laboratorio:
 
-- VPC del laboratorio: usar la VPC provista por el instructor.
-- Public subnet: subnet donde se lanzará `lb01`.
-- Private subnet: subnet donde se lanzarán `frontend01`, `frontend02`, `api01` y `db01`.
-- Key pair: key pair provisto por el instructor.
-- Instance Profile SSM: output `SSMInstanceProfileName` del stack `cloudcuyo-nat` en CloudFormation.
-- AMIs importadas: AMIs con tags `cloudcuyo-db01-ami`, `cloudcuyo-api01-ami`, `cloudcuyo-frontend01-ami`, `cloudcuyo-frontend02-ami` y `cloudcuyo-lb01-ami`.
+- **VPC:** ir a **VPC > Your VPCs** y ubicar la VPC provista por el instructor.
+- **Public subnet:** ir a **VPC > Subnets** y ubicar la subnet pública del laboratorio.
+- **Private subnet:** ir a **VPC > Subnets** y ubicar la subnet privada del laboratorio.
+- **Key pair:** ir a **EC2 > Key pairs** y confirmar el key pair que se usará en el lab.
+- **Instance Profile SSM:** ir a **CloudFormation > Stacks > cloudcuyo-nat > Outputs** y copiar el valor `SSMInstanceProfileName`.
+- **AMIs importadas:** ir a **EC2 > AMIs**, filtrar por **Owned by me** y confirmar que existan las AMIs con tag `Name`.
+
+| VM | AMI esperada |
+|---|---|
+| `db01` | `cloudcuyo-db01-ami` |
+| `api01` | `cloudcuyo-api01-ami` |
+| `frontend01` | `cloudcuyo-frontend01-ami` |
+| `frontend02` | `cloudcuyo-frontend02-ami` |
+| `lb01` | `cloudcuyo-lb01-ami` |
 
 IPs privadas sugeridas, ajustarlas al CIDR real de la subnet privada:
 
@@ -665,6 +673,8 @@ IPs privadas sugeridas, ajustarlas al CIDR real de la subnet privada:
 
 Ir a **EC2 > Security Groups > Create security group** y crear los siguientes grupos en la VPC del laboratorio.
 
+Al crear reglas entre Security Groups, en el campo **Source** seleccionar **Custom** y buscar el nombre del Security Group origen, por ejemplo `cloudcuyo-lb-sg`. No usar `0.0.0.0/0` para frontends, API o base de datos.
+
 **Security Group LB**
 
 | Campo | Valor |
@@ -672,7 +682,7 @@ Ir a **EC2 > Security Groups > Create security group** y crear los siguientes gr
 | Name | `cloudcuyo-lb-sg` |
 | Description | `CloudCuyo public load balancer` |
 | Inbound rule | HTTP TCP 80 desde `0.0.0.0/0` |
-| Outbound rule | All traffic o HTTP TCP 80 hacia la VPC |
+| Outbound rule | All traffic |
 
 **Security Group Frontend**
 
@@ -681,7 +691,7 @@ Ir a **EC2 > Security Groups > Create security group** y crear los siguientes gr
 | Name | `cloudcuyo-frontend-sg` |
 | Description | `CloudCuyo private frontend` |
 | Inbound rule | HTTP TCP 80 desde `cloudcuyo-lb-sg` |
-| Outbound rule | All traffic o hacia `cloudcuyo-api-sg` |
+| Outbound rule | All traffic |
 
 **Security Group API**
 
@@ -690,7 +700,7 @@ Ir a **EC2 > Security Groups > Create security group** y crear los siguientes gr
 | Name | `cloudcuyo-api-sg` |
 | Description | `CloudCuyo private API` |
 | Inbound rule | TCP 5000 desde `cloudcuyo-frontend-sg` |
-| Outbound rule | All traffic o PostgreSQL hacia `cloudcuyo-db-sg` |
+| Outbound rule | All traffic |
 
 **Security Group DB**
 
@@ -703,7 +713,22 @@ Ir a **EC2 > Security Groups > Create security group** y crear los siguientes gr
 
 No agregar reglas inbound para SSM. Session Manager usa conexiones salientes desde la instancia hacia AWS Systems Manager.
 
-### 5.3. Lanzar `db01` en subnet privada
+### 5.3. Configuracion comun de lanzamiento
+
+Para cada instancia, partir desde **EC2 > AMIs**, seleccionar la AMI correspondiente y elegir **Launch instance from AMI**.
+
+Usar estos criterios comunes:
+
+- **Name:** usar el nombre de la VM (`cloudcuyo-db01`, `cloudcuyo-api01`, etc.).
+- **Key pair:** seleccionar el key pair del laboratorio.
+- **Network:** seleccionar la VPC del laboratorio.
+- **Subnet:** seleccionar public o private subnet segun la tabla de la seccion 5.1.
+- **Auto-assign public IP:** `Enable` solo para `lb01`; `Disable` para el resto.
+- **Firewall:** elegir **Select existing security group** y seleccionar el SG correspondiente.
+- **Advanced details > IAM instance profile:** seleccionar el Instance Profile SSM obtenido desde CloudFormation.
+- **Tags:** agregar `Lab=m2-c1-lab` y `Role` segun corresponda: `database`, `api`, `frontend` o `load-balancer`.
+
+### 5.4. Lanzar `db01` en subnet privada
 
 1. Ir a **EC2 > AMIs**.
 2. Buscar la AMI `cloudcuyo-db01-ami`.
@@ -719,7 +744,7 @@ No agregar reglas inbound para SSM. Session Manager usa conexiones salientes des
 12. Advanced details: en **IAM instance profile**, seleccionar el Instance Profile SSM del stack `cloudcuyo-nat`.
 13. Revisar y elegir **Launch instance**.
 
-### 5.4. Lanzar `api01` en subnet privada
+### 5.5. Lanzar `api01` en subnet privada
 
 1. Repetir el flujo desde **EC2 > AMIs** usando `cloudcuyo-api01-ami`.
 2. Name: `cloudcuyo-api01`.
@@ -731,7 +756,7 @@ No agregar reglas inbound para SSM. Session Manager usa conexiones salientes des
 8. IAM instance profile: seleccionar el Instance Profile SSM del stack `cloudcuyo-nat`.
 9. Lanzar la instancia.
 
-### 5.5. Lanzar `frontend01` y `frontend02` en subnet privada
+### 5.6. Lanzar `frontend01` y `frontend02` en subnet privada
 
 1. Repetir el flujo desde **EC2 > AMIs** usando `cloudcuyo-frontend01-ami`.
 2. Name: `cloudcuyo-frontend01`.
@@ -746,7 +771,7 @@ No agregar reglas inbound para SSM. Session Manager usa conexiones salientes des
 11. Name: `cloudcuyo-frontend02`.
 12. IP privada sugerida: `10.0.1.21` si pertenece a tu subnet privada.
 
-### 5.6. Lanzar `lb01` en subnet publica
+### 5.7. Lanzar `lb01` en subnet publica
 
 1. Repetir el flujo desde **EC2 > AMIs** usando `cloudcuyo-lb01-ami`.
 2. Name: `cloudcuyo-lb01`.
@@ -758,7 +783,7 @@ No agregar reglas inbound para SSM. Session Manager usa conexiones salientes des
 8. Lanzar la instancia.
 9. Cuando quede `Running`, copiar su **Public IPv4 address**. Ese será el endpoint público inicial del lab.
 
-### 5.7. Verificar estado inicial
+### 5.8. Verificar estado inicial desde la consola
 
 1. Ir a **EC2 > Instances**.
 2. Confirmar que las cinco instancias estén en estado `Running`.
