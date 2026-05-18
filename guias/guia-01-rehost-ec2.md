@@ -38,8 +38,8 @@ CloudCuyo necesita migrar **urgentemente** a AWS debido a:
 │  │  │  Public Subnet (10.0.0.0/24)               │   │    │
 │  │  │                                             │   │    │
 │  │  │  ┌────────────┐  ┌────────────────────┐   │   │    │
-│  │  │  │ NAT        │  │ LB01 + FRONT01/02  │   │   │    │
-│  │  │  │ Instance   │  │ (IPs públicas)     │   │   │    │
+│  │  │  │ NAT        │  │ LB01               │   │   │    │
+│  │  │  │ Instance   │  │ (IP pública)       │   │   │    │
 │  │  │  │ (EIP)      │  └────────────────────┘   │   │    │
 │  │  │  └─────┬──────┘                            │   │    │
 │  │  │        │ iptables MASQUERADE               │   │    │
@@ -50,10 +50,13 @@ CloudCuyo necesita migrar **urgentemente** a AWS debido a:
 │  │  │  Route: 0.0.0.0/0 → NAT Instance           │   │    │
 │  │  │                                             │   │    │
 │  │  │  ┌─────────────┐  ┌─────────────┐         │   │    │
-│  │  │  │ API01       │  │ DB01        │         │   │    │
-│  │  │  │ (privada)   │  │ (privada)   │         │   │    │
-│  │  │  │ SSM Agent   │  │ SSM Agent   │         │   │    │
+│  │  │  │ FRONT01/02  │  │ API01       │         │   │    │
+│  │  │  │ (privadas)  │  │ (privada)   │         │   │    │
 │  │  │  └─────────────┘  └─────────────┘         │   │    │
+│  │  │  ┌─────────────┐                         │   │    │
+│  │  │  │ DB01        │                         │   │    │
+│  │  │  │ (privada)   │                         │   │    │
+│  │  │  └─────────────┘                         │   │    │
 │  │  └─────────────────────────────────────────────┘   │    │
 │  └────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
@@ -633,194 +636,139 @@ aws ec2 describe-images \
 
 ## Fase 5: Lanzar instancias EC2
 
-Esta fase usa AWS CloudShell o una terminal con AWS CLI configurado. Reemplaza los valores placeholder por los IDs de tu propia VPC, subnets y key pair antes de ejecutar los comandos. Las IPs privadas de ejemplo deben pertenecer al CIDR de tu subnet privada.
+Esta fase se realiza desde la **AWS Console**. Usar CloudShell solo para validaciones o troubleshooting.
 
-### 5.1. Preparar variables
+> **Importante:** si existe un Load Balancer (`LB01`) público, los servidores `frontend01` y `frontend02` no necesitan IP pública ni subnet pública. El diseño recomendado es: `LB01` en subnet pública, `frontend01`, `frontend02`, `api01` y `db01` en subnet privada. El Security Group del frontend debe aceptar HTTP solo desde el Security Group del LB.
 
-```bash
-export AWS_PROFILE=curso
-export AWS_REGION=us-east-1
-export VPC_ID=vpc-xxxxxxxx
-export PUBLIC_SUBNET_ID=subnet-xxxxxxxx
-export PRIVATE_SUBNET_ID=subnet-xxxxxxxx
-export KEY_PAIR_NAME=tu-key-pair
-export STACK_NAME=cloudcuyo-nat
-export DB_PRIVATE_IP=10.0.1.40
-export API_PRIVATE_IP=10.0.1.30
+### 5.1. Identificar datos necesarios
 
-SSM_PROFILE_NAME=$(aws cloudformation describe-stacks \
-  --profile curso \
-  --region us-east-1 \
-  --stack-name "$STACK_NAME" \
-  --query 'Stacks[0].Outputs[?OutputKey==`SSMInstanceProfileName`].OutputValue' \
-  --output text)
+Antes de lanzar instancias, anotar estos valores desde la consola:
 
-echo "SSM Instance Profile: $SSM_PROFILE_NAME"
-```
+- VPC del laboratorio: usar la VPC provista por el instructor.
+- Public subnet: subnet donde se lanzará `lb01`.
+- Private subnet: subnet donde se lanzarán `frontend01`, `frontend02`, `api01` y `db01`.
+- Key pair: key pair provisto por el instructor.
+- Instance Profile SSM: output `SSMInstanceProfileName` del stack `cloudcuyo-nat` en CloudFormation.
+- AMIs importadas: AMIs con tags `cloudcuyo-db01-ami`, `cloudcuyo-api01-ami`, `cloudcuyo-frontend01-ami`, `cloudcuyo-frontend02-ami` y `cloudcuyo-lb01-ami`.
 
-### 5.2. Crear Security Groups
+IPs privadas sugeridas, ajustarlas al CIDR real de la subnet privada:
 
-```bash
-DB_SG=$(aws ec2 create-security-group \
-  --profile curso \
-  --region us-east-1 \
-  --group-name cloudcuyo-db-sg \
-  --description "CloudCuyo DB private SG" \
-  --vpc-id "$VPC_ID" \
-  --query 'GroupId' \
-  --output text)
+| Instancia | Subnet | IP publica | IP privada sugerida |
+|---|---|---|---|
+| `lb01` | Public subnet | Si | Asignada automaticamente |
+| `frontend01` | Private subnet | No | `10.0.1.20` |
+| `frontend02` | Private subnet | No | `10.0.1.21` |
+| `api01` | Private subnet | No | `10.0.1.30` |
+| `db01` | Private subnet | No | `10.0.1.40` |
 
-aws ec2 authorize-security-group-ingress --profile curso --region us-east-1 --group-id "$DB_SG" --protocol tcp --port 5432 --cidr 10.0.0.0/16
+### 5.2. Crear Security Groups desde la consola
 
-API_SG=$(aws ec2 create-security-group \
-  --profile curso \
-  --region us-east-1 \
-  --group-name cloudcuyo-api-sg \
-  --description "CloudCuyo API private SG" \
-  --vpc-id "$VPC_ID" \
-  --query 'GroupId' \
-  --output text)
+Ir a **EC2 > Security Groups > Create security group** y crear los siguientes grupos en la VPC del laboratorio.
 
-aws ec2 authorize-security-group-ingress --profile curso --region us-east-1 --group-id "$API_SG" --protocol tcp --port 5000 --cidr 10.0.0.0/16
+**Security Group LB**
 
-FRONT_SG=$(aws ec2 create-security-group \
-  --profile curso \
-  --region us-east-1 \
-  --group-name cloudcuyo-frontend-sg \
-  --description "CloudCuyo frontend public SG" \
-  --vpc-id "$VPC_ID" \
-  --query 'GroupId' \
-  --output text)
+| Campo | Valor |
+|---|---|
+| Name | `cloudcuyo-lb-sg` |
+| Description | `CloudCuyo public load balancer` |
+| Inbound rule | HTTP TCP 80 desde `0.0.0.0/0` |
+| Outbound rule | All traffic o HTTP TCP 80 hacia la VPC |
 
-aws ec2 authorize-security-group-ingress --profile curso --region us-east-1 --group-id "$FRONT_SG" --protocol tcp --port 80 --cidr 0.0.0.0/0
+**Security Group Frontend**
 
-LB_SG=$(aws ec2 create-security-group \
-  --profile curso \
-  --region us-east-1 \
-  --group-name cloudcuyo-lb-sg \
-  --description "CloudCuyo LB public SG" \
-  --vpc-id "$VPC_ID" \
-  --query 'GroupId' \
-  --output text)
+| Campo | Valor |
+|---|---|
+| Name | `cloudcuyo-frontend-sg` |
+| Description | `CloudCuyo private frontend` |
+| Inbound rule | HTTP TCP 80 desde `cloudcuyo-lb-sg` |
+| Outbound rule | All traffic o hacia `cloudcuyo-api-sg` |
 
-aws ec2 authorize-security-group-ingress --profile curso --region us-east-1 --group-id "$LB_SG" --protocol tcp --port 80 --cidr 0.0.0.0/0
-```
+**Security Group API**
 
-### 5.3. Lanzar DB01 y API01 en subnet privada
+| Campo | Valor |
+|---|---|
+| Name | `cloudcuyo-api-sg` |
+| Description | `CloudCuyo private API` |
+| Inbound rule | TCP 5000 desde `cloudcuyo-frontend-sg` |
+| Outbound rule | All traffic o PostgreSQL hacia `cloudcuyo-db-sg` |
 
-```bash
-DB_INSTANCE=$(aws ec2 run-instances \
-  --profile curso \
-  --region us-east-1 \
-  --image-id "$DB_AMI" \
-  --instance-type t3.medium \
-  --key-name "$KEY_PAIR_NAME" \
-  --security-group-ids "$DB_SG" \
-  --subnet-id "$PRIVATE_SUBNET_ID" \
-  --private-ip-address "$DB_PRIVATE_IP" \
-  --no-associate-public-ip-address \
-  --iam-instance-profile Name="$SSM_PROFILE_NAME" \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-db01},{Key=Role,Value=database},{Key=Lab,Value=m2-c1-lab}]' \
-  --query 'Instances[0].InstanceId' \
-  --output text)
+**Security Group DB**
 
-API_INSTANCE=$(aws ec2 run-instances \
-  --profile curso \
-  --region us-east-1 \
-  --image-id "$API_AMI" \
-  --instance-type t3.small \
-  --key-name "$KEY_PAIR_NAME" \
-  --security-group-ids "$API_SG" \
-  --subnet-id "$PRIVATE_SUBNET_ID" \
-  --private-ip-address "$API_PRIVATE_IP" \
-  --no-associate-public-ip-address \
-  --iam-instance-profile Name="$SSM_PROFILE_NAME" \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-api01},{Key=Role,Value=api},{Key=Lab,Value=m2-c1-lab}]' \
-  --query 'Instances[0].InstanceId' \
-  --output text)
+| Campo | Valor |
+|---|---|
+| Name | `cloudcuyo-db-sg` |
+| Description | `CloudCuyo private database` |
+| Inbound rule | TCP 5432 desde `cloudcuyo-api-sg` |
+| Outbound rule | All traffic |
 
-aws ec2 wait instance-running --profile curso --region us-east-1 --instance-ids "$DB_INSTANCE" "$API_INSTANCE"
-```
+No agregar reglas inbound para SSM. Session Manager usa conexiones salientes desde la instancia hacia AWS Systems Manager.
 
-### 5.4. Lanzar Frontend01, Frontend02 y LB01 en subnet publica
+### 5.3. Lanzar `db01` en subnet privada
 
-La subnet publica de la cuenta del curso no asigna IP publica automaticamente. Por eso estas instancias usan `--associate-public-ip-address` de forma explicita.
+1. Ir a **EC2 > AMIs**.
+2. Buscar la AMI `cloudcuyo-db01-ami`.
+3. Seleccionarla y elegir **Launch instance from AMI**.
+4. Name: `cloudcuyo-db01`.
+5. Instance type: `t3.medium`.
+6. Key pair: seleccionar el key pair del laboratorio.
+7. Network settings: elegir la VPC del laboratorio.
+8. Subnet: seleccionar la private subnet.
+9. Auto-assign public IP: `Disable`.
+10. Firewall: seleccionar `cloudcuyo-db-sg`.
+11. Advanced network configuration: configurar la IP privada sugerida para DB, por ejemplo `10.0.1.40` si pertenece a tu subnet privada.
+12. Advanced details: en **IAM instance profile**, seleccionar el Instance Profile SSM del stack `cloudcuyo-nat`.
+13. Revisar y elegir **Launch instance**.
 
-```bash
-FRONT01_INSTANCE=$(aws ec2 run-instances \
-  --profile curso \
-  --region us-east-1 \
-  --image-id "$FRONT01_AMI" \
-  --instance-type t3.micro \
-  --key-name "$KEY_PAIR_NAME" \
-  --security-group-ids "$FRONT_SG" \
-  --subnet-id "$PUBLIC_SUBNET_ID" \
-  --associate-public-ip-address \
-  --iam-instance-profile Name="$SSM_PROFILE_NAME" \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-frontend01},{Key=Role,Value=frontend},{Key=Lab,Value=m2-c1-lab}]' \
-  --query 'Instances[0].InstanceId' \
-  --output text)
+### 5.4. Lanzar `api01` en subnet privada
 
-FRONT02_INSTANCE=$(aws ec2 run-instances \
-  --profile curso \
-  --region us-east-1 \
-  --image-id "$FRONT02_AMI" \
-  --instance-type t3.micro \
-  --key-name "$KEY_PAIR_NAME" \
-  --security-group-ids "$FRONT_SG" \
-  --subnet-id "$PUBLIC_SUBNET_ID" \
-  --associate-public-ip-address \
-  --iam-instance-profile Name="$SSM_PROFILE_NAME" \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-frontend02},{Key=Role,Value=frontend},{Key=Lab,Value=m2-c1-lab}]' \
-  --query 'Instances[0].InstanceId' \
-  --output text)
+1. Repetir el flujo desde **EC2 > AMIs** usando `cloudcuyo-api01-ami`.
+2. Name: `cloudcuyo-api01`.
+3. Instance type: `t3.small`.
+4. Subnet: private subnet.
+5. Auto-assign public IP: `Disable`.
+6. Firewall: seleccionar `cloudcuyo-api-sg`.
+7. IP privada sugerida: `10.0.1.30` si pertenece a tu subnet privada.
+8. IAM instance profile: seleccionar el Instance Profile SSM del stack `cloudcuyo-nat`.
+9. Lanzar la instancia.
 
-LB_INSTANCE=$(aws ec2 run-instances \
-  --profile curso \
-  --region us-east-1 \
-  --image-id "$LB_AMI" \
-  --instance-type t3.micro \
-  --key-name "$KEY_PAIR_NAME" \
-  --security-group-ids "$LB_SG" \
-  --subnet-id "$PUBLIC_SUBNET_ID" \
-  --associate-public-ip-address \
-  --iam-instance-profile Name="$SSM_PROFILE_NAME" \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-lb01},{Key=Role,Value=load-balancer},{Key=Lab,Value=m2-c1-lab}]' \
-  --query 'Instances[0].InstanceId' \
-  --output text)
+### 5.5. Lanzar `frontend01` y `frontend02` en subnet privada
 
-aws ec2 wait instance-running --profile curso --region us-east-1 --instance-ids "$FRONT01_INSTANCE" "$FRONT02_INSTANCE" "$LB_INSTANCE"
+1. Repetir el flujo desde **EC2 > AMIs** usando `cloudcuyo-frontend01-ami`.
+2. Name: `cloudcuyo-frontend01`.
+3. Instance type: `t3.micro`.
+4. Subnet: private subnet.
+5. Auto-assign public IP: `Disable`.
+6. Firewall: seleccionar `cloudcuyo-frontend-sg`.
+7. IP privada sugerida: `10.0.1.20` si pertenece a tu subnet privada.
+8. IAM instance profile: seleccionar el Instance Profile SSM del stack `cloudcuyo-nat`.
+9. Lanzar la instancia.
+10. Repetir con `cloudcuyo-frontend02-ami`.
+11. Name: `cloudcuyo-frontend02`.
+12. IP privada sugerida: `10.0.1.21` si pertenece a tu subnet privada.
 
-LB_PUBLIC_IP=$(aws ec2 describe-instances \
-  --profile curso \
-  --region us-east-1 \
-  --instance-ids "$LB_INSTANCE" \
-  --query 'Reservations[0].Instances[0].PublicIpAddress' \
-  --output text)
+### 5.6. Lanzar `lb01` en subnet publica
 
-echo "CloudCuyo migrado a AWS"
-echo "Acceso: http://$LB_PUBLIC_IP"
-```
+1. Repetir el flujo desde **EC2 > AMIs** usando `cloudcuyo-lb01-ami`.
+2. Name: `cloudcuyo-lb01`.
+3. Instance type: `t3.micro`.
+4. Subnet: public subnet.
+5. Auto-assign public IP: `Enable`.
+6. Firewall: seleccionar `cloudcuyo-lb-sg`.
+7. IAM instance profile: seleccionar el Instance Profile SSM del stack `cloudcuyo-nat`.
+8. Lanzar la instancia.
+9. Cuando quede `Running`, copiar su **Public IPv4 address**. Ese será el endpoint público inicial del lab.
 
-### 5.5. Validar registro en SSM
+### 5.7. Verificar estado inicial
 
-```bash
-aws ssm describe-instance-information \
-  --profile curso \
-  --region us-east-1 \
-  --filters Key=InstanceIds,Values="$DB_INSTANCE,$API_INSTANCE,$FRONT01_INSTANCE,$FRONT02_INSTANCE,$LB_INSTANCE" \
-  --query 'InstanceInformationList[].{InstanceId:InstanceId,PingStatus:PingStatus,Platform:PlatformName}' \
-  --output table
-```
+1. Ir a **EC2 > Instances**.
+2. Confirmar que las cinco instancias estén en estado `Running`.
+3. Confirmar que `lb01` tenga IP pública.
+4. Confirmar que `frontend01`, `frontend02`, `api01` y `db01` no tengan IP pública.
+5. Confirmar que cada instancia tenga el IAM Instance Profile de SSM asociado.
+6. Ir a **Systems Manager > Fleet Manager** o **Session Manager**.
+7. Validar que las instancias aparezcan como administradas por SSM.
 
-Si una instancia no aparece como `Online`, validar primero que tenga asociado el Instance Profile de SSM y conectividad de salida por NAT o Internet. Si el log de SSM muestra `Default Host Management Err` o `unable to acquire credentials`, reiniciar la instancia suele forzar al agente a tomar las credenciales del Instance Profile:
-
-```bash
-aws ec2 reboot-instances \
-  --profile curso \
-  --region us-east-1 \
-  --instance-ids "$LB_INSTANCE"
-```
+Si una instancia no aparece como `Online`, revisar que tenga asociado el Instance Profile de SSM y conectividad de salida por NAT o endpoints privados de SSM. Si el agente muestra errores de credenciales, reiniciar la instancia desde **EC2 > Instances > Instance state > Reboot instance**.
 
 ---
 
@@ -828,22 +776,27 @@ aws ec2 reboot-instances \
 
 ### 6.1. Conectar via Session Manager
 
+Opcion recomendada por GUI:
+
+1. Ir a **Systems Manager > Session Manager**.
+2. Click en **Start session**.
+3. Seleccionar la instancia `cloudcuyo-db01`.
+4. Click en **Start session**.
+5. Dentro de la sesion, validar servicios:
+
 ```bash
-# Ver instancias disponibles
-aws ssm describe-instance-information --profile curso --region us-east-1 --output table
-
-# Conectar a DB01 (privada, sin IP pública)
-aws ssm start-session --profile curso --region us-east-1 --target "$DB_INSTANCE"
-
-# Dentro de la sesión:
-# sudo su -
-# systemctl status postgresql
-# psql -U cloudcuyo -d cloudcuyo
+sudo su -
+systemctl status postgresql
+psql -U cloudcuyo -d cloudcuyo
 ```
 
 ### 6.2. Verificar conectividad
 
+Usar la IP publica de `cloudcuyo-lb01` copiada desde **EC2 > Instances > Public IPv4 address**.
+
 ```bash
+LB_PUBLIC_IP=<ip-publica-de-lb01>
+
 # Health check
 curl http://$LB_PUBLIC_IP/api/health
 
@@ -866,7 +819,7 @@ curl http://$LB_PUBLIC_IP/api/v1/health
 | API01              | t3.small     | ~$15                  |
 | Frontend01/02      | t3.micro × 2 | ~$15                  |
 | LB01               | t3.micro     | ~$7                   |
-| Elastic IPs        | 2 (NAT + LB) | ~$7                   |
+| Elastic IPs        | 1 (NAT)      | ~$3.50                |
 | EBS (5 instancias) | ~50GB total  | ~$5                   |
 | Data Transfer      | ~10GB/mes    | ~$1                   |
 | **TOTAL**          |              | **~$87/mes**          |
