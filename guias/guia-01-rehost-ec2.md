@@ -633,18 +633,20 @@ aws ec2 describe-images \
 
 ## Fase 5: Lanzar instancias EC2
 
-Esta fase usa AWS CloudShell o una terminal con AWS CLI configurado. En la cuenta del curso, la subnet privada real es `10.0.1.0/24`; por eso las IPs privadas de ejemplo usan `10.0.1.x`.
+Esta fase usa AWS CloudShell o una terminal con AWS CLI configurado. Reemplaza los valores placeholder por los IDs de tu propia VPC, subnets y key pair antes de ejecutar los comandos. Las IPs privadas de ejemplo deben pertenecer al CIDR de tu subnet privada.
 
 ### 5.1. Preparar variables
 
 ```bash
 export AWS_PROFILE=curso
 export AWS_REGION=us-east-1
-export VPC_ID=vpc-0b23985e25454ffd9
-export PUBLIC_SUBNET_ID=subnet-07dd598f666337f38
-export PRIVATE_SUBNET_ID=subnet-0cdc1fd1f369f8baa
-export KEY_PAIR_NAME=lab-key
+export VPC_ID=vpc-xxxxxxxx
+export PUBLIC_SUBNET_ID=subnet-xxxxxxxx
+export PRIVATE_SUBNET_ID=subnet-xxxxxxxx
+export KEY_PAIR_NAME=tu-key-pair
 export STACK_NAME=cloudcuyo-nat
+export DB_PRIVATE_IP=10.0.1.40
+export API_PRIVATE_IP=10.0.1.30
 
 SSM_PROFILE_NAME=$(aws cloudformation describe-stacks \
   --profile curso \
@@ -715,7 +717,7 @@ DB_INSTANCE=$(aws ec2 run-instances \
   --key-name "$KEY_PAIR_NAME" \
   --security-group-ids "$DB_SG" \
   --subnet-id "$PRIVATE_SUBNET_ID" \
-  --private-ip-address 10.0.1.40 \
+  --private-ip-address "$DB_PRIVATE_IP" \
   --no-associate-public-ip-address \
   --iam-instance-profile Name="$SSM_PROFILE_NAME" \
   --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-db01},{Key=Role,Value=database},{Key=Lab,Value=m2-c1-lab}]' \
@@ -730,7 +732,7 @@ API_INSTANCE=$(aws ec2 run-instances \
   --key-name "$KEY_PAIR_NAME" \
   --security-group-ids "$API_SG" \
   --subnet-id "$PRIVATE_SUBNET_ID" \
-  --private-ip-address 10.0.1.30 \
+  --private-ip-address "$API_PRIVATE_IP" \
   --no-associate-public-ip-address \
   --iam-instance-profile Name="$SSM_PROFILE_NAME" \
   --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-api01},{Key=Role,Value=api},{Key=Lab,Value=m2-c1-lab}]' \
