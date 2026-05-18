@@ -35,7 +35,7 @@ CloudCuyo necesita migrar **urgentemente** a AWS debido a:
 │  │  VPC (10.0.0.0/16)                                 │    │
 │  │                                                     │    │
 │  │  ┌────────────────────────────────────────────┐   │    │
-│  │  │  Public Subnet (10.0.1.0/24)               │   │    │
+│  │  │  Public Subnet (10.0.0.0/24)               │   │    │
 │  │  │                                             │   │    │
 │  │  │  ┌────────────┐  ┌────────────────────┐   │   │    │
 │  │  │  │ NAT        │  │ LB01 + FRONT01/02  │   │   │    │
@@ -46,7 +46,7 @@ CloudCuyo necesita migrar **urgentemente** a AWS debido a:
 │  │  └────────┼───────────────────────────────────┘   │    │
 │  │           │                                        │    │
 │  │  ┌────────▼───────────────────────────────────┐   │    │
-│  │  │  Private Subnet (10.0.2.0/24)              │   │    │
+│  │  │  Private Subnet (10.0.1.0/24)              │   │    │
 │  │  │  Route: 0.0.0.0/0 → NAT Instance           │   │    │
 │  │  │                                             │   │    │
 │  │  │  ┌─────────────┐  ┌─────────────┐         │   │    │
@@ -81,7 +81,7 @@ Necesitarás los siguientes IDs de recursos ya creados:
 - **Public Subnet ID**: `subnet-xxxxxxxxx`
 - **Private Subnet ID**: `subnet-xxxxxxxxx`
 - **Private Route Table ID**: `rtb-xxxxxxxxx`
-- **Key Pair Name**: `cloudcuyo-key`
+- **Key Pair Name**: `lab-key`
 
 ### OVAs del curso
 
@@ -157,12 +157,12 @@ vagrant --version
 4. En **Specify template:** seleccionar **Upload a template file**
 5. Click **Choose file** y seleccionar el archivo `cloudformation/nat-instance.yaml` del repositorio local
 6. Click **Next**
-7. **Stack name:** `cloudcuyo-nat-instance`
+7. **Stack name:** `cloudcuyo-nat`
 8. **Parameters:**
   - **VpcId:** Pegar el VPC ID proporcionado por el instructor
   - **PublicSubnetId:** Pegar el Public Subnet ID proporcionado por el instructor
   - **PrivateRouteTableId:** Pegar el Private Route Table ID proporcionado por el instructor
-  - **KeyPairName:** `cloudcuyo-key`
+  - **KeyPairName:** `lab-key`
   - **InstanceType:** `t3.micro`
 9. Click **Next**
 10. En **Configure stack options:** dejar todo por defecto, click **Next**
@@ -171,7 +171,7 @@ vagrant --version
 13. Esperar a que el estado sea **CREATE_COMPLETE** (~5 minutos)
 14. Ir a la pestaña **Outputs** y anotar:
   - **NATInstanceId:** ID de la instancia NAT
-    - **SSMInstanceProfileName:** Nombre del perfil IAM para SSM (ejemplo: `cloudcuyo-nat-instance-SSMInstanceProfile-ABC123`)
+    - **SSMInstanceProfileName:** Nombre del perfil IAM para SSM (ejemplo: `cloudcuyo-nat-instance-profile-lab`)
     - **NATElasticIP:** IP elástica de la NAT instance
 
 **Alternativa: Usando CLI (Bash/PowerShell)**
@@ -181,13 +181,13 @@ vagrant --version
 ```bash
 source aws-ids.sh
 
-aws cloudformation create-stack --stack-name cloudcuyo-nat-instance --template-body file://cloudformation/nat-instance.yaml --parameters ParameterKey=VpcId,ParameterValue=$VPC_ID ParameterKey=PublicSubnetId,ParameterValue=$PUBLIC_SUBNET_ID ParameterKey=PrivateRouteTableId,ParameterValue=$PRIVATE_RT_ID ParameterKey=KeyPairName,ParameterValue=cloudcuyo-key ParameterKey=InstanceType,ParameterValue=t3.micro --capabilities CAPABILITY_NAMED_IAM
+aws cloudformation create-stack --stack-name cloudcuyo-nat --template-body file://cloudformation/nat-instance.yaml --parameters ParameterKey=VpcId,ParameterValue=$VPC_ID ParameterKey=PublicSubnetId,ParameterValue=$PUBLIC_SUBNET_ID ParameterKey=PrivateRouteTableId,ParameterValue=$PRIVATE_RT_ID ParameterKey=KeyPairName,ParameterValue=lab-key ParameterKey=InstanceType,ParameterValue=t3.micro --capabilities CAPABILITY_NAMED_IAM
 
 echo "Esperando a que se complete el stack..."
-aws cloudformation wait stack-create-complete --stack-name cloudcuyo-nat-instance
+aws cloudformation wait stack-create-complete --stack-name cloudcuyo-nat
 
 echo "✓ NAT Instance desplegada"
-aws cloudformation describe-stacks --stack-name cloudcuyo-nat-instance --query 'Stacks[0].Outputs' --output table
+aws cloudformation describe-stacks --stack-name cloudcuyo-nat --query 'Stacks[0].Outputs' --output table
 ```
 
 **PowerShell:**
@@ -199,19 +199,19 @@ $Parameters = @(
     @{ ParameterKey = "VpcId"; ParameterValue = $VpcId }
     @{ ParameterKey = "PublicSubnetId"; ParameterValue = $PublicSubnetId }
     @{ ParameterKey = "PrivateRouteTableId"; ParameterValue = $PrivateRtId }
-    @{ ParameterKey = "KeyPairName"; ParameterValue = "cloudcuyo-key" }
+    @{ ParameterKey = "KeyPairName"; ParameterValue = "lab-key" }
     @{ ParameterKey = "InstanceType"; ParameterValue = "t3.micro" }
 )
 
 $TemplateBody = Get-Content -Path "cloudformation\nat-instance.yaml" -Raw
 
-New-CFNStack -StackName "cloudcuyo-nat-instance" -TemplateBody $TemplateBody -Parameter $Parameters -Capability CAPABILITY_NAMED_IAM
+New-CFNStack -StackName "cloudcuyo-nat" -TemplateBody $TemplateBody -Parameter $Parameters -Capability CAPABILITY_NAMED_IAM
 
 Write-Host "Esperando a que se complete el stack..." -ForegroundColor Yellow
-Wait-CFNStack -StackName "cloudcuyo-nat-instance" -Status CREATE_COMPLETE -Timeout 600
+Wait-CFNStack -StackName "cloudcuyo-nat" -Status CREATE_COMPLETE -Timeout 600
 
 Write-Host "✓ NAT Instance desplegada" -ForegroundColor Green
-$Stack = Get-CFNStack -StackName "cloudcuyo-nat-instance"
+$Stack = Get-CFNStack -StackName "cloudcuyo-nat"
 $Stack.Outputs | Format-Table -Property OutputKey, OutputValue, Description
 ```
 
@@ -559,11 +559,11 @@ EOF
 
 ```bash
 # Importar DB01
-DB_TASK=$(aws ec2 import-image --description "CloudCuyo DB01" --disk-containers "file://db01-import.json" --query 'ImportTaskId' --output text)
+DB_TASK=$(aws ec2 import-image --description "CloudCuyo DB01" --disk-containers file://db01-import.json --query 'ImportTaskId' --output text)
 echo "DB01 Import Task: $DB_TASK"
 
 # Importar API01
-API_TASK=$(aws ec2 import-image --description "CloudCuyo API01" --disk-containers "file://api01-import.json" --query 'ImportTaskId' --output text)
+API_TASK=$(aws ec2 import-image --description "CloudCuyo API01" --disk-containers file://api01-import.json --query 'ImportTaskId' --output text)
 echo "API01 Import Task: $API_TASK"
 
 # Importar Frontend01
@@ -629,227 +629,195 @@ aws ec2 describe-images \
 - Revisar la documentacion de arquitectura
 - Tomar un descanso
 
-**Alternativa: Usando CLI local (Bash/PowerShell)**
-
-**Bash:**
-
-```bash
-source aws-ids.sh
-
-# Crear archivos de containers
-for vm in db01 api01 frontend01 frontend02 lb01; do
-  cat > ${vm}-containers.json <<EOF
-{
-  "Description": "CloudCuyo $vm",
-  "Format": "ova",
-  "UserBucket": {
-    "S3Bucket": "${BUCKET_NAME}",
-    "S3Key": "cloudcuyo-${vm}.ova"
-  }
-}
-EOF
-done
-
-# Importar VMs
-DB_IMPORT=$(aws ec2 import-image --description "CloudCuyo DB01" --disk-containers file://db01-containers.json --query 'ImportTaskId' --output text)
-API_IMPORT=$(aws ec2 import-image --description "CloudCuyo API01" --disk-containers file://api01-containers.json --query 'ImportTaskId' --output text)
-FRONT01_IMPORT=$(aws ec2 import-image --description "CloudCuyo Frontend01" --disk-containers file://frontend01-containers.json --query 'ImportTaskId' --output text)
-FRONT02_IMPORT=$(aws ec2 import-image --description "CloudCuyo Frontend02" --disk-containers file://frontend02-containers.json --query 'ImportTaskId' --output text)
-LB_IMPORT=$(aws ec2 import-image --description "CloudCuyo LB01" --disk-containers file://lb01-containers.json --query 'ImportTaskId' --output text)
-
-echo "Tasks de importacion iniciadas"
-echo "Monitorear progreso con: aws ec2 describe-import-image-tasks"
-```
-
-**PowerShell:**
-
-```powershell
-. .\aws-ids.ps1
-
-# Crear archivos de containers
-$vms = @("db01", "api01", "frontend01", "frontend02", "lb01")
-foreach ($vm in $vms) {
-    @"
-{
-  "Description": "CloudCuyo $vm",
-  "Format": "ova",
-  "UserBucket": {
-    "S3Bucket": "$BucketName",
-    "S3Key": "cloudcuyo-${vm}.ova"
-  }
-}
-"@ | Out-File -FilePath "${vm}-containers.json" -Encoding UTF8
-}
-
-# Importar VMs
-$DbImport = (Import-EC2Image -Description "CloudCuyo DB01" -DiskContainer (Get-Content "db01-containers.json" | ConvertFrom-Json)).ImportTaskId
-$ApiImport = (Import-EC2Image -Description "CloudCuyo API01" -DiskContainer (Get-Content "api01-containers.json" | ConvertFrom-Json)).ImportTaskId
-$Front01Import = (Import-EC2Image -Description "CloudCuyo Frontend01" -DiskContainer (Get-Content "frontend01-containers.json" | ConvertFrom-Json)).ImportTaskId
-$Front02Import = (Import-EC2Image -Description "CloudCuyo Frontend02" -DiskContainer (Get-Content "frontend02-containers.json" | ConvertFrom-Json)).ImportTaskId
-$LbImport = (Import-EC2Image -Description "CloudCuyo LB01" -DiskContainer (Get-Content "lb01-containers.json" | ConvertFrom-Json)).ImportTaskId
-
-Write-Host "Tasks de importacion iniciadas"
-```
-
-
-
 ---
 
 ## Fase 5: Lanzar instancias EC2
 
-### 5.1. Obtener Instance Profile para SSM
+Esta fase usa AWS CloudShell o una terminal con AWS CLI configurado. En la cuenta del curso, la subnet privada real es `10.0.1.0/24`; por eso las IPs privadas de ejemplo usan `10.0.1.x`.
 
-El stack de CloudFormation creó un Instance Profile que **TODAS** las instancias deben usar:
-
-**Bash:**
+### 5.1. Preparar variables
 
 ```bash
-source aws-ids.sh
+export AWS_PROFILE=curso
+export AWS_REGION=us-east-1
+export VPC_ID=vpc-0b23985e25454ffd9
+export PUBLIC_SUBNET_ID=subnet-07dd598f666337f38
+export PRIVATE_SUBNET_ID=subnet-0cdc1fd1f369f8baa
+export KEY_PAIR_NAME=lab-key
+export STACK_NAME=cloudcuyo-nat
 
-# Obtener nombre del Instance Profile del stack NAT
-SSM_PROFILE_NAME=$(aws cloudformation describe-stacks --stack-name cloudcuyo-nat-instance --query 'Stacks[0].Outputs[?OutputKey==`SSMInstanceProfileName`].OutputValue' --output text)
+SSM_PROFILE_NAME=$(aws cloudformation describe-stacks \
+  --profile curso \
+  --region us-east-1 \
+  --stack-name "$STACK_NAME" \
+  --query 'Stacks[0].Outputs[?OutputKey==`SSMInstanceProfileName`].OutputValue' \
+  --output text)
 
 echo "SSM Instance Profile: $SSM_PROFILE_NAME"
-echo "export SSM_PROFILE_NAME=$SSM_PROFILE_NAME" >> aws-ids.sh
 ```
 
-**PowerShell:**
-
-```powershell
-. .\aws-ids.ps1
-
-$Stack = Get-CFNStack -StackName "cloudcuyo-nat-instance"
-$SsmProfileName = ($Stack.Outputs | Where-Object { $_.OutputKey -eq "SSMInstanceProfileName" }).OutputValue
-
-Write-Host "SSM Instance Profile: $SsmProfileName" -ForegroundColor Green
-"`$SsmProfileName = `"$SsmProfileName`"" | Add-Content -Path "aws-ids.ps1"
-```
-
-### 5.2. Lanzar DB01 (primero, es crítica)
-
-**Bash:**
+### 5.2. Crear Security Groups
 
 ```bash
-source aws-ids.sh
+DB_SG=$(aws ec2 create-security-group \
+  --profile curso \
+  --region us-east-1 \
+  --group-name cloudcuyo-db-sg \
+  --description "CloudCuyo DB private SG" \
+  --vpc-id "$VPC_ID" \
+  --query 'GroupId' \
+  --output text)
 
-# Crear Security Group para DB
-DB_SG=$(aws ec2 create-security-group --group-name cloudcuyo-db-sg --description "Security group for DB instance" --vpc-id $VPC_ID --query 'GroupId' --output text)
+aws ec2 authorize-security-group-ingress --profile curso --region us-east-1 --group-id "$DB_SG" --protocol tcp --port 5432 --cidr 10.0.0.0/16
 
-# Permitir PostgreSQL desde subnet privada
-aws ec2 authorize-security-group-ingress --group-id $DB_SG --protocol tcp --port 5432 --cidr 10.0.0.0/16
-# HTTPS para SSM
-aws ec2 authorize-security-group-ingress --group-id $DB_SG --protocol tcp --port 443 --cidr 10.0.0.0/16
+API_SG=$(aws ec2 create-security-group \
+  --profile curso \
+  --region us-east-1 \
+  --group-name cloudcuyo-api-sg \
+  --description "CloudCuyo API private SG" \
+  --vpc-id "$VPC_ID" \
+  --query 'GroupId' \
+  --output text)
 
-# Lanzar DB01
-DB_INSTANCE=$(aws ec2 run-instances --image-id $DB_AMI --instance-type t3.medium --key-name cloudcuyo-key --security-group-ids $DB_SG --subnet-id $PRIVATE_SUBNET_ID --private-ip-address 10.0.2.40 --iam-instance-profile Name=$SSM_PROFILE_NAME --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-db01},{Key=Role,Value=database}]' --query 'Instances[0].InstanceId' --output text)
+aws ec2 authorize-security-group-ingress --profile curso --region us-east-1 --group-id "$API_SG" --protocol tcp --port 5000 --cidr 10.0.0.0/16
 
-echo "✓ DB01 lanzada: $DB_INSTANCE"
-aws ec2 wait instance-running --instance-ids $DB_INSTANCE
-echo "✓ DB01 corriendo"
+FRONT_SG=$(aws ec2 create-security-group \
+  --profile curso \
+  --region us-east-1 \
+  --group-name cloudcuyo-frontend-sg \
+  --description "CloudCuyo frontend public SG" \
+  --vpc-id "$VPC_ID" \
+  --query 'GroupId' \
+  --output text)
+
+aws ec2 authorize-security-group-ingress --profile curso --region us-east-1 --group-id "$FRONT_SG" --protocol tcp --port 80 --cidr 0.0.0.0/0
+
+LB_SG=$(aws ec2 create-security-group \
+  --profile curso \
+  --region us-east-1 \
+  --group-name cloudcuyo-lb-sg \
+  --description "CloudCuyo LB public SG" \
+  --vpc-id "$VPC_ID" \
+  --query 'GroupId' \
+  --output text)
+
+aws ec2 authorize-security-group-ingress --profile curso --region us-east-1 --group-id "$LB_SG" --protocol tcp --port 80 --cidr 0.0.0.0/0
 ```
 
-**PowerShell:**
-
-```powershell
-. .\aws-ids.ps1
-
-# Security Group para DB
-$DbSg = New-EC2SecurityGroup -GroupName "cloudcuyo-db-sg" -Description "Security group for DB instance" -VpcId $VpcId
-
-# Reglas
-Grant-EC2SecurityGroupIngress -GroupId $DbSg -IpPermission @(
-    @{ IpProtocol="tcp"; FromPort=5432; ToPort=5432; IpRanges="10.0.0.0/16" }
-    @{ IpProtocol="tcp"; FromPort=443; ToPort=443; IpRanges="10.0.0.0/16" }
-)
-
-# Lanzar DB01
-$DbInstance = (New-EC2Instance -ImageId $DbAmi -InstanceType "t3.medium" -KeyName "cloudcuyo-key" -SecurityGroupId $DbSg -SubnetId $PrivateSubnetId -PrivateIpAddress "10.0.2.40" -IamInstanceProfile_Name $SsmProfileName -TagSpecification @{ ResourceType="instance"; Tags=@( @{Key="Name";Value="cloudcuyo-db01"}, @{Key="Role";Value="database"} ) }).Instances[0].InstanceId
-
-Write-Host "✓ DB01 lanzada: $DbInstance" -ForegroundColor Green
-Wait-EC2InstanceRunning -InstanceId $DbInstance
-Write-Host "✓ DB01 corriendo" -ForegroundColor Green
-```
-
-### 5.3. Lanzar resto de instancias
-
-**Bash:**
+### 5.3. Lanzar DB01 y API01 en subnet privada
 
 ```bash
-# API01
-API_SG=$(aws ec2 create-security-group --group-name cloudcuyo-api-sg --description "API SG" --vpc-id $VPC_ID --query 'GroupId' --output text)
-aws ec2 authorize-security-group-ingress --group-id $API_SG --protocol tcp --port 5000 --cidr 10.0.0.0/16
-aws ec2 authorize-security-group-ingress --group-id $API_SG --protocol tcp --port 443 --cidr 10.0.0.0/16
+DB_INSTANCE=$(aws ec2 run-instances \
+  --profile curso \
+  --region us-east-1 \
+  --image-id "$DB_AMI" \
+  --instance-type t3.medium \
+  --key-name "$KEY_PAIR_NAME" \
+  --security-group-ids "$DB_SG" \
+  --subnet-id "$PRIVATE_SUBNET_ID" \
+  --private-ip-address 10.0.1.40 \
+  --no-associate-public-ip-address \
+  --iam-instance-profile Name="$SSM_PROFILE_NAME" \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-db01},{Key=Role,Value=database},{Key=Lab,Value=m2-c1-lab}]' \
+  --query 'Instances[0].InstanceId' \
+  --output text)
 
-API_INSTANCE=$(aws ec2 run-instances --image-id $API_AMI --instance-type t3.small --key-name cloudcuyo-key --security-group-ids $API_SG --subnet-id $PRIVATE_SUBNET_ID --private-ip-address 10.0.2.30 --iam-instance-profile Name=$SSM_PROFILE_NAME --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-api01}]' --query 'Instances[0].InstanceId' --output text)
+API_INSTANCE=$(aws ec2 run-instances \
+  --profile curso \
+  --region us-east-1 \
+  --image-id "$API_AMI" \
+  --instance-type t3.small \
+  --key-name "$KEY_PAIR_NAME" \
+  --security-group-ids "$API_SG" \
+  --subnet-id "$PRIVATE_SUBNET_ID" \
+  --private-ip-address 10.0.1.30 \
+  --no-associate-public-ip-address \
+  --iam-instance-profile Name="$SSM_PROFILE_NAME" \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-api01},{Key=Role,Value=api},{Key=Lab,Value=m2-c1-lab}]' \
+  --query 'Instances[0].InstanceId' \
+  --output text)
 
-# Frontend01
-FRONT_SG=$(aws ec2 create-security-group --group-name cloudcuyo-frontend-sg --description "Frontend SG" --vpc-id $VPC_ID --query 'GroupId' --output text)
-aws ec2 authorize-security-group-ingress --group-id $FRONT_SG --protocol tcp --port 80 --cidr 0.0.0.0/0
-aws ec2 authorize-security-group-ingress --group-id $FRONT_SG --protocol tcp --port 443 --cidr 0.0.0.0/0
+aws ec2 wait instance-running --profile curso --region us-east-1 --instance-ids "$DB_INSTANCE" "$API_INSTANCE"
+```
 
-FRONT01_INSTANCE=$(aws ec2 run-instances --image-id $FRONT01_AMI --instance-type t3.micro --key-name cloudcuyo-key --security-group-ids $FRONT_SG --subnet-id $PUBLIC_SUBNET_ID --iam-instance-profile Name=$SSM_PROFILE_NAME --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-frontend01}]' --query 'Instances[0].InstanceId' --output text)
+### 5.4. Lanzar Frontend01, Frontend02 y LB01 en subnet publica
 
-# Frontend02
-FRONT02_INSTANCE=$(aws ec2 run-instances --image-id $FRONT02_AMI --instance-type t3.micro --key-name cloudcuyo-key --security-group-ids $FRONT_SG --subnet-id $PUBLIC_SUBNET_ID --iam-instance-profile Name=$SSM_PROFILE_NAME --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-frontend02}]' --query 'Instances[0].InstanceId' --output text)
+La subnet publica de la cuenta del curso no asigna IP publica automaticamente. Por eso estas instancias usan `--associate-public-ip-address` de forma explicita.
 
-# LB01
-LB_SG=$(aws ec2 create-security-group --group-name cloudcuyo-lb-sg --description "LB SG" --vpc-id $VPC_ID --query 'GroupId' --output text)
-aws ec2 authorize-security-group-ingress --group-id $LB_SG --protocol tcp --port 80 --cidr 0.0.0.0/0
+```bash
+FRONT01_INSTANCE=$(aws ec2 run-instances \
+  --profile curso \
+  --region us-east-1 \
+  --image-id "$FRONT01_AMI" \
+  --instance-type t3.micro \
+  --key-name "$KEY_PAIR_NAME" \
+  --security-group-ids "$FRONT_SG" \
+  --subnet-id "$PUBLIC_SUBNET_ID" \
+  --associate-public-ip-address \
+  --iam-instance-profile Name="$SSM_PROFILE_NAME" \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-frontend01},{Key=Role,Value=frontend},{Key=Lab,Value=m2-c1-lab}]' \
+  --query 'Instances[0].InstanceId' \
+  --output text)
 
-LB_INSTANCE=$(aws ec2 run-instances --image-id $LB_AMI --instance-type t3.micro --key-name cloudcuyo-key --security-group-ids $LB_SG --subnet-id $PUBLIC_SUBNET_ID --iam-instance-profile Name=$SSM_PROFILE_NAME --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-lb01}]' --query 'Instances[0].InstanceId' --output text)
+FRONT02_INSTANCE=$(aws ec2 run-instances \
+  --profile curso \
+  --region us-east-1 \
+  --image-id "$FRONT02_AMI" \
+  --instance-type t3.micro \
+  --key-name "$KEY_PAIR_NAME" \
+  --security-group-ids "$FRONT_SG" \
+  --subnet-id "$PUBLIC_SUBNET_ID" \
+  --associate-public-ip-address \
+  --iam-instance-profile Name="$SSM_PROFILE_NAME" \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-frontend02},{Key=Role,Value=frontend},{Key=Lab,Value=m2-c1-lab}]' \
+  --query 'Instances[0].InstanceId' \
+  --output text)
 
-echo "✓ Todas las instancias lanzadas"
-aws ec2 wait instance-running --instance-ids $API_INSTANCE $FRONT01_INSTANCE $FRONT02_INSTANCE $LB_INSTANCE
+LB_INSTANCE=$(aws ec2 run-instances \
+  --profile curso \
+  --region us-east-1 \
+  --image-id "$LB_AMI" \
+  --instance-type t3.micro \
+  --key-name "$KEY_PAIR_NAME" \
+  --security-group-ids "$LB_SG" \
+  --subnet-id "$PUBLIC_SUBNET_ID" \
+  --associate-public-ip-address \
+  --iam-instance-profile Name="$SSM_PROFILE_NAME" \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cloudcuyo-lb01},{Key=Role,Value=load-balancer},{Key=Lab,Value=m2-c1-lab}]' \
+  --query 'Instances[0].InstanceId' \
+  --output text)
 
-# Obtener IP pública del LB
-LB_PUBLIC_IP=$(aws ec2 describe-instances --instance-ids $LB_INSTANCE --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+aws ec2 wait instance-running --profile curso --region us-east-1 --instance-ids "$FRONT01_INSTANCE" "$FRONT02_INSTANCE" "$LB_INSTANCE"
 
-echo ""
-echo "========================================="
-echo "✓ CloudCuyo migrado a AWS"
+LB_PUBLIC_IP=$(aws ec2 describe-instances \
+  --profile curso \
+  --region us-east-1 \
+  --instance-ids "$LB_INSTANCE" \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' \
+  --output text)
+
+echo "CloudCuyo migrado a AWS"
 echo "Acceso: http://$LB_PUBLIC_IP"
-echo "========================================="
 ```
 
-**PowerShell:**
+### 5.5. Validar registro en SSM
 
-```powershell
-# API01
-$ApiSg = New-EC2SecurityGroup -GroupName "cloudcuyo-api-sg" -Description "API SG" -VpcId $VpcId
-Grant-EC2SecurityGroupIngress -GroupId $ApiSg -IpProtocol tcp -FromPort 5000 -ToPort 5000 -CidrIp "10.0.0.0/16"
-Grant-EC2SecurityGroupIngress -GroupId $ApiSg -IpProtocol tcp -FromPort 443 -ToPort 443 -CidrIp "10.0.0.0/16"
+```bash
+aws ssm describe-instance-information \
+  --profile curso \
+  --region us-east-1 \
+  --filters Key=InstanceIds,Values="$DB_INSTANCE,$API_INSTANCE,$FRONT01_INSTANCE,$FRONT02_INSTANCE,$LB_INSTANCE" \
+  --query 'InstanceInformationList[].{InstanceId:InstanceId,PingStatus:PingStatus,Platform:PlatformName}' \
+  --output table
+```
 
-$ApiInstance = (New-EC2Instance -ImageId $ApiAmi -InstanceType t3.small -KeyName "cloudcuyo-key" -SecurityGroupId $ApiSg -SubnetId $PrivateSubnetId -PrivateIpAddress "10.0.2.30" -IamInstanceProfile_Name $SsmProfileName -TagSpecification @( @{ ResourceType = "instance"; Tags = @( @{ Key = "Name"; Value = "cloudcuyo-api01" } ) } )).Instances[0].InstanceId
+Si una instancia no aparece como `Online`, validar primero que tenga asociado el Instance Profile de SSM y conectividad de salida por NAT o Internet. Si el log de SSM muestra `Default Host Management Err` o `unable to acquire credentials`, reiniciar la instancia suele forzar al agente a tomar las credenciales del Instance Profile:
 
-# Frontend01
-$FrontSg = New-EC2SecurityGroup -GroupName "cloudcuyo-frontend-sg" -Description "Frontend SG" -VpcId $VpcId
-Grant-EC2SecurityGroupIngress -GroupId $FrontSg -IpProtocol tcp -FromPort 80 -ToPort 80 -CidrIp "0.0.0.0/0"
-Grant-EC2SecurityGroupIngress -GroupId $FrontSg -IpProtocol tcp -FromPort 443 -ToPort 443 -CidrIp "0.0.0.0/0"
-
-$Front01Instance = (New-EC2Instance -ImageId $Front01Ami -InstanceType t3.micro -KeyName "cloudcuyo-key" -SecurityGroupId $FrontSg -SubnetId $PublicSubnetId -IamInstanceProfile_Name $SsmProfileName -TagSpecification @( @{ ResourceType = "instance"; Tags = @( @{ Key = "Name"; Value = "cloudcuyo-frontend01" } ) } )).Instances[0].InstanceId
-
-# Frontend02
-$Front02Instance = (New-EC2Instance -ImageId $Front02Ami -InstanceType t3.micro -KeyName "cloudcuyo-key" -SecurityGroupId $FrontSg -SubnetId $PublicSubnetId -IamInstanceProfile_Name $SsmProfileName -TagSpecification @( @{ ResourceType = "instance"; Tags = @( @{ Key = "Name"; Value = "cloudcuyo-frontend02" } ) } )).Instances[0].InstanceId
-
-# LB01
-$LbSg = New-EC2SecurityGroup -GroupName "cloudcuyo-lb-sg" -Description "LB SG" -VpcId $VpcId
-Grant-EC2SecurityGroupIngress -GroupId $LbSg -IpProtocol tcp -FromPort 80 -ToPort 80 -CidrIp "0.0.0.0/0"
-
-$LbInstance = (New-EC2Instance -ImageId $LbAmi -InstanceType t3.micro -KeyName "cloudcuyo-key" -SecurityGroupId $LbSg -SubnetId $PublicSubnetId -IamInstanceProfile_Name $SsmProfileName -TagSpecification @( @{ ResourceType = "instance"; Tags = @( @{ Key = "Name"; Value = "cloudcuyo-lb01" } ) } )).Instances[0].InstanceId
-
-Write-Host "✓ Todas las instancias lanzadas" -ForegroundColor Green
-
-# Esperar a que corran
-Wait-EC2InstanceRunning -InstanceId @($ApiInstance, $Front01Instance, $Front02Instance, $LbInstance)
-
-# Obtener IP pública del LB
-$LbPublicIp = (Get-EC2Instance -InstanceId $LbInstance).Instances[0].PublicIpAddress
-
-Write-Host ""
-Write-Host "=========================================" -ForegroundColor Green
-Write-Host "✓ CloudCuyo migrado a AWS"
-Write-Host "Acceso: http://$LbPublicIp"
-Write-Host "=========================================" -ForegroundColor Green
+```bash
+aws ec2 reboot-instances \
+  --profile curso \
+  --region us-east-1 \
+  --instance-ids "$LB_INSTANCE"
 ```
 
 ---
@@ -858,14 +826,12 @@ Write-Host "=========================================" -ForegroundColor Green
 
 ### 6.1. Conectar via Session Manager
 
-**Bash:**
-
 ```bash
 # Ver instancias disponibles
-aws ssm describe-instance-information --output table
+aws ssm describe-instance-information --profile curso --region us-east-1 --output table
 
 # Conectar a DB01 (privada, sin IP pública)
-aws ssm start-session --target $DB_INSTANCE
+aws ssm start-session --profile curso --region us-east-1 --target "$DB_INSTANCE"
 
 # Dentro de la sesión:
 # sudo su -
@@ -873,22 +839,7 @@ aws ssm start-session --target $DB_INSTANCE
 # psql -U cloudcuyo -d cloudcuyo
 ```
 
-**PowerShell:**
-
-```powershell
-# Ver instancias disponibles
-Get-SSMInstanceInformation | Format-Table InstanceId, PingStatus, PlatformName
-
-# Conectar a DB01
-Start-SSMSession -Target $DbInstance
-
-# Ejecutar comando remoto sin sesión interactiva
-Send-SSMCommand -InstanceId $DbInstance -DocumentName "AWS-RunShellScript" -Parameter @{ commands = @( "sudo systemctl status postgresql", "sudo -u postgres psql -d cloudcuyo -c 'SELECT count(*) FROM customers;'" ) }
-```
-
 ### 6.2. Verificar conectividad
-
-**Bash:**
 
 ```bash
 # Health check
@@ -899,19 +850,6 @@ curl -I http://$LB_PUBLIC_IP/portal.html
 
 # API pública
 curl http://$LB_PUBLIC_IP/api/v1/health
-```
-
-**PowerShell:**
-
-```powershell
-# Health check
-Invoke-WebRequest -Uri "http://$LbPublicIp/api/health" | Select-Object -Expand Content
-
-# Portal
-Invoke-WebRequest -Uri "http://$LbPublicIp/portal.html" -Method Head
-
-# API pública
-Invoke-RestMethod -Uri "http://$LbPublicIp/api/v1/health"
 ```
 
 ---
@@ -945,7 +883,7 @@ source aws-ids.sh
 aws ec2 terminate-instances --instance-ids $DB_INSTANCE $API_INSTANCE $FRONT01_INSTANCE $FRONT02_INSTANCE $LB_INSTANCE
 
 # Eliminar CloudFormation stack (NAT instance)
-aws cloudformation delete-stack --stack-name cloudcuyo-nat-instance
+aws cloudformation delete-stack --stack-name cloudcuyo-nat
 
 # Limpiar S3
 aws s3 rm s3://${BUCKET_NAME} --recursive
@@ -964,7 +902,7 @@ aws s3 rb s3://${BUCKET_NAME}
 Remove-EC2Instance -InstanceId @($DbInstance, $ApiInstance, $Front01Instance, $Front02Instance, $LbInstance) -Force
 
 # Eliminar stack
-Remove-CFNStack -StackName "cloudcuyo-nat-instance" -Force
+Remove-CFNStack -StackName "cloudcuyo-nat" -Force
 
 # Limpiar S3
 Remove-S3Object -BucketName $BucketName -KeyPrefix "" -Force
@@ -986,4 +924,3 @@ Una vez completado este lab, has logrado:
 
 - **Lab 2:** Modernizar frontend con S3 + CloudFront (REPLATFORM) - Ver `docs/lab-02-frontend-s3-cloudfront.md`
 - **Próximos desafíos:** Refactorizar API a serverless, migrar DB a RDS
-
