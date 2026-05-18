@@ -876,40 +876,82 @@ curl http://$LB_PUBLIC_IP/api/v1/health
 
 ## Limpieza
 
-**Bash:**
+Priorizar limpieza desde **AWS CloudShell**. Si algun comando falla porque una variable no existe, revisar los IDs en la consola de EC2 y completar la variable correspondiente antes de continuar.
+
+### Opcion A: CloudShell / AWS CLI
 
 ```bash
-source aws-ids.sh
+export AWS_PROFILE=curso
+export AWS_REGION=us-east-1
 
 # Terminar instancias
-aws ec2 terminate-instances --instance-ids $DB_INSTANCE $API_INSTANCE $FRONT01_INSTANCE $FRONT02_INSTANCE $LB_INSTANCE
+aws ec2 terminate-instances \
+  --profile curso \
+  --region us-east-1 \
+  --instance-ids "$DB_INSTANCE" "$API_INSTANCE" "$FRONT01_INSTANCE" "$FRONT02_INSTANCE" "$LB_INSTANCE"
+
+aws ec2 wait instance-terminated \
+  --profile curso \
+  --region us-east-1 \
+  --instance-ids "$DB_INSTANCE" "$API_INSTANCE" "$FRONT01_INSTANCE" "$FRONT02_INSTANCE" "$LB_INSTANCE"
+
+# Eliminar Security Groups creados por el lab
+aws ec2 delete-security-group --profile curso --region us-east-1 --group-id "$DB_SG"
+aws ec2 delete-security-group --profile curso --region us-east-1 --group-id "$API_SG"
+aws ec2 delete-security-group --profile curso --region us-east-1 --group-id "$FRONT_SG"
+aws ec2 delete-security-group --profile curso --region us-east-1 --group-id "$LB_SG"
+
+# Guardar snapshots asociados antes de deregistrar las AMIs
+DB_SNAPSHOT_ID=$(aws ec2 describe-images --profile curso --region us-east-1 --image-ids "$DB_AMI" --query 'Images[0].BlockDeviceMappings[0].Ebs.SnapshotId' --output text)
+API_SNAPSHOT_ID=$(aws ec2 describe-images --profile curso --region us-east-1 --image-ids "$API_AMI" --query 'Images[0].BlockDeviceMappings[0].Ebs.SnapshotId' --output text)
+FRONT01_SNAPSHOT_ID=$(aws ec2 describe-images --profile curso --region us-east-1 --image-ids "$FRONT01_AMI" --query 'Images[0].BlockDeviceMappings[0].Ebs.SnapshotId' --output text)
+FRONT02_SNAPSHOT_ID=$(aws ec2 describe-images --profile curso --region us-east-1 --image-ids "$FRONT02_AMI" --query 'Images[0].BlockDeviceMappings[0].Ebs.SnapshotId' --output text)
+LB_SNAPSHOT_ID=$(aws ec2 describe-images --profile curso --region us-east-1 --image-ids "$LB_AMI" --query 'Images[0].BlockDeviceMappings[0].Ebs.SnapshotId' --output text)
+
+# Deregistrar AMIs importadas
+aws ec2 deregister-image --profile curso --region us-east-1 --image-id "$DB_AMI"
+aws ec2 deregister-image --profile curso --region us-east-1 --image-id "$API_AMI"
+aws ec2 deregister-image --profile curso --region us-east-1 --image-id "$FRONT01_AMI"
+aws ec2 deregister-image --profile curso --region us-east-1 --image-id "$FRONT02_AMI"
+aws ec2 deregister-image --profile curso --region us-east-1 --image-id "$LB_AMI"
+
+# Eliminar snapshots asociados a las AMIs importadas
+aws ec2 delete-snapshot --profile curso --region us-east-1 --snapshot-id "$DB_SNAPSHOT_ID"
+aws ec2 delete-snapshot --profile curso --region us-east-1 --snapshot-id "$API_SNAPSHOT_ID"
+aws ec2 delete-snapshot --profile curso --region us-east-1 --snapshot-id "$FRONT01_SNAPSHOT_ID"
+aws ec2 delete-snapshot --profile curso --region us-east-1 --snapshot-id "$FRONT02_SNAPSHOT_ID"
+aws ec2 delete-snapshot --profile curso --region us-east-1 --snapshot-id "$LB_SNAPSHOT_ID"
 
 # Eliminar CloudFormation stack (NAT instance)
-aws cloudformation delete-stack --stack-name cloudcuyo-nat
+aws cloudformation delete-stack \
+  --profile curso \
+  --region us-east-1 \
+  --stack-name cloudcuyo-nat
 
 # Limpiar S3
-aws s3 rm s3://${BUCKET_NAME} --recursive
-aws s3 rb s3://${BUCKET_NAME}
-
-# Eliminar VPC (después de que todo esté terminado)
-# aws ec2 delete-vpc --vpc-id $VPC_ID
+aws s3 rm "s3://${MY_BUCKET}" --recursive --profile curso --region us-east-1
+aws s3 rb "s3://${MY_BUCKET}" --profile curso --region us-east-1
 ```
 
-**PowerShell:**
+No eliminar la VPC base del laboratorio salvo que el instructor lo indique. Normalmente la VPC, subnets, route tables e Internet Gateway son infraestructura compartida o preexistente del curso.
 
-```powershell
-. .\aws-ids.ps1
+### Opcion B: AWS Console
 
-# Terminar instancias
-Remove-EC2Instance -InstanceId @($DbInstance, $ApiInstance, $Front01Instance, $Front02Instance, $LbInstance) -Force
+1. Ir a **EC2 > Instances**.
+2. Seleccionar las instancias `cloudcuyo-db01`, `cloudcuyo-api01`, `cloudcuyo-frontend01`, `cloudcuyo-frontend02` y `cloudcuyo-lb01`.
+3. Click en **Instance state > Terminate instance** y esperar a estado `Terminated`.
+4. Ir a **EC2 > AMIs**.
+5. Seleccionar las AMIs importadas del lab y elegir **Actions > Deregister AMI**.
+6. Ir a **EC2 > Snapshots**.
+7. Filtrar por snapshots propios creados por esas AMIs y eliminarlos.
+8. Ir a **EC2 > Security Groups**.
+9. Eliminar los security groups creados por el lab: DB, API, Frontend y LB.
+10. Ir a **CloudFormation > Stacks**.
+11. Seleccionar `cloudcuyo-nat` y elegir **Delete**.
+12. Ir a **S3**.
+13. Vaciar el bucket de importacion de OVAs y luego eliminarlo.
 
-# Eliminar stack
-Remove-CFNStack -StackName "cloudcuyo-nat" -Force
-
-# Limpiar S3
-Remove-S3Object -BucketName $BucketName -KeyPrefix "" -Force
-Remove-S3Bucket -BucketName $BucketName -Force
-```
+Antes de cerrar el lab, verificar que no queden instancias corriendo, AMIs importadas, snapshots, buckets temporales ni security groups creados para la practica.
 
 ---
 
