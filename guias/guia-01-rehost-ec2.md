@@ -599,6 +599,23 @@ echo "Frontend02 AMI: $FRONT02_AMI"
 echo "LB01 AMI: $LB_AMI"
 ```
 
+9. Etiquetar las AMIs importadas con nombres claros:
+
+> VM Import/Export genera el nombre interno de la AMI con el ID de la tarea (`import-ami-...`). Para evitar confusiones al lanzar instancias, agregar un tag `Name` descriptivo apenas termina la importacion.
+
+```bash
+aws ec2 create-tags --resources $DB_AMI --tags Key=Name,Value=cloudcuyo-db01-ami Key=Role,Value=database Key=Lab,Value=m2-c1-lab
+aws ec2 create-tags --resources $API_AMI --tags Key=Name,Value=cloudcuyo-api01-ami Key=Role,Value=api Key=Lab,Value=m2-c1-lab
+aws ec2 create-tags --resources $FRONT01_AMI --tags Key=Name,Value=cloudcuyo-frontend01-ami Key=Role,Value=frontend Key=Lab,Value=m2-c1-lab
+aws ec2 create-tags --resources $FRONT02_AMI --tags Key=Name,Value=cloudcuyo-frontend02-ami Key=Role,Value=frontend Key=Lab,Value=m2-c1-lab
+aws ec2 create-tags --resources $LB_AMI --tags Key=Name,Value=cloudcuyo-lb01-ami Key=Role,Value=load-balancer Key=Lab,Value=m2-c1-lab
+
+aws ec2 describe-images \
+  --image-ids $DB_AMI $API_AMI $FRONT01_AMI $FRONT02_AMI $LB_AMI \
+  --query 'Images[].{AMI:ImageId,Nombre:Tags[?Key==`Name`]|[0].Value,Estado:State,Descripcion:Description}' \
+  --output table
+```
+
 **Mientras esperas las importaciones:**
 - Puedes avanzar con la siguiente fase (crear Security Groups)
 - Revisar la documentacion de arquitectura
