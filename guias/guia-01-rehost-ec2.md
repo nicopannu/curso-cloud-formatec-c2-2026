@@ -29,37 +29,37 @@ CloudCuyo necesita migrar **urgentemente** a AWS debido a:
 ## Arquitectura objetivo
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        AWS Cloud                            │
+┌────────────────────────────────────────────────────────────┐
+│                        AWS Cloud                           │
 │  ┌────────────────────────────────────────────────────┐    │
 │  │  VPC (10.0.0.0/16)                                 │    │
-│  │                                                     │    │
-│  │  ┌────────────────────────────────────────────┐   │    │
-│  │  │  Public Subnet (10.0.0.0/24)               │   │    │
-│  │  │                                             │   │    │
-│  │  │  ┌────────────┐  ┌────────────────────┐   │   │    │
-│  │  │  │ NAT        │  │ LB01               │   │   │    │
-│  │  │  │ Instance   │  │ (IP pública)       │   │   │    │
-│  │  │  │ (EIP)      │  └────────────────────┘   │   │    │
-│  │  │  └─────┬──────┘                            │   │    │
-│  │  │        │ iptables MASQUERADE               │   │    │
-│  │  └────────┼───────────────────────────────────┘   │    │
+│  │                                                    │    │
+│  │  ┌────────────────────────────────────────────┐    │    │
+│  │  │  Public Subnet (10.0.0.0/24)               │    │    │
+│  │  │                                            │    │    │
+│  │  │  ┌────────────┐  ┌────────────────────┐    │    │    │
+│  │  │  │ NAT        │  │ LB01               │    │    │    │
+│  │  │  │ Instance   │  │ (IP pública)       │    │    │    │
+│  │  │  │ (EIP)      │  └────────────────────┘    │    │    │
+│  │  │  └─────┬──────┘                            │    │    │
+│  │  │        │ iptables MASQUERADE               │    │    │
+│  │  └────────┼───────────────────────────────────┘    │    │
 │  │           │                                        │    │
-│  │  ┌────────▼───────────────────────────────────┐   │    │
-│  │  │  Private Subnet (10.0.1.0/24)              │   │    │
-│  │  │  Route: 0.0.0.0/0 → NAT Instance           │   │    │
-│  │  │                                             │   │    │
-│  │  │  ┌─────────────┐  ┌─────────────┐         │   │    │
-│  │  │  │ FRONT01/02  │  │ API01       │         │   │    │
-│  │  │  │ (privadas)  │  │ (privada)   │         │   │    │
-│  │  │  └─────────────┘  └─────────────┘         │   │    │
-│  │  │  ┌─────────────┐                         │   │    │
-│  │  │  │ DB01        │                         │   │    │
-│  │  │  │ (privada)   │                         │   │    │
-│  │  │  └─────────────┘                         │   │    │
-│  │  └─────────────────────────────────────────────┘   │    │
+│  │  ┌────────▼───────────────────────────────────┐    │    │
+│  │  │  Private Subnet (10.0.1.0/24)              │    │    │
+│  │  │  Route: 0.0.0.0/0 → NAT Instance           │    │    │
+│  │  │                                            │    │    │
+│  │  │  ┌─────────────┐  ┌─────────────┐          │    │    │
+│  │  │  │ FRONT01/02  │  │ API01       │          │    │    │
+│  │  │  │ (privadas)  │  │ (privada)   │          │    │    │
+│  │  │  └─────────────┘  └─────────────┘          │    │    │
+│  │  │  ┌─────────────┐                           │    │    │
+│  │  │  │ DB01        │                           │    │    │
+│  │  │  │ (privada)   │                           │    │    │
+│  │  │  └─────────────┘                           │    │    │
+│  │  └────────────────────────────────────────────┘    │    │
 │  └────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────┘
          │                                    │
          │ SSM Session Manager                │ Updates/APIs
          └────────────────────────────────────┘
@@ -699,7 +699,8 @@ Al crear reglas entre Security Groups, en el campo **Source** seleccionar **Cust
 |---|---|
 | Name | `cloudcuyo-api-sg` |
 | Description | `CloudCuyo private API` |
-| Inbound rule | TCP 5000 desde `cloudcuyo-frontend-sg` |
+| Inbound rule 1 | TCP 5000 desde `cloudcuyo-frontend-sg` |
+| Inbound rule 2 | TCP 5000 desde `cloudcuyo-lb-sg` |
 | Outbound rule | All traffic |
 
 **Security Group DB**
@@ -734,7 +735,7 @@ Usar estos criterios comunes:
 2. Buscar la AMI `cloudcuyo-db01-ami`.
 3. Seleccionarla y elegir **Launch instance from AMI**.
 4. Name: `cloudcuyo-db01`.
-5. Instance type: `t3.medium`.
+5. Instance type: `t3.small`.
 6. Key pair: seleccionar el key pair del laboratorio.
 7. Network settings: elegir la VPC del laboratorio.
 8. Subnet: seleccionar la private subnet.
@@ -748,7 +749,7 @@ Usar estos criterios comunes:
 
 1. Repetir el flujo desde **EC2 > AMIs** usando `cloudcuyo-api01-ami`.
 2. Name: `cloudcuyo-api01`.
-3. Instance type: `t3.small`.
+3. Instance type: `t3.micro`.
 4. Subnet: private subnet.
 5. Auto-assign public IP: `Disable`.
 6. Firewall: seleccionar `cloudcuyo-api-sg`.
@@ -797,9 +798,149 @@ Si una instancia no aparece como `Online`, revisar que tenga asociado el Instanc
 
 ---
 
-## Fase 6: Verificación y administración via SSM
+## Fase 6: Prueba del portal y correccion via SSM
 
-### 6.1. Conectar via Session Manager
+### 6.1. Probar el portal publicado por `lb01`
+
+Usar la IP publica de `cloudcuyo-lb01` copiada desde **EC2 > Instances > Public IPv4 address**.
+
+1. Abrir en el navegador `http://<ip-publica-de-lb01>/`.
+2. Validar que cargue la pagina principal de CloudCuyo.
+3. Abrir `http://<ip-publica-de-lb01>/portal.html`.
+4. Validar que cargue el portal de clientes.
+5. Abrir `http://<ip-publica-de-lb01>/api/health`.
+6. Validar que responda la API con estado saludable.
+
+Prueba rapida desde una terminal local si el navegador no muestra detalles:
+
+```bash
+LB_PUBLIC_IP=<ip-publica-de-lb01>
+
+curl -I http://$LB_PUBLIC_IP/
+curl -I http://$LB_PUBLIC_IP/portal.html
+curl http://$LB_PUBLIC_IP/api/health
+curl http://$LB_PUBLIC_IP/api/v1/health
+```
+
+### 6.2. Fix simple para error 502 Bad Gateway
+
+Si el portal abre pero muestra `502 Bad Gateway`, el problema mas probable es que las OVAs conservan configuraciones del entorno on-premise. En on-premise las VMs hablaban por IPs `192.168.56.x`; en AWS esas IPs ya no existen. Hay que reemplazarlas por las IPs privadas EC2 del lab.
+
+Que paso:
+
+- `lb01` intenta enviar trafico web a `frontend01`, `frontend02` o `api01` usando IPs viejas `192.168.56.x`.
+- `api01` puede intentar conectarse a `db01` usando la IP vieja `192.168.56.40`.
+- NGINX no puede llegar al backend y devuelve `502 Bad Gateway`.
+
+En este lab las instancias se lanzaron con estas IPs privadas:
+
+| Instancia | IP privada |
+|---|---|
+| `frontend01` | `10.0.1.20` |
+| `frontend02` | `10.0.1.21` |
+| `api01` | `10.0.1.30` |
+| `db01` | `10.0.1.40` |
+
+### 6.3. Confirmar el problema en `lb01`
+
+1. Ir a **Systems Manager > Session Manager**.
+2. Abrir sesion contra `cloudcuyo-lb01`.
+3. Ejecutar:
+
+```bash
+sudo nginx -t
+sudo grep -n "server " /etc/nginx/sites-available/cloudcuyo.conf
+```
+
+Si aparecen `192.168.56.20`, `192.168.56.21` o `192.168.56.30`, aplicar el fix del siguiente paso.
+
+### 6.4. Fix de `lb01`
+
+En la misma sesion SSM de `cloudcuyo-lb01`, ejecutar este bloque completo:
+
+```bash
+FRONT01_PRIVATE_IP=10.0.1.20
+FRONT02_PRIVATE_IP=10.0.1.21
+API_PRIVATE_IP=10.0.1.30
+
+sudo cp /etc/nginx/sites-available/cloudcuyo.conf /etc/nginx/sites-available/cloudcuyo.conf.bak
+
+sudo tee /etc/nginx/sites-available/cloudcuyo.conf >/dev/null <<EOF
+upstream cloudcuyo_frontend {
+    server ${FRONT01_PRIVATE_IP}:80;
+    server ${FRONT02_PRIVATE_IP}:80;
+}
+
+upstream cloudcuyo_api {
+    server ${API_PRIVATE_IP}:5000;
+}
+
+server {
+    listen 80 default_server;
+    server_name cloudcuyo.local _;
+
+    location /api/ {
+        proxy_pass http://cloudcuyo_api/api/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+
+    location / {
+        proxy_pass http://cloudcuyo_frontend;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+}
+EOF
+
+sudo nginx -t
+sudo systemctl reload nginx
+sudo systemctl status nginx --no-pager
+```
+
+Validar desde la misma sesion de `lb01`:
+
+```bash
+curl -I http://${FRONT01_PRIVATE_IP}/portal.html
+curl -I http://${FRONT02_PRIVATE_IP}/portal.html
+curl http://${API_PRIVATE_IP}:5000/api/health
+```
+
+### 6.5. Fix de `api01`
+
+Si el portal carga y `/api/health` responde, pero fallan login, clientes, servicios o pagos, corregir la IP de base de datos en `api01`.
+
+1. Ir a **Systems Manager > Session Manager**.
+2. Abrir sesion contra `cloudcuyo-api01`.
+3. Ejecutar:
+
+```bash
+DB_PRIVATE_IP=10.0.1.40
+
+sudo cp /etc/systemd/system/cloudcuyo-api.service /etc/systemd/system/cloudcuyo-api.service.bak
+sudo sed -i "s/Environment=DB_HOST=.*/Environment=DB_HOST=${DB_PRIVATE_IP}/" /etc/systemd/system/cloudcuyo-api.service
+
+sudo systemctl daemon-reload
+sudo systemctl restart cloudcuyo-api
+sudo systemctl status cloudcuyo-api --no-pager
+```
+
+Validar desde `api01`:
+
+```bash
+curl http://localhost:5000/api/health
+curl http://localhost:5000/api/v1/health
+```
+
+Volver al navegador y repetir:
+
+1. `http://<ip-publica-de-lb01>/portal.html`
+2. `http://<ip-publica-de-lb01>/api/health`
+3. `http://<ip-publica-de-lb01>/api/v1/health`
+
+### 6.6. Conectar via Session Manager para administracion
 
 Opcion recomendada por GUI:
 
@@ -815,23 +956,6 @@ systemctl status postgresql
 psql -U cloudcuyo -d cloudcuyo
 ```
 
-### 6.2. Verificar conectividad
-
-Usar la IP publica de `cloudcuyo-lb01` copiada desde **EC2 > Instances > Public IPv4 address**.
-
-```bash
-LB_PUBLIC_IP=<ip-publica-de-lb01>
-
-# Health check
-curl http://$LB_PUBLIC_IP/api/health
-
-# Portal
-curl -I http://$LB_PUBLIC_IP/portal.html
-
-# API pública
-curl http://$LB_PUBLIC_IP/api/v1/health
-```
-
 ---
 
 ## Costos estimados
@@ -840,96 +964,61 @@ curl http://$LB_PUBLIC_IP/api/v1/health
 | Recurso            | Tipo         | Costo/mes (us-east-1) |
 | ------------------ | ------------ | --------------------- |
 | NAT Instance       | t3.micro     | ~$7                   |
-| DB01               | t3.medium    | ~$30                  |
-| API01              | t3.small     | ~$15                  |
+| DB01               | t3.small     | ~$15                  |
+| API01              | t3.micro     | ~$7                   |
 | Frontend01/02      | t3.micro × 2 | ~$15                  |
 | LB01               | t3.micro     | ~$7                   |
 | Elastic IPs        | 1 (NAT)      | ~$3.50                |
 | EBS (5 instancias) | ~50GB total  | ~$5                   |
 | Data Transfer      | ~10GB/mes    | ~$1                   |
-| **TOTAL**          |              | **~$87/mes**          |
+| **TOTAL**          |              | **~$61/mes**          |
 
 
 ---
 
 ## Limpieza
 
-Priorizar limpieza desde **AWS CloudShell**. Si algun comando falla porque una variable no existe, revisar los IDs en la consola de EC2 y completar la variable correspondiente antes de continuar.
+Realizar la limpieza desde la **AWS Console**. En este lab no eliminar la VPC base, subnets, route tables, Internet Gateway, NAT Instance, stack `cloudcuyo-nat` ni Security Groups, salvo que el instructor lo indique.
 
-### Opcion A: CloudShell / AWS CLI
-
-```bash
-export AWS_PROFILE=curso
-export AWS_REGION=us-east-1
-
-# Terminar instancias
-aws ec2 terminate-instances \
-  --profile curso \
-  --region us-east-1 \
-  --instance-ids "$DB_INSTANCE" "$API_INSTANCE" "$FRONT01_INSTANCE" "$FRONT02_INSTANCE" "$LB_INSTANCE"
-
-aws ec2 wait instance-terminated \
-  --profile curso \
-  --region us-east-1 \
-  --instance-ids "$DB_INSTANCE" "$API_INSTANCE" "$FRONT01_INSTANCE" "$FRONT02_INSTANCE" "$LB_INSTANCE"
-
-# Eliminar Security Groups creados por el lab
-aws ec2 delete-security-group --profile curso --region us-east-1 --group-id "$DB_SG"
-aws ec2 delete-security-group --profile curso --region us-east-1 --group-id "$API_SG"
-aws ec2 delete-security-group --profile curso --region us-east-1 --group-id "$FRONT_SG"
-aws ec2 delete-security-group --profile curso --region us-east-1 --group-id "$LB_SG"
-
-# Guardar snapshots asociados antes de deregistrar las AMIs
-DB_SNAPSHOT_ID=$(aws ec2 describe-images --profile curso --region us-east-1 --image-ids "$DB_AMI" --query 'Images[0].BlockDeviceMappings[0].Ebs.SnapshotId' --output text)
-API_SNAPSHOT_ID=$(aws ec2 describe-images --profile curso --region us-east-1 --image-ids "$API_AMI" --query 'Images[0].BlockDeviceMappings[0].Ebs.SnapshotId' --output text)
-FRONT01_SNAPSHOT_ID=$(aws ec2 describe-images --profile curso --region us-east-1 --image-ids "$FRONT01_AMI" --query 'Images[0].BlockDeviceMappings[0].Ebs.SnapshotId' --output text)
-FRONT02_SNAPSHOT_ID=$(aws ec2 describe-images --profile curso --region us-east-1 --image-ids "$FRONT02_AMI" --query 'Images[0].BlockDeviceMappings[0].Ebs.SnapshotId' --output text)
-LB_SNAPSHOT_ID=$(aws ec2 describe-images --profile curso --region us-east-1 --image-ids "$LB_AMI" --query 'Images[0].BlockDeviceMappings[0].Ebs.SnapshotId' --output text)
-
-# Deregistrar AMIs importadas
-aws ec2 deregister-image --profile curso --region us-east-1 --image-id "$DB_AMI"
-aws ec2 deregister-image --profile curso --region us-east-1 --image-id "$API_AMI"
-aws ec2 deregister-image --profile curso --region us-east-1 --image-id "$FRONT01_AMI"
-aws ec2 deregister-image --profile curso --region us-east-1 --image-id "$FRONT02_AMI"
-aws ec2 deregister-image --profile curso --region us-east-1 --image-id "$LB_AMI"
-
-# Eliminar snapshots asociados a las AMIs importadas
-aws ec2 delete-snapshot --profile curso --region us-east-1 --snapshot-id "$DB_SNAPSHOT_ID"
-aws ec2 delete-snapshot --profile curso --region us-east-1 --snapshot-id "$API_SNAPSHOT_ID"
-aws ec2 delete-snapshot --profile curso --region us-east-1 --snapshot-id "$FRONT01_SNAPSHOT_ID"
-aws ec2 delete-snapshot --profile curso --region us-east-1 --snapshot-id "$FRONT02_SNAPSHOT_ID"
-aws ec2 delete-snapshot --profile curso --region us-east-1 --snapshot-id "$LB_SNAPSHOT_ID"
-
-# Eliminar CloudFormation stack (NAT instance)
-aws cloudformation delete-stack \
-  --profile curso \
-  --region us-east-1 \
-  --stack-name cloudcuyo-nat
-
-# Limpiar S3
-aws s3 rm "s3://${MY_BUCKET}" --recursive --profile curso --region us-east-1
-aws s3 rb "s3://${MY_BUCKET}" --profile curso --region us-east-1
-```
-
-No eliminar la VPC base del laboratorio salvo que el instructor lo indique. Normalmente la VPC, subnets, route tables e Internet Gateway son infraestructura compartida o preexistente del curso.
-
-### Opcion B: AWS Console
+### Apagar instancias EC2
 
 1. Ir a **EC2 > Instances**.
 2. Seleccionar las instancias `cloudcuyo-db01`, `cloudcuyo-api01`, `cloudcuyo-frontend01`, `cloudcuyo-frontend02` y `cloudcuyo-lb01`.
-3. Click en **Instance state > Terminate instance** y esperar a estado `Terminated`.
-4. Ir a **EC2 > AMIs**.
-5. Seleccionar las AMIs importadas del lab y elegir **Actions > Deregister AMI**.
-6. Ir a **EC2 > Snapshots**.
-7. Filtrar por snapshots propios creados por esas AMIs y eliminarlos.
-8. Ir a **EC2 > Security Groups**.
-9. Eliminar los security groups creados por el lab: DB, API, Frontend y LB.
-10. Ir a **CloudFormation > Stacks**.
-11. Seleccionar `cloudcuyo-nat` y elegir **Delete**.
-12. Ir a **S3**.
-13. Vaciar el bucket de importacion de OVAs y luego eliminarlo.
+3. Click en **Instance state > Stop instance** si se quieren conservar los discos para revisar el lab luego.
+4. Si el instructor indica liberar costos completamente, usar **Instance state > Terminate instance** y esperar a estado `Terminated`.
 
-Antes de cerrar el lab, verificar que no queden instancias corriendo, AMIs importadas, snapshots, buckets temporales ni security groups creados para la practica.
+### Eliminar AMIs importadas y snapshots EBS
+
+1. Ir a **EC2 > AMIs**.
+2. Filtrar por **Owned by me**.
+3. Seleccionar las AMIs importadas del lab:
+   - `cloudcuyo-db01-ami`
+   - `cloudcuyo-api01-ami`
+   - `cloudcuyo-frontend01-ami`
+   - `cloudcuyo-frontend02-ami`
+   - `cloudcuyo-lb01-ami`
+4. Antes de deregistrar, abrir cada AMI y anotar los snapshots asociados en **Block devices**.
+5. Elegir **Actions > Deregister AMI** para cada AMI importada.
+6. Ir a **EC2 > Snapshots**.
+7. Buscar los snapshot IDs anotados en el paso anterior.
+8. Seleccionarlos y elegir **Actions > Delete snapshot**.
+
+### Eliminar OVAs importados y bucket S3
+
+1. Ir a **S3**.
+2. Abrir el bucket creado para la importacion de VM Import/Export, por ejemplo `cloudcuyo-vm-import-<id-unico>`.
+3. Eliminar los objetos OVA copiados para el lab:
+   - `cloudcuyo-db01.ova`
+   - `cloudcuyo-api01.ova`
+   - `cloudcuyo-frontend01.ova`
+   - `cloudcuyo-frontend02.ova`
+   - `cloudcuyo-lb01.ova`
+4. Confirmar que el bucket quede vacio.
+5. Volver a la lista de buckets, seleccionar el bucket y elegir **Delete**.
+
+Antes de cerrar el lab, verificar que no queden instancias corriendo, AMIs importadas, snapshots EBS asociados a esas AMIs, OVAs temporales ni bucket S3 creado para la practica.
+
+### SOLO DEBEN QUEDAR LAS EC2 CREADAS. BORRAR STACK DE NAT-INSTANCE SI NO SE CONTINUA DE INMEDIATO CON LAB-02.
 
 ---
 
@@ -944,5 +1033,5 @@ Una vez completado este lab, has logrado:
 
 **Próximos labs recomendados:**
 
-- **Lab 2:** Modernizar frontend con S3 + CloudFront (REPLATFORM) - Ver `docs/lab-02-frontend-s3-cloudfront.md`
+- **Lab 2:** Modernizar frontend con S3 + CloudFront (REPLATFORM) y reemplazar `lb01` en EC2 por un ALB que apunte a `api01` en EC2 - Ver [`guias/guia-02-frontend-s3-cloudfront.md`](guia-02-frontend-s3-cloudfront.md)
 - **Próximos desafíos:** Refactorizar API a serverless, migrar DB a RDS
