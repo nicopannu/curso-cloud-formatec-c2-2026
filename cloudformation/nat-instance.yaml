@@ -245,11 +245,15 @@ Resources:
           echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
           sysctl -p
 
+          # Detectar interfaz de salida. En Amazon Linux 2023 suele ser ens5, no eth0.
+          NAT_INTERFACE=$(ip route show default | awk '{print $5; exit}')
+          echo "Interfaz NAT detectada: $NAT_INTERFACE"
+
           # Configurar iptables para NAT
           # Regla de MASQUERADE para traducir IPs privadas a la IP pública
-          iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-          iptables -A FORWARD -i eth0 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
-          iptables -A FORWARD -i eth0 -o eth0 -j ACCEPT
+          iptables -t nat -A POSTROUTING -o $NAT_INTERFACE -j MASQUERADE
+          iptables -A FORWARD -i $NAT_INTERFACE -o $NAT_INTERFACE -m state --state RELATED,ESTABLISHED -j ACCEPT
+          iptables -A FORWARD -i $NAT_INTERFACE -o $NAT_INTERFACE -j ACCEPT
 
           # Guardar reglas de iptables
           iptables-save > /etc/sysconfig/iptables
@@ -293,7 +297,7 @@ Resources:
                     {"name": "bytes_sent", "rename": "NET_OUT", "unit": "Bytes"},
                     {"name": "bytes_recv", "rename": "NET_IN", "unit": "Bytes"}
                   ],
-                  "resources": ["eth0"]
+                  "resources": ["*"]
                 }
               }
             }
@@ -317,9 +321,11 @@ Resources:
             exit 1
           fi
 
+          NAT_INTERFACE=$(ip route show default | awk '{print $5; exit}')
+
           # Verificar reglas de iptables
-          if ! iptables -t nat -L POSTROUTING | grep -q MASQUERADE; then
-            echo "ERROR: Regla de MASQUERADE no encontrada"
+          if ! iptables -t nat -S POSTROUTING | grep -q -- "-o $NAT_INTERFACE -j MASQUERADE"; then
+            echo "ERROR: Regla de MASQUERADE no encontrada para $NAT_INTERFACE"
             exit 1
           fi
 
@@ -421,4 +427,3 @@ Outputs:
 
       # PowerShell
       Start-SSMSession -Target ${NATInstance}
-
