@@ -11,16 +11,18 @@
 ## Contexto
 
 CloudCuyo necesita migrar **urgentemente** a AWS debido a:
+
 - Vencimiento del contrato del datacenter on-premise
 - Necesidad de mayor disponibilidad
 - Presión del negocio para estar en la nube lo antes posible
 
 **Decisiones arquitectónicas:**
+
 1. **REHOST:** Migración directa de VMs a EC2 (mínimo riesgo)
 2. **NAT Instance vs NAT Gateway:** Usaremos NAT Instance para:
-   - Reducir costos (~$10/mes vs $32/mes)
-   - Propósito educativo (entender networking)
-   - Permitir administración via SSM Session Manager
+  - Reducir costos (~$10/mes vs $32/mes)
+  - Propósito educativo (entender networking)
+  - Permitir administración via SSM Session Manager
 
 ---
 
@@ -67,20 +69,19 @@ CloudCuyo necesita migrar **urgentemente** a AWS debido a:
 
 ### Acceso a AWS Console
 
-1. Acceder a https://console.aws.amazon.com/
+1. Acceder a [https://console.aws.amazon.com/](https://console.aws.amazon.com/)
 2. Iniciar sesión con credenciales IAM
 3. Región seleccionada: **us-east-1 (N. Virginia)**
 
 **Infraestructura AWS existente (proporcionada por el instructor):**
 
 Necesitarás los siguientes IDs de recursos ya creados:
+
 - **VPC ID**: `vpc-xxxxxxxxx`
 - **Public Subnet ID**: `subnet-xxxxxxxxx`
 - **Private Subnet ID**: `subnet-xxxxxxxxx`
 - **Private Route Table ID**: `rtb-xxxxxxxxx`
 - **Key Pair Name**: `cloudcuyo-key`
-
-
 
 ### OVAs del curso
 
@@ -99,12 +100,12 @@ s3://curso-cloud-c2-2026-ovas/
 
 > **Nota:** No es necesario descargar los OVAs a tu máquina local. En la Fase 2 de esta guia los copiarás directamente desde el bucket del curso a tu propio bucket usando AWS CloudShell (transferencia interna dentro de AWS).
 
-> **¿Querés levantar las VMs localmente con Vagrant?** Si preferís regenerar los OVAs desde cero o simplemente explorar el entorno on-premise antes de migrarlo, ver [`vagrant/instrucciones-levantar-vms.md`](../vagrant/instrucciones-levantar-vms.md).
+> **¿Querés levantar las VMs localmente con Vagrant?** Si preferís regenerar los OVAs desde cero o simplemente explorar el entorno on-premise antes de migrarlo, ver `[vagrant/instrucciones-levantar-vms.md](../vagrant/instrucciones-levantar-vms.md)`.
 
-<details>
-<summary><b>Alternativa: Verificar herramientas CLI (Bash/PowerShell)</b></summary>
+**Alternativa: Verificar herramientas CLI (Bash/PowerShell)**
 
 **Bash (Linux/Mac/WSL):**
+
 ```bash
 # Verificar herramientas
 aws --version       # AWS CLI >= 2.x
@@ -123,6 +124,7 @@ aws sts get-caller-identity
 ```
 
 **PowerShell (Windows):**
+
 ```powershell
 # Instalar AWS Tools (si no está instalado)
 Install-Module -Name AWS.Tools.Installer -Force
@@ -139,7 +141,7 @@ Get-Command VBoxManage
 vagrant --version
 ```
 
-</details>
+
 
 ---
 
@@ -157,25 +159,25 @@ vagrant --version
 6. Click **Next**
 7. **Stack name:** `cloudcuyo-nat-instance`
 8. **Parameters:**
-   - **VpcId:** Pegar el VPC ID proporcionado por el instructor
-   - **PublicSubnetId:** Pegar el Public Subnet ID proporcionado por el instructor
-   - **PrivateRouteTableId:** Pegar el Private Route Table ID proporcionado por el instructor
-   - **KeyPairName:** `cloudcuyo-key`
-   - **InstanceType:** `t3.micro`
+  - **VpcId:** Pegar el VPC ID proporcionado por el instructor
+  - **PublicSubnetId:** Pegar el Public Subnet ID proporcionado por el instructor
+  - **PrivateRouteTableId:** Pegar el Private Route Table ID proporcionado por el instructor
+  - **KeyPairName:** `cloudcuyo-key`
+  - **InstanceType:** `t3.micro`
 9. Click **Next**
 10. En **Configure stack options:** dejar todo por defecto, click **Next**
 11. En **Review:** marcar la casilla **I acknowledge that AWS CloudFormation might create IAM resources with custom names**
 12. Click **Submit**
 13. Esperar a que el estado sea **CREATE_COMPLETE** (~5 minutos)
 14. Ir a la pestaña **Outputs** y anotar:
-    - **NATInstanceId:** ID de la instancia NAT
+  - **NATInstanceId:** ID de la instancia NAT
     - **SSMInstanceProfileName:** Nombre del perfil IAM para SSM (ejemplo: `cloudcuyo-nat-instance-SSMInstanceProfile-ABC123`)
     - **NATElasticIP:** IP elástica de la NAT instance
 
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
+**Alternativa: Usando CLI (Bash/PowerShell)**
 
 **Bash:**
+
 ```bash
 source aws-ids.sh
 
@@ -189,6 +191,7 @@ aws cloudformation describe-stacks --stack-name cloudcuyo-nat-instance --query '
 ```
 
 **PowerShell:**
+
 ```powershell
 . .\aws-ids.ps1
 
@@ -212,7 +215,7 @@ $Stack = Get-CFNStack -StackName "cloudcuyo-nat-instance"
 $Stack.Outputs | Format-Table -Property OutputKey, OutputValue, Description
 ```
 
-</details>
+
 
 ---
 
@@ -239,11 +242,11 @@ Los copiarás a tu propio bucket en la **Fase 3**.
 1. Abrir terminal en la carpeta del proyecto
 2. Iniciar VMs: `vagrant up`
 3. (Opcional) Limpiar archivos temporales para reducir tamaño:
-   ```bash
+  ```bash
    for vm in db01 api01 frontend01 frontend02 lb01; do
      vagrant ssh $vm -c "sudo apt-get clean && sudo rm -rf /tmp/* /var/tmp/*"
    done
-   ```
+  ```
 4. Detener VMs: `vagrant halt`
 
 ### 2.2. Exportar a OVA usando VirtualBox GUI
@@ -265,16 +268,17 @@ Los copiarás a tu propio bucket en la **Fase 3**.
 Repetir para las 5 VMs. **Tiempo total estimado: 30-40 minutos**
 
 **Archivos resultantes:**
+
 - `cloudcuyo-db01.ova` (~2-3 GB)
 - `cloudcuyo-api01.ova` (~1-2 GB)
 - `cloudcuyo-frontend01.ova` (~1-2 GB)
 - `cloudcuyo-frontend02.ova` (~1-2 GB)
 - `cloudcuyo-lb01.ova` (~1-2 GB)
 
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
+**Alternativa: Usando CLI (Bash/PowerShell)**
 
 **Bash:**
+
 ```bash
 mkdir -p export-aws
 cd export-aws
@@ -294,6 +298,7 @@ echo "✓ Exportación completada"
 ```
 
 **PowerShell:**
+
 ```powershell
 New-Item -ItemType Directory -Force -Path "export-aws"
 Set-Location "export-aws"
@@ -318,7 +323,7 @@ Get-ChildItem *.ova | Format-Table Name, Length
 Write-Host "✓ Exportación completada" -ForegroundColor Green
 ```
 
-</details>
+
 
 ---
 
@@ -331,10 +336,10 @@ Write-Host "✓ Exportación completada" -ForegroundColor Green
 1. Ir a **S3** en la consola de AWS
 2. Click en **Create bucket**
 3. Configurar:
-   - **Bucket name:** `cloudcuyo-vm-import-<tu-numero-unico>` (ej: `cloudcuyo-vm-import-20260513`)
-   - **AWS Region:** `us-east-1`
-   - **Block Public Access settings:** Dejar todo marcado (seguridad por defecto)
-   - Resto de opciones: dejar por defecto
+  - **Bucket name:** `cloudcuyo-vm-import-<tu-numero-unico>` (ej: `cloudcuyo-vm-import-20260513`)
+  - **AWS Region:** `us-east-1`
+  - **Block Public Access settings:** Dejar todo marcado (seguridad por defecto)
+  - Resto de opciones: dejar por defecto
 4. Click **Create bucket**
 5. **Anotar el nombre exacto del bucket**
 
@@ -345,25 +350,26 @@ Write-Host "✓ Exportación completada" -ForegroundColor Green
 1. En la consola de AWS, click en el ícono de **CloudShell** (parte superior derecha, junto a la campana de notificaciones)
 2. Esperar a que cargue el terminal (~30 seg)
 3. Crear variable con tu bucket:
-   ```bash
+  ```bash
    MY_BUCKET="cloudcuyo-vm-import-$(aws sts get-caller-identity --query Account --output text)"
    echo $MY_BUCKET
-   ```
+  ```
 4. Copiar los OVAs desde el bucket público a tu bucket (sin descargar, red interna de AWS):
-   ```bash
+  ```bash
    aws s3 cp s3://curso-cloud-c2-2026-ovas/cloudcuyo-db01.ova s3://$MY_BUCKET/ --no-progress
    aws s3 cp s3://curso-cloud-c2-2026-ovas/cloudcuyo-api01.ova s3://$MY_BUCKET/ --no-progress
    aws s3 cp s3://curso-cloud-c2-2026-ovas/cloudcuyo-frontend01.ova s3://$MY_BUCKET/ --no-progress
    aws s3 cp s3://curso-cloud-c2-2026-ovas/cloudcuyo-frontend02.ova s3://$MY_BUCKET/ --no-progress
    aws s3 cp s3://curso-cloud-c2-2026-ovas/cloudcuyo-lb01.ova s3://$MY_BUCKET/ --no-progress
-   ```
+  ```
 5. Esto tomará ~10-15 minutos (los archivos se copian por la red interna de AWS, no pasan por tu computadora)
 6. Verificar que se copiaron:
-   ```bash
+  ```bash
    aws s3 ls s3://$MY_BUCKET/
-   ```
+  ```
 
 **Ventajas de CloudShell:**
+
 - No descargar/subir los OVAs (~5-8 GB)
 - Copia directa entre buckets S3 (red interna AWS)
 - Más rápido y sin consumir ancho de banda local
@@ -371,8 +377,7 @@ Write-Host "✓ Exportación completada" -ForegroundColor Green
 
 ### 3.3. Alternativa: Subir OVAs locales
 
-<details>
-<summary><b>Si exportaste los OVAs localmente con VirtualBox (GUI o CLI)</b></summary>
+**Si exportaste los OVAs localmente con VirtualBox (GUI o CLI)**
 
 **Usando AWS Console:**
 
@@ -380,11 +385,11 @@ Write-Host "✓ Exportación completada" -ForegroundColor Green
 2. Click en **Upload**
 3. Click en **Add files** o arrastra los 5 archivos OVA
 4. Seleccionar:
-   - `cloudcuyo-db01.ova`
-   - `cloudcuyo-api01.ova`
-   - `cloudcuyo-frontend01.ova`
-   - `cloudcuyo-frontend02.ova`
-   - `cloudcuyo-lb01.ova`
+  - `cloudcuyo-db01.ova`
+  - `cloudcuyo-api01.ova`
+  - `cloudcuyo-frontend01.ova`
+  - `cloudcuyo-frontend02.ova`
+  - `cloudcuyo-lb01.ova`
 5. (Opcional) Expandir **Additional upload options** > **Storage class:** Standard
 6. Click **Upload**
 7. Esperar a que termine (~30-60 minutos dependiendo de tu conexión)
@@ -393,6 +398,7 @@ Write-Host "✓ Exportación completada" -ForegroundColor Green
 **Alternativa: Usando CLI (Bash/PowerShell)**
 
 **Bash:**
+
 ```bash
 source ../aws-ids.sh
 
@@ -417,6 +423,7 @@ echo "✓ OVAs subidas a S3"
 ```
 
 **PowerShell:**
+
 ```powershell
 . ..\aws-ids.ps1
 
@@ -445,7 +452,7 @@ Get-S3Object -BucketName $BucketName | Format-Table Key, Size
 Write-Host "✓ OVAs subidas a S3" -ForegroundColor Green
 ```
 
-</details>
+
 
 ---
 
@@ -458,106 +465,105 @@ Write-Host "✓ OVAs subidas a S3" -ForegroundColor Green
 1. En la consola de AWS, click en el icono de **CloudShell**
 2. Esperar a que cargue (~30 seg)
 3. Definir variable con tu bucket:
-   ```bash
+  ```bash
    MY_BUCKET="cloudcuyo-vm-import-$(aws sts get-caller-identity --query Account --output text)"
-   ```
-
+  ```
 4. Crear archivos de configuracion para cada VM:
 
 **DB01:**
+
 ```bash
 cat > db01-import.json <<EOF
-{
-  "Description": "CloudCuyo DB01 - PostgreSQL",
-  "DiskContainers": [{
+[
+  {
     "Description": "CloudCuyo DB01",
     "Format": "ova",
     "UserBucket": {
       "S3Bucket": "$MY_BUCKET",
       "S3Key": "cloudcuyo-db01.ova"
     }
-  }]
-}
+  }
+]
 EOF
 ```
 
 **API01:**
+
 ```bash
 cat > api01-import.json <<EOF
-{
-  "Description": "CloudCuyo API01 - Flask API",
-  "DiskContainers": [{
+[
+  {
     "Description": "CloudCuyo API01",
     "Format": "ova",
     "UserBucket": {
       "S3Bucket": "$MY_BUCKET",
       "S3Key": "cloudcuyo-api01.ova"
     }
-  }]
-}
+  }
+]
 EOF
 ```
 
 **Frontend01:**
+
 ```bash
 cat > frontend01-import.json <<EOF
-{
-  "Description": "CloudCuyo Frontend01 - Web Server",
-  "DiskContainers": [{
+[
+  {
     "Description": "CloudCuyo Frontend01",
     "Format": "ova",
     "UserBucket": {
       "S3Bucket": "$MY_BUCKET",
       "S3Key": "cloudcuyo-frontend01.ova"
     }
-  }]
-}
+  }
+]
 EOF
 ```
 
 **Frontend02:**
+
 ```bash
 cat > frontend02-import.json <<EOF
-{
-  "Description": "CloudCuyo Frontend02 - Web Server",
-  "DiskContainers": [{
+[
+  {
     "Description": "CloudCuyo Frontend02",
     "Format": "ova",
     "UserBucket": {
       "S3Bucket": "$MY_BUCKET",
       "S3Key": "cloudcuyo-frontend02.ova"
     }
-  }]
-}
+  }
+]
 EOF
 ```
 
 **LB01:**
+
 ```bash
 cat > lb01-import.json <<EOF
-{
-  "Description": "CloudCuyo LB01 - Load Balancer",
-  "DiskContainers": [{
+[
+  {
     "Description": "CloudCuyo LB01",
     "Format": "ova",
     "UserBucket": {
       "S3Bucket": "$MY_BUCKET",
       "S3Key": "cloudcuyo-lb01.ova"
     }
-  }]
-}
+  }
+]
 EOF
 ```
 
-5. Iniciar las importaciones:
+1. Iniciar las importaciones:
 
 ```bash
 # Importar DB01
-DB_TASK=$(aws ec2 import-image --description "CloudCuyo DB01" --disk-containers file://db01-import.json --query 'ImportTaskId' --output text)
+DB_TASK=$(aws ec2 import-image --description "CloudCuyo DB01" --disk-containers "file://db01-import.json" --query 'ImportTaskId' --output text)
 echo "DB01 Import Task: $DB_TASK"
 
 # Importar API01
-API_TASK=$(aws ec2 import-image --description "CloudCuyo API01" --disk-containers file://api01-import.json --query 'ImportTaskId' --output text)
+API_TASK=$(aws ec2 import-image --description "CloudCuyo API01" --disk-containers "file://api01-import.json" --query 'ImportTaskId' --output text)
 echo "API01 Import Task: $API_TASK"
 
 # Importar Frontend01
@@ -577,14 +583,15 @@ echo "✓ Todas las importaciones iniciadas"
 echo "Tiempo estimado: 20-30 minutos"
 ```
 
-6. **Tomar un cafe** - Las importaciones tardan ~20-30 minutos
+1. **Tomar un cafe** - Las importaciones tardan ~20-30 minutos
+2. Verificar progreso (opcional):
 
-7. Verificar progreso (opcional):
 ```bash
 aws ec2 describe-import-image-tasks --import-task-ids $DB_TASK $API_TASK $FRONT01_TASK $FRONT02_TASK $LB_TASK
 ```
 
-8. Cuando terminen, obtener los AMI IDs:
+1. Cuando terminen, obtener los AMI IDs:
+
 ```bash
 DB_AMI=$(aws ec2 describe-import-image-tasks --import-task-ids $DB_TASK --query 'ImportImageTasks[0].ImageId' --output text)
 API_AMI=$(aws ec2 describe-import-image-tasks --import-task-ids $API_TASK --query 'ImportImageTasks[0].ImageId' --output text)
@@ -599,7 +606,7 @@ echo "Frontend02 AMI: $FRONT02_AMI"
 echo "LB01 AMI: $LB_AMI"
 ```
 
-9. Etiquetar las AMIs importadas con nombres claros:
+1. Etiquetar las AMIs importadas con nombres claros:
 
 > VM Import/Export genera el nombre interno de la AMI con el ID de la tarea (`import-ami-...`). Para evitar confusiones al lanzar instancias, agregar un tag `Name` descriptivo apenas termina la importacion.
 
@@ -617,14 +624,15 @@ aws ec2 describe-images \
 ```
 
 **Mientras esperas las importaciones:**
+
 - Puedes avanzar con la siguiente fase (crear Security Groups)
 - Revisar la documentacion de arquitectura
 - Tomar un descanso
 
-<details>
-<summary><b>Alternativa: Usando CLI local (Bash/PowerShell)</b></summary>
+**Alternativa: Usando CLI local (Bash/PowerShell)**
 
 **Bash:**
+
 ```bash
 source aws-ids.sh
 
@@ -654,6 +662,7 @@ echo "Monitorear progreso con: aws ec2 describe-import-image-tasks"
 ```
 
 **PowerShell:**
+
 ```powershell
 . .\aws-ids.ps1
 
@@ -682,7 +691,7 @@ $LbImport = (Import-EC2Image -Description "CloudCuyo LB01" -DiskContainer (Get-C
 Write-Host "Tasks de importacion iniciadas"
 ```
 
-</details>
+
 
 ---
 
@@ -693,6 +702,7 @@ Write-Host "Tasks de importacion iniciadas"
 El stack de CloudFormation creó un Instance Profile que **TODAS** las instancias deben usar:
 
 **Bash:**
+
 ```bash
 source aws-ids.sh
 
@@ -704,6 +714,7 @@ echo "export SSM_PROFILE_NAME=$SSM_PROFILE_NAME" >> aws-ids.sh
 ```
 
 **PowerShell:**
+
 ```powershell
 . .\aws-ids.ps1
 
@@ -717,6 +728,7 @@ Write-Host "SSM Instance Profile: $SsmProfileName" -ForegroundColor Green
 ### 5.2. Lanzar DB01 (primero, es crítica)
 
 **Bash:**
+
 ```bash
 source aws-ids.sh
 
@@ -737,6 +749,7 @@ echo "✓ DB01 corriendo"
 ```
 
 **PowerShell:**
+
 ```powershell
 . .\aws-ids.ps1
 
@@ -760,6 +773,7 @@ Write-Host "✓ DB01 corriendo" -ForegroundColor Green
 ### 5.3. Lanzar resto de instancias
 
 **Bash:**
+
 ```bash
 # API01
 API_SG=$(aws ec2 create-security-group --group-name cloudcuyo-api-sg --description "API SG" --vpc-id $VPC_ID --query 'GroupId' --output text)
@@ -798,6 +812,7 @@ echo "========================================="
 ```
 
 **PowerShell:**
+
 ```powershell
 # API01
 $ApiSg = New-EC2SecurityGroup -GroupName "cloudcuyo-api-sg" -Description "API SG" -VpcId $VpcId
@@ -844,6 +859,7 @@ Write-Host "=========================================" -ForegroundColor Green
 ### 6.1. Conectar via Session Manager
 
 **Bash:**
+
 ```bash
 # Ver instancias disponibles
 aws ssm describe-instance-information --output table
@@ -858,6 +874,7 @@ aws ssm start-session --target $DB_INSTANCE
 ```
 
 **PowerShell:**
+
 ```powershell
 # Ver instancias disponibles
 Get-SSMInstanceInformation | Format-Table InstanceId, PingStatus, PlatformName
@@ -872,6 +889,7 @@ Send-SSMCommand -InstanceId $DbInstance -DocumentName "AWS-RunShellScript" -Para
 ### 6.2. Verificar conectividad
 
 **Bash:**
+
 ```bash
 # Health check
 curl http://$LB_PUBLIC_IP/api/health
@@ -884,6 +902,7 @@ curl http://$LB_PUBLIC_IP/api/v1/health
 ```
 
 **PowerShell:**
+
 ```powershell
 # Health check
 Invoke-WebRequest -Uri "http://$LbPublicIp/api/health" | Select-Object -Expand Content
@@ -899,23 +918,26 @@ Invoke-RestMethod -Uri "http://$LbPublicIp/api/v1/health"
 
 ## Costos estimados
 
-| Recurso | Tipo | Costo/mes (us-east-1) |
-|---------|------|----------------------|
-| NAT Instance | t3.micro | ~$7 |
-| DB01 | t3.medium | ~$30 |
-| API01 | t3.small | ~$15 |
-| Frontend01/02 | t3.micro × 2 | ~$15 |
-| LB01 | t3.micro | ~$7 |
-| Elastic IPs | 2 (NAT + LB) | ~$7 |
-| EBS (5 instancias) | ~50GB total | ~$5 |
-| Data Transfer | ~10GB/mes | ~$1 |
-| **TOTAL** | | **~$87/mes** |
+
+| Recurso            | Tipo         | Costo/mes (us-east-1) |
+| ------------------ | ------------ | --------------------- |
+| NAT Instance       | t3.micro     | ~$7                   |
+| DB01               | t3.medium    | ~$30                  |
+| API01              | t3.small     | ~$15                  |
+| Frontend01/02      | t3.micro × 2 | ~$15                  |
+| LB01               | t3.micro     | ~$7                   |
+| Elastic IPs        | 2 (NAT + LB) | ~$7                   |
+| EBS (5 instancias) | ~50GB total  | ~$5                   |
+| Data Transfer      | ~10GB/mes    | ~$1                   |
+| **TOTAL**          |              | **~$87/mes**          |
+
 
 ---
 
 ## Limpieza
 
 **Bash:**
+
 ```bash
 source aws-ids.sh
 
@@ -934,6 +956,7 @@ aws s3 rb s3://${BUCKET_NAME}
 ```
 
 **PowerShell:**
+
 ```powershell
 . .\aws-ids.ps1
 
@@ -953,11 +976,14 @@ Remove-S3Bucket -BucketName $BucketName -Force
 ## Próximos desafíos
 
 Una vez completado este lab, has logrado:
+
 - Migrar infraestructura on-premise a AWS EC2 (REHOST)
 - Implementar networking con NAT Instance
 - Administrar instancias via SSM Session Manager
 - Entender costos de infraestructura cloud
 
 **Próximos labs recomendados:**
+
 - **Lab 2:** Modernizar frontend con S3 + CloudFront (REPLATFORM) - Ver `docs/lab-02-frontend-s3-cloudfront.md`
 - **Próximos desafíos:** Refactorizar API a serverless, migrar DB a RDS
+
