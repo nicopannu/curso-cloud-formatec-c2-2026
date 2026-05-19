@@ -51,37 +51,17 @@ Después del REHOST exitoso (Lab 1), CloudCuyo identifica oportunidades de optim
 
 - Lab 1 completado (infraestructura en AWS EC2)
 - Acceso a AWS Console
-- IP pública del Load Balancer (LB01)
+- Instancia `cloudcuyo-api01` corriendo en EC2
+- VPC, subnets y Security Groups del Lab 1 identificados
 
-### Obtener IP del Load Balancer
+### Identificar la API EC2
 
 **Usando AWS Console:**
 
 1. Ir a **EC2** > **Instances**
-2. Buscar la instancia con nombre `cloudcuyo-lb01`
-3. En la pestaña **Details**, copiar el valor de **Public IPv4 address**
-4. **Anotar esta IP** (la necesitarás más adelante)
-
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
-
-**Bash:**
-```bash
-# Si no tienes la IP, obtenerla:
-LB_PUBLIC_IP=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=cloudcuyo-lb01" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
-
-echo "LB IP: $LB_PUBLIC_IP"
-```
-
-**PowerShell:**
-```powershell
-# Obtener IP del LB
-$LbPublicIp = (Get-EC2Instance -Filter @{Name="tag:Name";Values="cloudcuyo-lb01"}).Instances[0].PublicIpAddress
-
-Write-Host "LB IP: $LbPublicIp"
-```
-
-</details>
+2. Buscar la instancia con nombre `cloudcuyo-api01`
+3. Confirmar que esté `Running`
+4. Anotar la VPC, subnet privada y Security Group asociado a la API
 
 ---
 
@@ -147,30 +127,17 @@ Write-Host "Bucket creado: $BucketName" -ForegroundColor Green
 
 ## Fase 2: Preparar y subir archivos
 
-### 2.1. Actualizar configuración de API en JavaScript
+No modificar código en este lab. El frontend ya está preparado para consumir la API mediante rutas relativas (`/api`), por lo que solo se deben subir los archivos estáticos necesarios al bucket S3.
 
-Los archivos JS necesitan usar rutas relativas para que CloudFront haga proxy a la API backend.
-
-**Editar localmente `app/frontend/assets/js/main.js` y `portal.js`:**
-
-```javascript
-// Cambiar de:
-// const API_BASE = 'http://192.168.56.10/api';
-
-// A:
-const API_BASE = window.location.hostname === 'localhost' 
-  ? 'http://192.168.56.10/api'
-  : '/api';  // Relativo, CloudFront hará proxy
-```
-
-### 2.2. Subir archivos al bucket S3
+### 2.1. Subir archivos al bucket S3
 
 **Usando AWS Console:**
 
 1. Ir a **S3** > Tu bucket `cloudcuyo-frontend-...`
 2. Click en **Upload**
-3. Click en **Add files** o arrastra la carpeta `app/frontend/` completa
-4. Asegurarte de incluir:
+3. Click en **Add files** y agregar los archivos HTML desde `app/frontend/`
+4. Click en **Add folder** y agregar la carpeta `app/frontend/assets/`
+5. Asegurarse de incluir solo estos archivos y carpetas necesarios:
    - `index.html`
    - `portal.html`
    - `clientes.html`
@@ -178,8 +145,9 @@ const API_BASE = window.location.hostname === 'localhost'
    - `hosting.html`
    - `soluciones.html`
    - Carpeta `assets/` (con subcarpetas `css/` y `js/`)
-5. Click **Upload**
-6. Esperar a que termine
+6. No subir archivos de desarrollo, documentación, `.git`, scripts ni carpetas que no formen parte del sitio estático.
+7. Click **Upload**
+8. Esperar a que termine
 
 **Configurar metadata de archivos (importante para Content-Type):**
 
@@ -190,103 +158,63 @@ Por defecto, S3 detecta automáticamente el Content-Type. Si tienes problemas:
 4. **Key:** `Content-Type`, **Value:** `text/html`
 5. Repetir para `.css` (`text/css`) y `.js` (`application/javascript`)
 
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
-
-**Bash:**
-```bash
-source cloudfront-vars.sh
-
-cd app/frontend
-
-# Subir todo el contenido
-aws s3 sync . s3://${BUCKET_NAME}/ --exclude "*.md" --exclude ".git*" --delete
-
-# Configurar content-types correctos
-aws s3 cp s3://${BUCKET_NAME}/assets/css/ s3://${BUCKET_NAME}/assets/css/ --recursive --content-type "text/css" --metadata-directive REPLACE
-
-aws s3 cp s3://${BUCKET_NAME}/assets/js/ s3://${BUCKET_NAME}/assets/js/ --recursive --content-type "application/javascript" --metadata-directive REPLACE
-
-aws s3 cp s3://${BUCKET_NAME}/ s3://${BUCKET_NAME}/ --recursive --exclude "*" --include "*.html" --content-type "text/html" --metadata-directive REPLACE
-
-# Cache headers
-# HTML: cache corto
-aws s3 cp s3://${BUCKET_NAME}/ s3://${BUCKET_NAME}/ --recursive --exclude "*" --include "*.html" --cache-control "max-age=300, must-revalidate" --metadata-directive REPLACE
-
-# CSS/JS: cache largo
-aws s3 cp s3://${BUCKET_NAME}/assets/ s3://${BUCKET_NAME}/assets/ --recursive --cache-control "max-age=31536000, immutable" --metadata-directive REPLACE
-
-echo "✓ Archivos subidos a S3"
-aws s3 ls s3://${BUCKET_NAME}/ --recursive --human-readable
-```
-
-**PowerShell:**
-```powershell
-. .\cloudfront-vars.ps1
-
-Set-Location "app\frontend"
-
-# Subir archivos
-Write-S3Object -BucketName $BucketName -Folder . -KeyPrefix "" -Recurse
-
-# Configurar content-types (PowerShell requiere hacerlo por archivo)
-$cssFiles = Get-S3Object -BucketName $BucketName -KeyPrefix "assets/css/"
-foreach ($file in $cssFiles) {
-    Copy-S3Object -BucketName $BucketName -Key $file.Key -DestinationBucket $BucketName -DestinationKey $file.Key -ContentType "text/css" -MetadataDirective REPLACE
-}
-
-$jsFiles = Get-S3Object -BucketName $BucketName -KeyPrefix "assets/js/"
-foreach ($file in $jsFiles) {
-    Copy-S3Object -BucketName $BucketName -Key $file.Key -DestinationBucket $BucketName -DestinationKey $file.Key -ContentType "application/javascript" -MetadataDirective REPLACE
-}
-
-Write-Host "✓ Archivos subidos a S3" -ForegroundColor Green
-Get-S3Object -BucketName $BucketName | Format-Table Key, Size
-```
-
-</details>
-
 ---
 
-## Fase 3: Configurar CORS en API Backend
+## Fase 3: Crear ALB para la API EC2
 
-Para que el frontend en CloudFront pueda hacer peticiones a la API, necesitamos habilitar CORS.
+En este lab el frontend se mueve a S3 + CloudFront y se reemplaza `lb01` en EC2 por un **Application Load Balancer** para exponer la API que sigue corriendo en `cloudcuyo-api01`.
 
-**Usando AWS Console (Systems Manager):**
+No se modifica código de la API ni del frontend.
 
-1. Ir a **Systems Manager** > **Fleet Manager** (o **Session Manager**)
-2. Click en **Start session**
-3. Seleccionar la instancia `cloudcuyo-api01`
-4. Click **Start session**
-5. En la terminal, ejecutar:
-   ```bash
-   sudo sed -i 's/CORS(app)/CORS(app, resources={r"\/api\/*": {"origins": "*"}})/g' /opt/cloudcuyo-api/app.py
-   sudo systemctl restart cloudcuyo-api
-   sudo systemctl status cloudcuyo-api
-   ```
-6. Verificar que el servicio esté **active (running)**
-7. Cerrar la sesión
+### 3.1. Crear Security Group del ALB
 
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
+1. Ir a **EC2 > Security Groups > Create security group**.
+2. Name: `cloudcuyo-alb-api-sg`.
+3. Description: `CloudCuyo API ALB public access`.
+4. VPC: seleccionar la VPC del laboratorio.
+5. Inbound rule: HTTP TCP 80 desde `0.0.0.0/0`.
+6. Outbound rule: All traffic.
+7. Crear el Security Group.
 
-**Bash:**
-```bash
-# Conectar via SSM a la instancia de API
-API_INSTANCE=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=cloudcuyo-api01" --query 'Reservations[0].Instances[0].InstanceId' --output text)
+### 3.2. Permitir trafico del ALB hacia `api01`
 
-# Actualizar CORS
-aws ssm send-command --instance-ids $API_INSTANCE --document-name "AWS-RunShellScript" --parameters 'commands=["sudo sed -i \"s/CORS(app)/CORS(app, resources={r\\\"\/api\/*\\\": {\\\"origins\\\": \\\"*\\\"}})/\" /opt/cloudcuyo-api/app.py","sudo systemctl restart cloudcuyo-api","sudo systemctl status cloudcuyo-api"]'
-```
+1. Ir a **EC2 > Security Groups**.
+2. Seleccionar `cloudcuyo-api-sg`.
+3. Ir a **Inbound rules > Edit inbound rules**.
+4. Agregar regla:
+   - Type: `Custom TCP`
+   - Port range: `5000`
+   - Source: `cloudcuyo-alb-api-sg`
+5. Guardar cambios.
 
-**PowerShell:**
-```powershell
-$ApiInstance = (Get-EC2Instance -Filter @{Name="tag:Name";Values="cloudcuyo-api01"}).Instances[0].InstanceId
+### 3.3. Crear Target Group para API
 
-Send-SSMCommand -InstanceId $ApiInstance -DocumentName "AWS-RunShellScript" -Parameter @{ commands = @( 'sudo sed -i "s/CORS(app)/CORS(app, resources={r\"\/api\/*\": {\"origins\": \"*\"}})/g" /opt/cloudcuyo-api/app.py', "sudo systemctl restart cloudcuyo-api" ) }
-```
+1. Ir a **EC2 > Target Groups**.
+2. Click en **Create target group**.
+3. Target type: `Instances`.
+4. Target group name: `cloudcuyo-api-tg`.
+5. Protocol: `HTTP`.
+6. Port: `5000`.
+7. VPC: seleccionar la VPC del laboratorio.
+8. Health check path: `/api/health`.
+9. Crear el Target Group.
+10. Registrar la instancia `cloudcuyo-api01` como target.
+11. Esperar a que el target quede `Healthy`.
 
-</details>
+### 3.4. Crear Application Load Balancer
+
+1. Ir a **EC2 > Load Balancers**.
+2. Click en **Create load balancer**.
+3. Elegir **Application Load Balancer**.
+4. Name: `cloudcuyo-api-alb`.
+5. Scheme: `Internet-facing`.
+6. IP address type: `IPv4`.
+7. Network mapping: seleccionar la VPC del laboratorio y al menos dos subnets publicas si estan disponibles. Si el entorno del curso tiene una sola subnet publica, usar la subnet publica provista por el instructor.
+8. Security groups: seleccionar `cloudcuyo-alb-api-sg`.
+9. Listener: HTTP 80.
+10. Default action: Forward to `cloudcuyo-api-tg`.
+11. Crear el ALB.
+12. Copiar el **DNS name** del ALB. Se usara como origen de API en CloudFront.
 
 ---
 
@@ -448,11 +376,11 @@ Write-Host "✓ Bucket policy actualizada" -ForegroundColor Green
 3. Ir a la pestaña **Origins**
 4. Click en **Create origin**
 5. Configurar:
-   - **Origin domain:** Pegar la IP pública del LB (NO seleccionar de la lista, escribir manualmente)
+   - **Origin domain:** Pegar el DNS name del ALB `cloudcuyo-api-alb` creado en la Fase 3
    - **Protocol:** `HTTP only`
    - **HTTP port:** `80`
    - **Origin path:** Dejar vacío
-   - **Name:** `EC2-API-Backend`
+   - **Name:** `ALB-API-Backend`
 6. Click **Create origin**
 
 ### 4.5. Configurar cache behavior para /api/*
@@ -463,7 +391,7 @@ Write-Host "✓ Bucket policy actualizada" -ForegroundColor Green
 2. Click en **Create behavior**
 3. Configurar:
    - **Path pattern:** `/api/*`
-   - **Origin and origin groups:** Seleccionar `EC2-API-Backend`
+   - **Origin and origin groups:** Seleccionar `ALB-API-Backend`
    - **Viewer protocol policy:** `HTTP and HTTPS`
    - **Allowed HTTP methods:** `GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE`
    - **Cache policy:** `CachingDisabled` (buscar en la lista)
@@ -518,8 +446,8 @@ cat > cloudfront-config.json <<EOF
         }
       },
       {
-        "Id": "EC2-API-Backend",
-        "DomainName": "${LB_PUBLIC_IP}",
+        "Id": "ALB-API-Backend",
+        "DomainName": "${ALB_DNS_NAME}",
         "CustomOriginConfig": {
           "HTTPPort": 80,
           "HTTPSPort": 443,
@@ -552,7 +480,7 @@ cat > cloudfront-config.json <<EOF
     "Quantity": 1,
     "Items": [{
       "PathPattern": "/api/*",
-      "TargetOriginId": "EC2-API-Backend",
+      "TargetOriginId": "ALB-API-Backend",
       "ViewerProtocolPolicy": "allow-all",
       "AllowedMethods": {
         "Quantity": 7,
@@ -618,8 +546,8 @@ $Origins = @(
         }
     },
     @{
-        Id = "EC2-API-Backend"
-        DomainName = $LbPublicIp
+        Id = "ALB-API-Backend"
+        DomainName = $AlbDnsName
         CustomOriginConfig = @{
             HTTPPort = 80
             HTTPSPort = 443
