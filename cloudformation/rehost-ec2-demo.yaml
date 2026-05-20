@@ -145,6 +145,25 @@ Resources:
       PrivateIpAddress: !Ref DbPrivateIp
       SecurityGroupIds:
         - !Ref DbSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          # Permitir conexiones PostgreSQL desde la VPC del lab.
+          # Las OVAs conservan configuracion on-premise; en AWS la VPC usa 10.0.0.0/16.
+          PG_HBA="/etc/postgresql/14/main/pg_hba.conf"
+          if [ -f "$PG_HBA" ]; then
+            cp "$PG_HBA" "$PG_HBA.bak.demo" || true
+            if ! grep -q "10.0.0.0/16" "$PG_HBA"; then
+              cat >> "$PG_HBA" <<'PGHBA'
+
+          # CloudCuyo AWS rehost demo - permitir API privada/VPC hacia PostgreSQL
+          host    cloudcuyo    cloudcuyo    10.0.0.0/16    md5
+          PGHBA
+            fi
+            systemctl reload postgresql || systemctl restart postgresql
+          fi
       Tags:
         - Key: Name
           Value: cloudcuyo-demo-db01
