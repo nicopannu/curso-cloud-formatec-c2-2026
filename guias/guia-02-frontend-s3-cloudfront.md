@@ -1,891 +1,456 @@
 # Guia 2: REPLATFORM Frontend - S3 + CloudFront
 
-**Objetivo:** Migrar el frontend estático de CloudCuyo desde instancias EC2 a S3 + CloudFront, optimizando costos y performance.
+**Objetivo:** migrar el frontend estatico de CloudCuyo desde instancias EC2 a S3 + CloudFront, validar la URL CDN y apagar las EC2 de frontend. En una fase posterior se agrega un ALB para exponer la API y apagar `lb01`.
 
-**Duración estimada:** 2-3 horas
+**Duracion estimada:** 2-3 horas
 
-**Estrategia 6R:** **REPLATFORM** (Re-arquitecturar para la plataforma cloud)
+**Estrategia 6R:** **REPLATFORM**
 
 ---
 
 ## Contexto
 
-Después del REHOST exitoso (Lab 1), CloudCuyo identifica oportunidades de optimización:
+Despues del REHOST del Lab 1, CloudCuyo todavia sirve contenido estatico desde instancias EC2. Este lab mueve el sitio estatico a S3 + CloudFront para reducir costo operativo y mejorar disponibilidad/performance.
 
-**Problema actual:**
-- 2 instancias EC2 sirviendo contenido estático (~$15/mes)
-- Mantenimiento manual de NGINX
-- Sin CDN global
-- Escalabilidad limitada
+**Antes:**
 
-**Solución:**
-- Frontend estático → S3
-- Distribución global → CloudFront
-- Reducción de costos ~94% ($15 → $0.92/mes)
-- Performance mejorado globalmente
-- Zero mantenimiento
+- `lb01` publico en EC2.
+- `frontend01` y `frontend02` en EC2 sirviendo HTML/CSS/JS.
+- `api01` y `db01` siguen en EC2.
+
+**Despues de esta primera validacion:**
+
+- Frontend estatico en bucket S3 privado.
+- CloudFront como CDN publico del frontend.
+- `frontend01` y `frontend02` apagadas.
+- `lb01`, `api01` y `db01` quedan encendidas para la siguiente fase.
+
+**Siguiente fase:**
+
+- Crear Application Load Balancer para `/api/*`.
+- Agregar segundo origen en CloudFront apuntando al ALB.
+- Validar portal completo por CDN.
+- Apagar `lb01`.
 
 ---
 
-## Arquitectura objetivo
+## Arquitectura objetivo por fases
 
+### Fase A - CDN estatico
+
+```text
+Usuario
+  |
+  v
+CloudFront
+  |
+  v
+S3 privado: index.html, portal.html, assets/*
 ```
-┌──────────────────────────────────────────────┐
-│  CloudFront Distribution                     │
-│  (CDN Global - 200+ edge locations)          │
-│  https://d1234567890.cloudfront.net          │
-└────┬─────────────────────────────────────────┘
-     │
-     ├─► Origin 1: S3 Bucket (default)
-     │   - index.html, portal.html
-     │   - assets/css/*, assets/js/*
-     │
-     └─► Origin 2: ALB/EC2 (path /api/*)
-         - Proxy inverso para APIs
-         - Mantiene backend sin cambios
+
+En esta fase se valida contenido estatico. Las llamadas `/api/*` todavia no quedan resueltas por CloudFront.
+
+### Fase B - CDN + API por ALB
+
+```text
+Usuario
+  |
+  v
+CloudFront
+  |-- Default behavior --> S3 privado frontend
+  |
+  |-- /api/* -----------> ALB publico ---> api01:5000 ---> db01
 ```
 
 ---
 
 ## Pre-requisitos
 
-- Lab 1 completado (infraestructura en AWS EC2)
-- Acceso a AWS Console
-- Instancia `cloudcuyo-api01` corriendo en EC2
-- VPC, subnets y Security Groups del Lab 1 identificados
+- Lab 1 completado o recursos de REHOST recreados por el instructor.
+- VPC del laboratorio identificada.
+- `db01`, `api01`, `frontend01`, `frontend02` y `lb01` disponibles inicialmente.
+- Acceso a AWS Console.
+- Permisos para S3, CloudFront, EC2 y VPC.
+- Region del lab: `us-east-1`.
 
-### Identificar la API EC2
+### Pre-requisito para la fase ALB: segunda subnet publica
 
-**Usando AWS Console:**
+CloudFront puede crearse con un solo origen S3, pero la fase posterior con Application Load Balancer requiere subnets publicas en al menos dos Availability Zones.
 
-1. Ir a **EC2** > **Instances**
-2. Buscar la instancia con nombre `cloudcuyo-api01`
-3. Confirmar que esté `Running`
-4. Anotar la VPC, subnet privada y Security Group asociado a la API
+Si la VPC del laboratorio tiene una sola subnet publica, crear una segunda subnet publica antes de construir el ALB:
+
+1. Ir a **VPC > Subnets**.
+2. Click en **Create subnet**.
+3. Seleccionar la VPC del laboratorio.
+4. Crear una subnet con estos criterios:
+   - **Subnet name:** `cloudcuyo-public2-us-east-1b`.
+   - **Availability Zone:** una AZ distinta a la subnet publica existente, por ejemplo `us-east-1b`.
+   - **IPv4 subnet CIDR block:** un rango libre dentro de la VPC, por ejemplo `10.0.2.0/24` si no esta usado.
+5. Crear la subnet.
+6. Seleccionarla y entrar a **Actions > Edit subnet settings**.
+7. Activar **Enable auto-assign public IPv4 address**.
+8. Ir a **Route tables**.
+9. Seleccionar la route table publica del laboratorio, la que tiene ruta `0.0.0.0/0` hacia el Internet Gateway.
+10. En **Subnet associations**, asociar la nueva subnet publica.
+
+> Esta subnet se documenta ahora para no bloquear la fase ALB. No es necesaria para crear el bucket S3 ni la primera distribucion CloudFront estatica.
 
 ---
 
-## Fase 1: Crear y configurar S3 Bucket
+## Fase 1: Validar estado inicial del REHOST
 
-### 1.1. Crear bucket S3
+1. Ir a **EC2 > Instances**.
+2. Confirmar que existan y esten `Running`:
+   - `cloudcuyo-db01` o `cloudcuyo-demo-db01`.
+   - `cloudcuyo-api01` o `cloudcuyo-demo-api01`.
+   - `cloudcuyo-frontend01` o `cloudcuyo-demo-frontend01`.
+   - `cloudcuyo-frontend02` o `cloudcuyo-demo-frontend02`.
+   - `cloudcuyo-lb01` o `cloudcuyo-demo-lb01`.
+3. Copiar la IP publica de `lb01`.
+4. Abrir en el navegador:
+   - `http://<ip-publica-lb01>/`
+   - `http://<ip-publica-lb01>/portal.html`
+   - `http://<ip-publica-lb01>/api/health`
+5. Si falla esta validacion, resolver el REHOST antes de continuar con S3/CloudFront.
 
-**Usando AWS Console:**
+---
 
-1. Ir a **S3** en la consola de AWS
-2. Click en **Create bucket**
+## Fase 2: Crear bucket S3 privado
+
+1. Ir a **S3**.
+2. Click en **Create bucket**.
 3. Configurar:
-   - **Bucket name:** `cloudcuyo-frontend-<tu-numero-unico>` (ej: `cloudcuyo-frontend-20260513`)
-   - **AWS Region:** `us-east-1`
-   - **Block Public Access settings:** Dejar todo marcado (CloudFront accederá via OAI)
-   - **Bucket Versioning:** Enable
-   - Resto de opciones: dejar por defecto
-4. Click **Create bucket**
-5. **Anotar el nombre exacto del bucket**
+   - **Bucket name:** `cloudcuyo-frontend-<identificador-unico>`.
+   - **AWS Region:** `us-east-1`.
+   - **Object Ownership:** dejar valor por defecto recomendado.
+   - **Block Public Access settings:** dejar todo marcado.
+   - **Bucket Versioning:** `Enable`.
+   - Resto de opciones: dejar por defecto.
+4. Click en **Create bucket**.
+5. Anotar el nombre exacto del bucket.
 
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
-
-**Bash:**
-```bash
-BUCKET_NAME="cloudcuyo-frontend-$(date +%s)"
-AWS_REGION="us-east-1"
-
-aws s3 mb s3://${BUCKET_NAME} --region ${AWS_REGION}
-
-# Habilitar versionado
-aws s3api put-bucket-versioning --bucket ${BUCKET_NAME} --versioning-configuration Status=Enabled
-
-# Block public access (CloudFront usará OAI)
-aws s3api put-public-access-block --bucket ${BUCKET_NAME} --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-
-echo "Bucket creado: $BUCKET_NAME"
-echo "export BUCKET_NAME=$BUCKET_NAME" >> cloudfront-vars.sh
-```
-
-**PowerShell:**
-```powershell
-$BucketName = "cloudcuyo-frontend-$(Get-Date -Format 'yyyyMMddHHmmss')"
-$Region = "us-east-1"
-
-Set-DefaultAWSRegion -Region $Region
-
-New-S3Bucket -BucketName $BucketName -Region $Region
-
-# Habilitar versionado
-Write-S3BucketVersioning -BucketName $BucketName -VersioningConfig_Status Enabled
-
-# Block public access
-Add-S3PublicAccessBlock -BucketName $BucketName -PublicAccessBlockConfiguration_BlockPublicAcl $true -PublicAccessBlockConfiguration_IgnorePublicAcl $true -PublicAccessBlockConfiguration_BlockPublicPolicy $true -PublicAccessBlockConfiguration_RestrictPublicBucket $true
-
-Write-Host "Bucket creado: $BucketName" -ForegroundColor Green
-"`$BucketName = `"$BucketName`"" | Out-File -FilePath "cloudfront-vars.ps1"
-```
-
-</details>
+> El bucket debe permanecer privado. CloudFront accedera usando Origin Access Control (OAC).
 
 ---
 
-## Fase 2: Preparar y subir archivos
+## Fase 3: Subir archivos del frontend
 
-No modificar código en este lab. El frontend ya está preparado para consumir la API mediante rutas relativas (`/api`), por lo que solo se deben subir los archivos estáticos necesarios al bucket S3.
-
-### 2.1. Subir archivos al bucket S3
-
-**Usando AWS Console:**
-
-1. Ir a **S3** > Tu bucket `cloudcuyo-frontend-...`
-2. Click en **Upload**
-3. Click en **Add files** y agregar los archivos HTML desde `app/frontend/`
-4. Click en **Add folder** y agregar la carpeta `app/frontend/assets/`
-5. Asegurarse de incluir solo estos archivos y carpetas necesarios:
+1. Entrar al bucket creado.
+2. Click en **Upload**.
+3. Desde el repositorio local, abrir `app/frontend/`.
+4. Subir solo los archivos del sitio:
    - `index.html`
    - `portal.html`
    - `clientes.html`
    - `contacto.html`
    - `hosting.html`
    - `soluciones.html`
-   - Carpeta `assets/` (con subcarpetas `css/` y `js/`)
-6. No subir archivos de desarrollo, documentación, `.git`, scripts ni carpetas que no formen parte del sitio estático.
-7. Click **Upload**
-8. Esperar a que termine
+   - carpeta `assets/` completa
+5. No subir `.git`, documentacion, scripts ni carpetas de desarrollo.
+6. Click en **Upload** y esperar a que finalice.
+7. Verificar que en el bucket se vean los HTML en la raiz y `assets/css/` y `assets/js/` como carpetas.
 
-**Configurar metadata de archivos (importante para Content-Type):**
+### Verificar metadata si algo carga mal
 
-Por defecto, S3 detecta automáticamente el Content-Type. Si tienes problemas:
-1. Seleccionar archivos `.html`
-2. **Actions** > **Edit metadata**
-3. **Type:** `System-defined`
-4. **Key:** `Content-Type`, **Value:** `text/html`
-5. Repetir para `.css` (`text/css`) y `.js` (`application/javascript`)
+S3 normalmente detecta el `Content-Type`. Si el navegador descarga archivos en vez de renderizarlos:
+
+1. Seleccionar el objeto afectado.
+2. Ir a **Properties > Metadata**.
+3. Confirmar valores esperados:
+   - `.html`: `text/html`
+   - `.css`: `text/css`
+   - `.js`: `application/javascript`
 
 ---
 
-## Fase 3: Crear ALB para la API EC2
+## Fase 4: Crear CloudFront con origen S3
 
-En este lab el frontend se mueve a S3 + CloudFront y se reemplaza `lb01` en EC2 por un **Application Load Balancer** para exponer la API que sigue corriendo en `cloudcuyo-api01`.
+### 4.1 Crear Origin Access Control
 
-No se modifica código de la API ni del frontend.
+1. Ir a **CloudFront**.
+2. En el menu lateral, entrar a **Origin access**.
+3. Abrir la pestana **Origin access control**.
+4. Click en **Create control setting**.
+5. Configurar:
+   - **Name:** `cloudcuyo-oac`.
+   - **Description:** `CloudCuyo S3 Origin Access Control`.
+   - **Origin type:** `S3`.
+   - **Signing behavior:** `Sign requests`.
+   - **Signing protocol:** `SigV4`.
+6. Click en **Create**.
 
-### 3.1. Crear Security Group del ALB
+### 4.2 Crear distribucion CloudFront
 
-1. Ir a **EC2 > Security Groups > Create security group**.
-2. Name: `cloudcuyo-alb-api-sg`.
-3. Description: `CloudCuyo API ALB public access`.
-4. VPC: seleccionar la VPC del laboratorio.
-5. Inbound rule: HTTP TCP 80 desde `0.0.0.0/0`.
-6. Outbound rule: All traffic.
-7. Crear el Security Group.
+1. Ir a **CloudFront > Distributions**.
+2. Click en **Create distribution**.
+3. En **Origin domain**, seleccionar el bucket S3 creado.
+4. En **Origin access**, elegir **Origin access control settings (recommended)**.
+5. En **Origin access control**, seleccionar `cloudcuyo-oac`.
+6. En **Default cache behavior** configurar:
+   - **Viewer protocol policy:** `Redirect HTTP to HTTPS`.
+   - **Allowed HTTP methods:** `GET, HEAD`.
+   - **Compress objects automatically:** `Yes`.
+7. En **Settings** configurar:
+   - **Price class:** `Use only North America and Europe`.
+   - **Default root object:** `index.html`.
+8. Click en **Create distribution**.
+9. Anotar:
+   - **Distribution ID**.
+   - **Distribution domain name**, por ejemplo `dxxxxxxxxxxxxx.cloudfront.net`.
 
-### 3.2. Permitir trafico del ALB hacia `api01`
+### 4.3 Actualizar bucket policy para OAC
+
+Despues de crear la distribucion, CloudFront muestra un aviso indicando que la bucket policy debe actualizarse.
+
+1. En el aviso de CloudFront, click en **Copy policy**.
+2. Ir a **S3 > bucket del frontend > Permissions**.
+3. En **Bucket policy**, click en **Edit**.
+4. Pegar la politica generada por CloudFront.
+5. Verificar que la politica:
+   - Permite `s3:GetObject`.
+   - Usa principal `cloudfront.amazonaws.com`.
+   - Limita acceso con `AWS:SourceArn` a la distribucion creada.
+6. Click en **Save changes**.
+
+---
+
+## Fase 5: Esperar despliegue y validar CDN estatico
+
+1. Volver a **CloudFront > Distributions**.
+2. Esperar a que el estado de la distribucion pase de `Deploying` a `Enabled` / `Deployed`.
+3. Abrir en el navegador:
+   - `https://<distribution-domain>/`
+   - `https://<distribution-domain>/portal.html`
+   - `https://<distribution-domain>/clientes.html`
+   - `https://<distribution-domain>/hosting.html`
+   - `https://<distribution-domain>/contacto.html`
+4. Confirmar que cargan estilos e interacciones basicas.
+
+### Resultado esperado en esta fase
+
+- El contenido estatico carga desde CloudFront.
+- El bucket S3 no es publico.
+- Las rutas `/api/*` todavia pueden fallar desde CloudFront. Esto es esperado hasta configurar el ALB en la fase posterior.
+
+### Problemas frecuentes
+
+| Sintoma | Posible causa | Correccion |
+|---|---|---|
+| `403 AccessDenied` | Bucket policy OAC faltante o incorrecta | Copiar nuevamente la policy generada por CloudFront |
+| `404 Not Found` en `/` | Falta default root object | Configurar `index.html` |
+| HTML sin estilos | No se subio `assets/` o Content-Type incorrecto | Revisar objetos y metadata |
+| Cambios no aparecen | Cache de CloudFront | Crear invalidation para los paths modificados |
+| Login/API falla | Falta configurar ALB y behavior `/api/*` | Continuar con fase posterior |
+
+---
+
+## Fase 6: Apagar EC2 de frontend
+
+Cuando el sitio estatico ya carga correctamente desde CloudFront:
+
+1. Ir a **EC2 > Instances**.
+2. Seleccionar:
+   - `cloudcuyo-frontend01` o `cloudcuyo-demo-frontend01`.
+   - `cloudcuyo-frontend02` o `cloudcuyo-demo-frontend02`.
+3. Click en **Instance state > Stop instance**.
+4. Confirmar.
+5. Validar nuevamente la URL de CloudFront.
+
+> En esta etapa no apagar `lb01`, `api01` ni `db01`. Se necesitan para la fase ALB/API.
+
+---
+
+## Fase 7: Crear ALB para la API
+
+Esta fase permite que el portal servido por CloudFront use la API sin depender de `lb01`.
+
+Arquitectura de esta fase:
+
+```text
+CloudFront
+  |-- default  --> S3 frontend
+  |-- /api/*   --> ALB publico --> api01:5000 --> db01:5432
+```
+
+### 7.1 Confirmar prerequisitos
+
+1. Ir a **EC2 > Instances**.
+2. Confirmar que `api01` este `Running`.
+3. Confirmar que `db01` este `Running`.
+4. Confirmar que `frontend01` y `frontend02` pueden seguir apagadas.
+5. Ir a **VPC > Subnets** y confirmar que existan dos subnets publicas en AZs distintas.
+6. Confirmar que ambas subnets publicas esten asociadas a una route table con ruta `0.0.0.0/0` hacia el Internet Gateway.
+
+### 7.2 Crear Security Group para el ALB
 
 1. Ir a **EC2 > Security Groups**.
-2. Seleccionar `cloudcuyo-api-sg`.
-3. Ir a **Inbound rules > Edit inbound rules**.
+2. Click en **Create security group**.
+3. Configurar:
+   - **Security group name:** `cloudcuyo-alb-api-sg`.
+   - **Description:** `CloudCuyo API ALB public access`.
+   - **VPC:** VPC del laboratorio.
+4. En **Inbound rules**, agregar:
+   - **Type:** `HTTP`.
+   - **Protocol:** `TCP`.
+   - **Port:** `80`.
+   - **Source:** `0.0.0.0/0`.
+5. En **Outbound rules**, dejar **All traffic**.
+6. Crear el Security Group.
+
+### 7.3 Permitir que el ALB llegue a `api01`
+
+1. Ir a **EC2 > Security Groups**.
+2. Seleccionar el Security Group usado por `api01`.
+3. Entrar a **Inbound rules > Edit inbound rules**.
 4. Agregar regla:
-   - Type: `Custom TCP`
-   - Port range: `5000`
-   - Source: `cloudcuyo-alb-api-sg`
+   - **Type:** `Custom TCP`.
+   - **Port range:** `5000`.
+   - **Source:** seleccionar el Security Group `cloudcuyo-alb-api-sg`.
 5. Guardar cambios.
 
-### 3.3. Crear Target Group para API
+> No abrir `api01:5000` a `0.0.0.0/0`. Solo debe aceptar trafico desde el Security Group del ALB.
+
+### 7.4 Crear Target Group para `api01`
 
 1. Ir a **EC2 > Target Groups**.
 2. Click en **Create target group**.
-3. Target type: `Instances`.
-4. Target group name: `cloudcuyo-api-tg`.
-5. Protocol: `HTTP`.
-6. Port: `5000`.
-7. VPC: seleccionar la VPC del laboratorio.
-8. Health check path: `/api/health`.
-9. Crear el Target Group.
-10. Registrar la instancia `cloudcuyo-api01` como target.
-11. Esperar a que el target quede `Healthy`.
+3. Configurar:
+   - **Choose a target type:** `Instances`.
+   - **Target group name:** `cloudcuyo-api-tg`.
+   - **Protocol:** `HTTP`.
+   - **Port:** `5000`.
+   - **VPC:** VPC del laboratorio.
+   - **Protocol version:** `HTTP1`.
+4. En **Health checks** configurar:
+   - **Health check protocol:** `HTTP`.
+   - **Health check path:** `/api/health`.
+5. Click en **Next**.
+6. Seleccionar la instancia `api01`.
+7. Mantener puerto `5000`.
+8. Click en **Include as pending below**.
+9. Click en **Create target group**.
+10. Esperar a que el target quede `Healthy`.
 
-### 3.4. Crear Application Load Balancer
+### 7.5 Crear Application Load Balancer
 
 1. Ir a **EC2 > Load Balancers**.
 2. Click en **Create load balancer**.
 3. Elegir **Application Load Balancer**.
-4. Name: `cloudcuyo-api-alb`.
-5. Scheme: `Internet-facing`.
-6. IP address type: `IPv4`.
-7. Network mapping: seleccionar la VPC del laboratorio y al menos dos subnets publicas si estan disponibles. Si el entorno del curso tiene una sola subnet publica, usar la subnet publica provista por el instructor.
-8. Security groups: seleccionar `cloudcuyo-alb-api-sg`.
-9. Listener: HTTP 80.
-10. Default action: Forward to `cloudcuyo-api-tg`.
-11. Crear el ALB.
-12. Copiar el **DNS name** del ALB. Se usara como origen de API en CloudFront.
-
----
-
-## Fase 4: Crear CloudFront Distribution
-
-### 4.1. Crear Origin Access Control (OAC)
-
-**Usando AWS Console:**
-
-1. Ir a **CloudFront** en la consola de AWS
-2. En el menu lateral, ir a **Origin access** > **Origin access control**
-3. Click en **Create control setting**
 4. Configurar:
-   - **Name:** `cloudcuyo-oac`
-   - **Description:** `CloudCuyo S3 Origin Access Control`
-   - **Signing behavior:** `Sign requests (recommended)`
-   - **Origin type:** `S3`
-5. Click **Create**
-6. **Anotar el ID del OAC** (lo necesitarás para la bucket policy)
+   - **Load balancer name:** `cloudcuyo-api-alb`.
+   - **Scheme:** `Internet-facing`.
+   - **IP address type:** `IPv4`.
+5. En **Network mapping**:
+   - Seleccionar la VPC del laboratorio.
+   - Seleccionar las dos subnets publicas en AZs distintas.
+6. En **Security groups**, seleccionar `cloudcuyo-alb-api-sg`.
+7. En **Listeners and routing**:
+   - **Protocol:** `HTTP`.
+   - **Port:** `80`.
+   - **Default action:** forward al Target Group `cloudcuyo-api-tg`.
+8. Crear el ALB.
+9. Copiar el **DNS name** del ALB.
+10. Abrir en navegador:
+    - `http://<dns-del-alb>/api/health`
+11. Confirmar respuesta de la API con `database: ok`.
 
-<details>
-<summary><b>Alternativa: Crear Origin Access Identity (OAI) - método legacy</b></summary>
+---
 
-**Bash:**
-```bash
-OAI_ID=$(aws cloudfront create-cloud-front-origin-access-identity --cloud-front-origin-access-identity-config CallerReference="cloudcuyo-oai-$(date +%s)",Comment="CloudCuyo S3 OAI" --query 'CloudFrontOriginAccessIdentity.Id' --output text)
+## Fase 8: Conectar CloudFront con el ALB para `/api/*`
 
-echo "OAI ID: $OAI_ID"
-echo "export OAI_ID=$OAI_ID" >> cloudfront-vars.sh
-```
+### 8.1 Agregar el ALB como origin
 
-**PowerShell:**
-```powershell
-$OaiConfig = @{
-    CallerReference = "cloudcuyo-oai-$(Get-Date -Format 'yyyyMMddHHmmss')"
-    Comment = "CloudCuyo S3 OAI"
-}
-
-$Oai = New-CFOriginAccessIdentity -CloudFrontOriginAccessIdentityConfig $OaiConfig
-$OaiId = $Oai.Id
-
-Write-Host "OAI ID: $OaiId" -ForegroundColor Green
-"`$OaiId = `"$OaiId`"" | Add-Content -Path "cloudfront-vars.ps1"
-```
-
-</details>
-
-### 4.2. Crear CloudFront Distribution
-
-**Usando AWS Console:**
-
-1. Ir a **CloudFront** > **Distributions**
-2. Click en **Create distribution**
-3. **Origin settings:**
-   - **Origin domain:** Seleccionar tu bucket S3 `cloudcuyo-frontend-...`
-   - **Origin access:** `Origin access control settings (recommended)`
-   - **Origin access control:** Seleccionar el OAC creado (`cloudcuyo-oac`)
-   - **Name:** Dejar el nombre generado automáticamente
-4. **Default cache behavior:**
-   - **Viewer protocol policy:** `Redirect HTTP to HTTPS`
-   - **Allowed HTTP methods:** `GET, HEAD`
-   - **Compress objects automatically:** `Yes`
-   - Resto: dejar por defecto
-5. **Settings:**
-   - **Price class:** `Use only North America and Europe`
-   - **Default root object:** `index.html`
-6. Click **Create distribution**
-7. **IMPORTANTE:** Aparecerá un banner azul diciendo "The S3 bucket policy needs to be updated". Click en **Copy policy** y continúa con el paso 4.3
-
-**Anotar:**
-- **Distribution domain name** (ej: `d1234567890.cloudfront.net`)
-- **Distribution ID** (ej: `E1234567890ABC`)
-
-### 4.3. Actualizar bucket policy
-
-**Usando AWS Console:**
-
-1. Copiar la política que apareció en el banner (paso anterior)
-2. Ir a **S3** > Tu bucket `cloudcuyo-frontend-...`
-3. Ir a la pestaña **Permissions**
-4. En **Bucket policy**, click **Edit**
-5. Pegar la política copiada (o usar esta plantilla, reemplazando valores):
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [{
-       "Sid": "AllowCloudFrontServicePrincipal",
-       "Effect": "Allow",
-       "Principal": {
-         "Service": "cloudfront.amazonaws.com"
-       },
-       "Action": "s3:GetObject",
-       "Resource": "arn:aws:s3:::cloudcuyo-frontend-<tu-numero>/*",
-       "Condition": {
-         "StringEquals": {
-           "AWS:SourceArn": "arn:aws:cloudfront::<tu-account-id>:distribution/<distribution-id>"
-         }
-       }
-     }]
-   }
-   ```
-6. Click **Save changes**
-
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
-
-**Bash:**
-```bash
-source cloudfront-vars.sh
-
-cat > bucket-policy.json <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {
-      "AWS": "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${OAI_ID}"
-    },
-    "Action": "s3:GetObject",
-    "Resource": "arn:aws:s3:::${BUCKET_NAME}/*"
-  }]
-}
-EOF
-
-aws s3api put-bucket-policy --bucket ${BUCKET_NAME} --policy file://bucket-policy.json
-echo "✓ Bucket policy actualizada"
-```
-
-**PowerShell:**
-```powershell
-. .\cloudfront-vars.ps1
-
-$BucketPolicy = @"
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {
-      "AWS": "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity $OaiId"
-    },
-    "Action": "s3:GetObject",
-    "Resource": "arn:aws:s3:::$BucketName/*"
-  }]
-}
-"@
-
-Write-S3BucketPolicy -BucketName $BucketName -Policy $BucketPolicy
-Write-Host "✓ Bucket policy actualizada" -ForegroundColor Green
-```
-
-</details>
-
-### 4.4. Agregar origen de API (Backend)
-
-**Usando AWS Console:**
-
-1. Ir a **CloudFront** > **Distributions**
-2. Click en tu distribución (domain name `d1234567890.cloudfront.net`)
-3. Ir a la pestaña **Origins**
-4. Click en **Create origin**
+1. Ir a **CloudFront > Distributions**.
+2. Seleccionar la distribucion creada para el frontend.
+3. Entrar a la pestana **Origins**.
+4. Click en **Create origin**.
 5. Configurar:
-   - **Origin domain:** Pegar el DNS name del ALB `cloudcuyo-api-alb` creado en la Fase 3
-   - **Protocol:** `HTTP only`
-   - **HTTP port:** `80`
-   - **Origin path:** Dejar vacío
-   - **Name:** `ALB-API-Backend`
-6. Click **Create origin**
+   - **Origin domain:** DNS name del ALB `cloudcuyo-api-alb`.
+   - **Protocol:** `HTTP only`.
+   - **HTTP port:** `80`.
+   - **Origin path:** dejar vacio.
+   - **Name:** `ALB-API-Backend`.
+6. Click en **Create origin**.
 
-### 4.5. Configurar cache behavior para /api/*
+### 8.2 Crear behavior para `/api/*`
 
-**Usando AWS Console:**
-
-1. En la misma distribución, ir a la pestaña **Behaviors**
-2. Click en **Create behavior**
+1. En la misma distribucion, ir a **Behaviors**.
+2. Click en **Create behavior**.
 3. Configurar:
-   - **Path pattern:** `/api/*`
-   - **Origin and origin groups:** Seleccionar `ALB-API-Backend`
-   - **Viewer protocol policy:** `HTTP and HTTPS`
-   - **Allowed HTTP methods:** `GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE`
-   - **Cache policy:** `CachingDisabled` (buscar en la lista)
-   - **Origin request policy:** `AllViewer` (buscar en la lista)
-4. Click **Create behavior**
+   - **Path pattern:** `/api/*`.
+   - **Origin and origin groups:** `ALB-API-Backend`.
+   - **Viewer protocol policy:** `Redirect HTTP to HTTPS`.
+   - **Allowed HTTP methods:** `GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE`.
+   - **Cache HTTP methods:** `GET, HEAD`.
+   - **Cache policy:** `CachingDisabled`.
+   - **Origin request policy:** `AllViewer`.
+4. Crear el behavior.
+5. Esperar a que la distribucion vuelva a quedar desplegada.
 
-### 4.6. Configurar página de error 404
+### 8.3 Validar API por CloudFront
 
-**Usando AWS Console:**
+1. Abrir en navegador:
+   - `https://<distribution-domain>/api/health`
+2. Confirmar que responde la API.
+3. La respuesta esperada debe indicar que la base esta `ok`.
 
-1. En la distribución, ir a la pestaña **Error pages**
-2. Click en **Create custom error response**
-3. Configurar:
-   - **HTTP error code:** `404: Not Found`
-   - **Customize error response:** `Yes`
-   - **Response page path:** `/index.html`
-   - **HTTP response code:** `200: OK`
-4. Click **Create custom error response**
+### 8.4 Validar login completo del portal
 
-### 4.7. Esperar despliegue
-
-El despliegue de CloudFront toma ~15-20 minutos.
-
-**Monitorear estado:**
-1. En **CloudFront** > **Distributions**
-2. Ver la columna **Status**
-3. Esperar a que cambie de `Deploying` a `Enabled`
-
-<details>
-<summary><b>Alternativa: Crear distribución completa usando CLI (configuración JSON)</b></summary>
-
-### 4.3. Crear distribución de CloudFront
-
-**Bash:**
-```bash
-source cloudfront-vars.sh
-
-cat > cloudfront-config.json <<EOF
-{
-  "CallerReference": "cloudcuyo-$(date +%s)",
-  "Comment": "CloudCuyo Frontend Distribution",
-  "Enabled": true,
-  "DefaultRootObject": "index.html",
-  "Origins": {
-    "Quantity": 2,
-    "Items": [
-      {
-        "Id": "S3-cloudcuyo-frontend",
-        "DomainName": "${BUCKET_NAME}.s3.amazonaws.com",
-        "S3OriginConfig": {
-          "OriginAccessIdentity": "origin-access-identity/cloudfront/${OAI_ID}"
-        }
-      },
-      {
-        "Id": "ALB-API-Backend",
-        "DomainName": "${ALB_DNS_NAME}",
-        "CustomOriginConfig": {
-          "HTTPPort": 80,
-          "HTTPSPort": 443,
-          "OriginProtocolPolicy": "http-only"
-        }
-      }
-    ]
-  },
-  "DefaultCacheBehavior": {
-    "TargetOriginId": "S3-cloudcuyo-frontend",
-    "ViewerProtocolPolicy": "redirect-to-https",
-    "AllowedMethods": {
-      "Quantity": 2,
-      "Items": ["GET", "HEAD"],
-      "CachedMethods": {
-        "Quantity": 2,
-        "Items": ["GET", "HEAD"]
-      }
-    },
-    "Compress": true,
-    "ForwardedValues": {
-      "QueryString": false,
-      "Cookies": {"Forward": "none"}
-    },
-    "MinTTL": 0,
-    "DefaultTTL": 86400,
-    "MaxTTL": 31536000
-  },
-  "CacheBehaviors": {
-    "Quantity": 1,
-    "Items": [{
-      "PathPattern": "/api/*",
-      "TargetOriginId": "ALB-API-Backend",
-      "ViewerProtocolPolicy": "allow-all",
-      "AllowedMethods": {
-        "Quantity": 7,
-        "Items": ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"],
-        "CachedMethods": {
-          "Quantity": 2,
-          "Items": ["GET", "HEAD"]
-        }
-      },
-      "Compress": false,
-      "ForwardedValues": {
-        "QueryString": true,
-        "Cookies": {"Forward": "all"},
-        "Headers": {
-          "Quantity": 4,
-          "Items": ["Accept", "Content-Type", "Authorization", "Origin"]
-        }
-      },
-      "MinTTL": 0,
-      "DefaultTTL": 0,
-      "MaxTTL": 0
-    }]
-  },
-  "CustomErrorResponses": {
-    "Quantity": 1,
-    "Items": [{
-      "ErrorCode": 404,
-      "ResponsePagePath": "/index.html",
-      "ResponseCode": "200",
-      "ErrorCachingMinTTL": 300
-    }]
-  },
-  "PriceClass": "PriceClass_100"
-}
-EOF
-
-DISTRIBUTION_ID=$(aws cloudfront create-distribution --distribution-config file://cloudfront-config.json --query 'Distribution.Id' --output text)
-
-CLOUDFRONT_DOMAIN=$(aws cloudfront get-distribution --id $DISTRIBUTION_ID --query 'Distribution.DomainName' --output text)
-
-echo "Distribution ID: $DISTRIBUTION_ID"
-echo "CloudFront Domain: https://${CLOUDFRONT_DOMAIN}"
-echo "Esperando despliegue (~15-20 min)..."
-
-# Guardar
-cat >> cloudfront-vars.sh <<EOF
-export DISTRIBUTION_ID="$DISTRIBUTION_ID"
-export CLOUDFRONT_DOMAIN="$CLOUDFRONT_DOMAIN"
-EOF
-```
-
-**PowerShell:**
-```powershell
-. .\cloudfront-vars.ps1
-
-# Crear configuración (PowerShell requiere objeto estructurado)
-$Origins = @(
-    @{
-        Id = "S3-cloudcuyo-frontend"
-        DomainName = "$BucketName.s3.amazonaws.com"
-        S3OriginConfig = @{
-            OriginAccessIdentity = "origin-access-identity/cloudfront/$OaiId"
-        }
-    },
-    @{
-        Id = "ALB-API-Backend"
-        DomainName = $AlbDnsName
-        CustomOriginConfig = @{
-            HTTPPort = 80
-            HTTPSPort = 443
-            OriginProtocolPolicy = "http-only"
-        }
-    }
-)
-
-$DefaultCacheBehavior = @{
-    TargetOriginId = "S3-cloudcuyo-frontend"
-    ViewerProtocolPolicy = "redirect-to-https"
-    AllowedMethods = @{
-        Quantity = 2
-        Items = @("GET", "HEAD")
-        CachedMethods = @{
-            Quantity = 2
-            Items = @("GET", "HEAD")
-        }
-    }
-    Compress = $true
-    ForwardedValues = @{
-        QueryString = $false
-        Cookies = @{ Forward = "none" }
-    }
-    MinTTL = 0
-    DefaultTTL = 86400
-    MaxTTL = 31536000
-}
-
-# Nota: La creación completa en PowerShell es verbosa
-# Recomendación: usar AWS CLI desde PowerShell o plantilla JSON
-
-$DistConfig = @{
-    CallerReference = "cloudcuyo-$(Get-Date -Format 'yyyyMMddHHmmss')"
-    Comment = "CloudCuyo Frontend"
-    Enabled = $true
-    DefaultRootObject = "index.html"
-    # ... (resto de configuración)
-}
-
-# Alternativamente, usar AWS CLI desde PowerShell:
-$DistributionId = aws cloudfront create-distribution --distribution-config file://cloudfront-config.json --query 'Distribution.Id' --output text
-
-$CloudfrontDomain = aws cloudfront get-distribution --id $DistributionId --query 'Distribution.DomainName' --output text
-
-Write-Host "Distribution ID: $DistributionId" -ForegroundColor Green
-Write-Host "CloudFront Domain: https://$CloudfrontDomain" -ForegroundColor Green
-Write-Host "Esperando despliegue (~15-20 min)..." -ForegroundColor Yellow
-```
-
-### 4.8. Monitorear despliegue (CLI)
-
-**Bash:**
-```bash
-source cloudfront-vars.sh
-
-while true; do
-  STATUS=$(aws cloudfront get-distribution --id $DISTRIBUTION_ID --query 'Distribution.Status' --output text)
-  echo "Status: $STATUS"
-  
-  if [ "$STATUS" == "Deployed" ]; then
-    echo "✓ CloudFront desplegado"
-    break
-  fi
-  
-  sleep 30
-done
-```
-
-**PowerShell:**
-```powershell
-. .\cloudfront-vars.ps1
-
-while ($true) {
-    $Status = aws cloudfront get-distribution --id $DistributionId --query 'Distribution.Status' --output text
-    Write-Host "Status: $Status"
-    
-    if ($Status -eq "Deployed") {
-        Write-Host "✓ CloudFront desplegado" -ForegroundColor Green
-        break
-    }
-    
-    Start-Sleep -Seconds 30
-}
-```
-
-</details>
-
----
-
-## Fase 5: Testing
-
-### 5.1. Probar acceso
-
-**Usando navegador web:**
-
-1. Abrir el navegador
-2. Ir a `https://<tu-cloudfront-domain>.cloudfront.net`
-   - Ejemplo: `https://d1234567890.cloudfront.net`
-3. Verificar que carga la página de inicio
-4. Probar navegación:
-   - `https://<domain>.cloudfront.net/portal.html`
-   - `https://<domain>.cloudfront.net/clientes.html`
-   - `https://<domain>.cloudfront.net/hosting.html`
-
-**Probar API a través de CloudFront:**
-
-Abrir la consola del navegador (F12 > Console) y ejecutar:
-```javascript
-fetch('https://<tu-cloudfront-domain>.cloudfront.net/api/health')
-  .then(r => r.json())
-  .then(console.log)
-```
-
-Deberías ver una respuesta JSON con el estado de la API.
-
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
-
-**Bash:**
-```bash
-source cloudfront-vars.sh
-
-echo "Testing CloudFront distribution..."
-
-# Frontend
-curl -I https://${CLOUDFRONT_DOMAIN}
-curl -I https://${CLOUDFRONT_DOMAIN}/portal.html
-
-# API a través de CloudFront
-curl https://${CLOUDFRONT_DOMAIN}/api/health
-curl https://${CLOUDFRONT_DOMAIN}/api/v1/health
-```
-
-**PowerShell:**
-```powershell
-. .\cloudfront-vars.ps1
-
-Write-Host "Testing CloudFront distribution..." -ForegroundColor Cyan
-
-# Frontend
-Invoke-WebRequest -Uri "https://$CloudfrontDomain" -Method Head
-Invoke-WebRequest -Uri "https://$CloudfrontDomain/portal.html" -Method Head
-
-# API
-Invoke-RestMethod -Uri "https://$CloudfrontDomain/api/health"
-Invoke-RestMethod -Uri "https://$CloudfrontDomain/api/v1/health"
-```
-
-</details>
-
-### 5.2. Probar portal completo
-
-1. Abrir en navegador: `https://<tu-cloudfront-domain>.cloudfront.net/portal.html`
-2. Login con:
-   - **Código:** `CUST-2020-003`
+1. Abrir:
+   - `https://<distribution-domain>/portal.html`
+2. Usar las credenciales de prueba:
+   - **Codigo:** `CUST-2020-003`
    - **Email:** `lfernandez@techmza.com`
-3. Verificar que carga la información del cliente correctamente
+3. Confirmar que el dashboard carga datos del cliente.
+4. Confirmar que se cargan servicios y pagos.
+
+### Problemas frecuentes de la fase ALB/API
+
+| Sintoma | Posible causa | Correccion |
+|---|---|---|
+| Target `api01` queda `Unhealthy` | SG de `api01` no permite puerto `5000` desde el SG del ALB | Revisar regla inbound de `api01` |
+| `502 Bad Gateway` desde CloudFront | ALB no llega a la API o target unhealthy | Revisar Target Group y health check |
+| `/api/health` responde pero login falla | Metodo POST o headers no reenviados | Revisar behavior `/api/*`, metodos permitidos y Origin request policy `AllViewer` |
+| API responde error de DB | PostgreSQL no permite la red VPC o DB caida | Revisar `pg_hba.conf`, servicio PostgreSQL y SG de DB |
+| CloudFront sigue fallando tras corregir | Distribucion aun desplegando o cache | Esperar despliegue o invalidar `/api/*` |
 
 ---
 
-## Fase 6: Invalidar cache de CloudFront
+## Fase 9: Apagar `lb01`
 
-Cuando actualices archivos en S3, necesitas invalidar el cache de CloudFront para que los cambios se reflejen inmediatamente.
+Cuando el portal completo funciona por CloudFront:
 
-**Usando AWS Console:**
+1. Ir a **EC2 > Instances**.
+2. Seleccionar `cloudcuyo-lb01` o `cloudcuyo-demo-lb01`.
+3. Click en **Instance state > Stop instance**.
+4. Confirmar.
+5. Volver a probar:
+   - `https://<distribution-domain>/`
+   - `https://<distribution-domain>/portal.html`
+   - Login del portal.
 
-1. Ir a **CloudFront** > **Distributions**
-2. Seleccionar tu distribución
-3. Ir a la pestaña **Invalidations**
-4. Click en **Create invalidation**
-5. **Object paths:** Ingresar `/*` (invalida todo) o paths específicos como `/index.html`
-6. Click **Create invalidation**
-7. Esperar ~1-2 minutos a que se complete
-
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
-
-**Bash:**
-```bash
-aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
-```
-
-**PowerShell:**
-```powershell
-New-CFInvalidation -DistributionId $DistributionId -InvalidationBatch_CallerReference "invalidate-$(Get-Date -Format 'yyyyMMddHHmmss')" -InvalidationBatch_Path "/*"
-```
-
-</details>
-
----
-
-## Fase 7: Desmantelar EC2 Frontend (opcional)
-
-Una vez verificado que CloudFront funciona correctamente, puedes detener las instancias EC2 de frontend para ahorrar costos.
-
-**Usando AWS Console:**
-
-1. Ir a **EC2** > **Instances**
-2. Seleccionar las instancias:
-   - `cloudcuyo-frontend01`
-   - `cloudcuyo-frontend02`
-3. Click en **Instance state** > **Stop instance**
-4. Confirmar
-
-**Nota:** Las instancias detenidas NO generan costo de compute, pero sí de almacenamiento EBS (~$0.50/mes). Para eliminar completamente, usar **Terminate instance**.
-
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
-
-**Bash:**
-```bash
-# Detener instancias de frontend
-FRONT01=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=cloudcuyo-frontend01" --query 'Reservations[0].Instances[0].InstanceId' --output text)
-FRONT02=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=cloudcuyo-frontend02" --query 'Reservations[0].Instances[0].InstanceId' --output text)
-
-aws ec2 stop-instances --instance-ids $FRONT01 $FRONT02
-```
-
-**PowerShell:**
-```powershell
-$Front01 = (Get-EC2Instance -Filter @{Name="tag:Name";Values="cloudcuyo-frontend01"}).Instances[0].InstanceId
-$Front02 = (Get-EC2Instance -Filter @{Name="tag:Name";Values="cloudcuyo-frontend02"}).Instances[0].InstanceId
-
-Stop-EC2Instance -InstanceId @($Front01, $Front02)
-```
-
-</details>
-
----
-
-## Comparativa de costos
-
-| Componente | Antes (EC2) | Después (S3+CF) | Ahorro |
-|------------|-------------|-----------------|--------|
-| Frontend EC2 x2 | $15/mes | $0 | 100% |
-| S3 Storage (1GB) | - | $0.02 | - |
-| CloudFront (10GB) | - | $0.85 | - |
-| **Total** | **$15** | **$0.87** | **~94%** |
-
----
-
-## Script de despliegue continuo
-
-**Bash:**
-```bash
-#!/bin/bash
-# deploy-frontend.sh
-
-source cloudfront-vars.sh
-
-echo "=== Deploying CloudCuyo Frontend ==="
-
-# Sync a S3
-aws s3 sync app/frontend/ s3://${BUCKET_NAME}/ --delete
-
-# Invalidar CloudFront
-aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
-
-echo "✓ Deployment completed"
-```
-
-**PowerShell:**
-```powershell
-# deploy-frontend.ps1
-
-. .\cloudfront-vars.ps1
-
-Write-Host "=== Deploying CloudCuyo Frontend ===" -ForegroundColor Cyan
-
-# Sync a S3
-Write-S3Object -BucketName $BucketName -Folder "app\frontend" -KeyPrefix "" -Recurse
-
-# Invalidar CloudFront
-New-CFInvalidation -DistributionId $DistributionId -InvalidationBatch_CallerReference "deploy-$(Get-Date -Format 'yyyyMMddHHmmss')" -InvalidationBatch_Path "/*"
-
-Write-Host "✓ Deployment completed" -ForegroundColor Green
-```
+> Despues de esta fase, el frontend estatico depende de S3 + CloudFront y la API se publica por ALB. `lb01`, `frontend01` y `frontend02` ya no son necesarios para atender usuarios.
 
 ---
 
 ## Limpieza
 
-Si deseas eliminar todos los recursos creados:
+Si se desea eliminar lo creado en este lab:
 
-**Usando AWS Console:**
-
-1. **Deshabilitar distribución de CloudFront:**
-   - Ir a **CloudFront** > **Distributions**
-   - Seleccionar tu distribución
-   - Click en **Disable**
-   - Esperar ~15 min a que se desactive
-   - Luego click en **Delete**
-
-2. **Eliminar bucket S3:**
-   - Ir a **S3**
-   - Seleccionar bucket `cloudcuyo-frontend-...`
-   - Click en **Empty** (elimina contenido)
-   - Confirmar
-   - Click en **Delete** (elimina bucket)
-
-<details>
-<summary><b>Alternativa: Usando CLI (Bash/PowerShell)</b></summary>
-
-**Bash:**
-```bash
-# Deshabilitar y eliminar distribución
-aws cloudfront get-distribution-config --id $DISTRIBUTION_ID > dist-config.json
-# Editar dist-config.json: cambiar "Enabled": false
-# aws cloudfront update-distribution --id $DISTRIBUTION_ID --if-match <ETag> --distribution-config file://dist-config.json
-# aws cloudfront delete-distribution --id $DISTRIBUTION_ID --if-match <ETag>
-
-# Eliminar bucket
-aws s3 rm s3://${BUCKET_NAME} --recursive
-aws s3 rb s3://${BUCKET_NAME}
-```
-
-**PowerShell:**
-```powershell
-# Deshabilitar distribución (proceso manual)
-# Remove-CFDistribution requiere ETag
-
-# Eliminar bucket
-Remove-S3Object -BucketName $BucketName -KeyPrefix "" -Force
-Remove-S3Bucket -BucketName $BucketName -Force
-```
-
-</details>
+1. En **CloudFront**, deshabilitar la distribucion.
+2. Esperar a que quede deshabilitada.
+3. Eliminar la distribucion.
+4. En **S3**, vaciar el bucket del frontend.
+5. Eliminar el bucket.
+6. Si se creo una segunda subnet publica solo para pruebas y no se usara para ALB, desasociarla de recursos y eliminarla.
 
 ---
 
-## Próximos desafíos
+## Criterios de exito
 
-Una vez completado este lab, has logrado:
-- Migrar frontend estático a S3 (REPLATFORM)
-- Implementar CDN global con CloudFront
-- Reducir costos en ~94% ($15 → $0.87/mes)
-- Mejorar performance con edge locations
-
-**Próximos labs recomendados:**
-- **Próximos desafíos:** Refactorizar API a Lambda + API Gateway, Migrar DB a RDS managed service
+- CloudFront entrega el frontend estatico desde una URL `https://dxxxx.cloudfront.net`.
+- El bucket S3 permanece privado.
+- `frontend01` y `frontend02` pueden quedar apagadas sin afectar la carga estatica del sitio.
+- El behavior `/api/*` de CloudFront llega al ALB y a `api01`.
+- El login del portal funciona desde la URL CDN.
+- `lb01` puede quedar apagado sin afectar el sitio ni la API publicada por CloudFront.
