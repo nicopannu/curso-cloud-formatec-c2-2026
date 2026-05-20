@@ -1,0 +1,196 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudCuyo base VPC for lab networking
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: Clase-Redes-Lab-Curso-Cloud
+    Description: Prefijo para nombres de recursos
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR principal de la VPC
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.0.0/24
+    Description: CIDR de la subnet publica
+  PrivateSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR de la subnet privada
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: us-east-1a
+    Description: Availability Zone para las subnets del lab
+  MapPublicIpOnLaunch:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Mantener false para replicar la cuenta actual; habilitar public IP explicitamente al lanzar EC2 publicas
+
+Conditions:
+  EnableMapPublicIpOnLaunch: !Equals [!Ref MapPublicIpOnLaunch, 'true']
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-vpc
+        - Key: Lab
+          Value: m2-c1-lab
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-igw
+        - Key: Lab
+          Value: m2-c1-lab
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Ref AvailabilityZone
+      MapPublicIpOnLaunch: !If [EnableMapPublicIpOnLaunch, true, false]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-subnet-public1-${AvailabilityZone}
+        - Key: Tier
+          Value: public
+        - Key: Lab
+          Value: m2-c1-lab
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateSubnetCidr
+      AvailabilityZone: !Ref AvailabilityZone
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-subnet-private1-${AvailabilityZone}
+        - Key: Tier
+          Value: private
+        - Key: Lab
+          Value: m2-c1-lab
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-rtb-public
+        - Key: Tier
+          Value: public
+        - Key: Lab
+          Value: m2-c1-lab
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-rtb-private
+        - Key: Tier
+          Value: private
+        - Key: Lab
+          Value: m2-c1-lab
+
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-vpce-s3
+        - Key: Lab
+          Value: m2-c1-lab
+
+Outputs:
+  VpcId:
+    Description: ID de la VPC
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub ${AWS::StackName}-vpc-id
+  VpcCidr:
+    Description: CIDR de la VPC
+    Value: !Ref VpcCidr
+  InternetGatewayId:
+    Description: ID del Internet Gateway
+    Value: !Ref InternetGateway
+    Export:
+      Name: !Sub ${AWS::StackName}-igw-id
+  PublicSubnetId:
+    Description: ID de la subnet publica
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub ${AWS::StackName}-public-subnet-id
+  PublicSubnetCidr:
+    Description: CIDR de la subnet publica
+    Value: !Ref PublicSubnetCidr
+  PrivateSubnetId:
+    Description: ID de la subnet privada
+    Value: !Ref PrivateSubnet
+    Export:
+      Name: !Sub ${AWS::StackName}-private-subnet-id
+  PrivateSubnetCidr:
+    Description: CIDR de la subnet privada
+    Value: !Ref PrivateSubnetCidr
+  PublicRouteTableId:
+    Description: ID de la route table publica
+    Value: !Ref PublicRouteTable
+    Export:
+      Name: !Sub ${AWS::StackName}-public-rtb-id
+  PrivateRouteTableId:
+    Description: ID de la route table privada
+    Value: !Ref PrivateRouteTable
+    Export:
+      Name: !Sub ${AWS::StackName}-private-rtb-id
+  S3GatewayEndpointId:
+    Description: ID del endpoint Gateway de S3 asociado a la route table privada
+    Value: !Ref S3GatewayEndpoint
+    Export:
+      Name: !Sub ${AWS::StackName}-s3-vpce-id
