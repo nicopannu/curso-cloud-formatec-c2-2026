@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudCuyo Lab 1 demo - launch rehost EC2 instances with Fase 6 fixes
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC del laboratorio
+  PublicSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet publica para lb01
+  PrivateSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet privada para frontend, api y db
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Key pair para las instancias EC2
+  SSMInstanceProfileName:
+    Type: String
+    Description: Instance profile con permisos de SSM
+    Default: cloudcuyo-nat-instance-profile-lab
+  DbAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI importada de db01
+  ApiAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI importada de api01
+  Frontend01AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI importada de frontend01
+  Frontend02AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI importada de frontend02
+  LbAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI importada de lb01
+  DbPrivateIp:
+    Type: String
+    Default: 10.0.1.40
+  ApiPrivateIp:
+    Type: String
+    Default: 10.0.1.30
+  Frontend01PrivateIp:
+    Type: String
+    Default: 10.0.1.20
+  Frontend02PrivateIp:
+    Type: String
+    Default: 10.0.1.21
+  InstanceOwner:
+    Type: String
+    Default: instructor
+
+Resources:
+  LbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub cloudcuyo-demo-lb-sg-${AWS::StackName}
+      GroupDescription: CloudCuyo demo public LB SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub cloudcuyo-demo-lb-sg-${AWS::StackName}
+        - Key: Lab
+          Value: m2-c1-lab
+
+  FrontendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub cloudcuyo-demo-frontend-sg-${AWS::StackName}
+      GroupDescription: CloudCuyo demo private frontend SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref LbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub cloudcuyo-demo-frontend-sg-${AWS::StackName}
+        - Key: Lab
+          Value: m2-c1-lab
+
+  ApiSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub cloudcuyo-demo-api-sg-${AWS::StackName}
+      GroupDescription: CloudCuyo demo private API SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          SourceSecurityGroupId: !Ref FrontendSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          SourceSecurityGroupId: !Ref LbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub cloudcuyo-demo-api-sg-${AWS::StackName}
+        - Key: Lab
+          Value: m2-c1-lab
+
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub cloudcuyo-demo-db-sg-${AWS::StackName}
+      GroupDescription: CloudCuyo demo private DB SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ApiSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub cloudcuyo-demo-db-sg-${AWS::StackName}
+        - Key: Lab
+          Value: m2-c1-lab
+
+  DbInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref DbAmiId
+      InstanceType: t3.small
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref SSMInstanceProfileName
+      SubnetId: !Ref PrivateSubnetId
+      PrivateIpAddress: !Ref DbPrivateIp
+      SecurityGroupIds:
+        - !Ref DbSecurityGroup
+      Tags:
+        - Key: Name
+          Value: cloudcuyo-demo-db01
+        - Key: Role
+          Value: database
+        - Key: Lab
+          Value: m2-c1-lab
+        - Key: Owner
+          Value: !Ref InstanceOwner
+
+  ApiInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ApiAmiId
+      InstanceType: t3.micro
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref SSMInstanceProfileName
+      SubnetId: !Ref PrivateSubnetId
+      PrivateIpAddress: !Ref ApiPrivateIp
+      SecurityGroupIds:
+        - !Ref ApiSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          cp /etc/systemd/system/cloudcuyo-api.service /etc/systemd/system/cloudcuyo-api.service.bak.demo || true
+          sed -i "s/Environment=DB_HOST=.*/Environment=DB_HOST=${DbPrivateIp}/" /etc/systemd/system/cloudcuyo-api.service
+          systemctl daemon-reload
+          systemctl restart cloudcuyo-api
+      Tags:
+        - Key: Name
+          Value: cloudcuyo-demo-api01
+        - Key: Role
+          Value: api
+        - Key: Lab
+          Value: m2-c1-lab
+        - Key: Owner
+          Value: !Ref InstanceOwner
+
+  Frontend01Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref Frontend01AmiId
+      InstanceType: t3.micro
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref SSMInstanceProfileName
+      SubnetId: !Ref PrivateSubnetId
+      PrivateIpAddress: !Ref Frontend01PrivateIp
+      SecurityGroupIds:
+        - !Ref FrontendSecurityGroup
+      Tags:
+        - Key: Name
+          Value: cloudcuyo-demo-frontend01
+        - Key: Role
+          Value: frontend
+        - Key: Lab
+          Value: m2-c1-lab
+        - Key: Owner
+          Value: !Ref InstanceOwner
+
+  Frontend02Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref Frontend02AmiId
+      InstanceType: t3.micro
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref SSMInstanceProfileName
+      SubnetId: !Ref PrivateSubnetId
+      PrivateIpAddress: !Ref Frontend02PrivateIp
+      SecurityGroupIds:
+        - !Ref FrontendSecurityGroup
+      Tags:
+        - Key: Name
+          Value: cloudcuyo-demo-frontend02
+        - Key: Role
+          Value: frontend
+        - Key: Lab
+          Value: m2-c1-lab
+        - Key: Owner
+          Value: !Ref InstanceOwner
+
+  LbInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LbAmiId
+      InstanceType: t3.micro
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref SSMInstanceProfileName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Ref PublicSubnetId
+          GroupSet:
+            - !Ref LbSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          cp /etc/nginx/sites-available/cloudcuyo.conf /etc/nginx/sites-available/cloudcuyo.conf.bak.demo || true
+          cat >/etc/nginx/sites-available/cloudcuyo.conf <<'NGINX'
+          upstream cloudcuyo_frontend {
+              server ${Frontend01PrivateIp}:80;
+              server ${Frontend02PrivateIp}:80;
+          }
+
+          upstream cloudcuyo_api {
+              server ${ApiPrivateIp}:5000;
+          }
+
+          server {
+              listen 80 default_server;
+              server_name cloudcuyo.local _;
+
+              location /api/ {
+                  proxy_pass http://cloudcuyo_api/api/;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              }
+
+              location / {
+                  proxy_pass http://cloudcuyo_frontend;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              }
+          }
+          NGINX
+          nginx -t
+          systemctl reload nginx
+      Tags:
+        - Key: Name
+          Value: cloudcuyo-demo-lb01
+        - Key: Role
+          Value: load-balancer
+        - Key: Lab
+          Value: m2-c1-lab
+        - Key: Owner
+          Value: !Ref InstanceOwner
+
+Outputs:
+  DbInstanceId:
+    Value: !Ref DbInstance
+  ApiInstanceId:
+    Value: !Ref ApiInstance
+  Frontend01InstanceId:
+    Value: !Ref Frontend01Instance
+  Frontend02InstanceId:
+    Value: !Ref Frontend02Instance
+  LbInstanceId:
+    Value: !Ref LbInstance
+  LbPublicIp:
+    Value: !GetAtt LbInstance.PublicIp
+  PortalUrl:
+    Value: !Sub http://${LbInstance.PublicIp}/portal.html
+  ApiHealthUrl:
+    Value: !Sub http://${LbInstance.PublicIp}/api/health
