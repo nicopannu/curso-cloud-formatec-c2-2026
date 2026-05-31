@@ -1,0 +1,356 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudCuyo HA Lab 1 - Nodos API para demo ALB'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Configuracion de Red"
+        Parameters:
+          - VpcId
+          - PrivateSubnetAId
+          - PrivateSubnetBId
+          - AlbSgId
+      - Label:
+          default: "Configuracion de Instancia"
+        Parameters:
+          - InstanceType
+          - SsmInstanceProfile
+      - Label:
+          default: "Etiquetas"
+        Parameters:
+          - ProjectName
+          - Environment
+
+    ParameterLabels:
+      VpcId:
+        default: "VPC ID"
+      PrivateSubnetAId:
+        default: "Subnet Privada AZ-A"
+      PrivateSubnetBId:
+        default: "Subnet Privada AZ-B"
+      AlbSgId:
+        default: "Security Group del ALB (creado manualmente)"
+      SsmInstanceProfile:
+        default: "Instance Profile SSM"
+      InstanceType:
+        default: "Tipo de Instancia"
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: ID de la VPC del laboratorio
+
+  PrivateSubnetAId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet privada en AZ-A donde se desplegara el nodo 1
+
+  PrivateSubnetBId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet privada en AZ-B donde se desplegara el nodo 2
+
+  AlbSgId:
+    Type: String
+    Description: Security Group del ALB creado manualmente por el alumno. Los nodos solo aceptan trafico en :5000 desde este SG.
+    AllowedPattern: "^sg-[a-z0-9]+$"
+
+  SsmInstanceProfile:
+    Type: String
+    Description: Nombre del Instance Profile IAM con permisos de SSM Session Manager (creado manualmente como pre-requisito)
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+    Description: Tipo de instancia EC2 (t3.micro es suficiente para el lab)
+
+  ProjectName:
+    Type: String
+    Default: cloudcuyo
+    AllowedPattern: "^[a-z0-9-]+$"
+    Description: Nombre del proyecto (prefijo para nombres de recursos y tags)
+
+  Environment:
+    Type: String
+    Default: ha-lab
+    AllowedValues:
+      - dev
+      - lab
+      - ha-lab
+      - staging
+    Description: Ambiente de despliegue
+
+Mappings:
+  # AMI IDs de Amazon Linux 2023 (SSM Agent preinstalado)
+  RegionMap:
+    us-east-1:
+      AMI: ami-0230bd60aa48260c6
+    us-east-2:
+      AMI: ami-0a606d8395a538502
+    us-west-1:
+      AMI: ami-0d9858aa3c6322f73
+    us-west-2:
+      AMI: ami-098e42ae54c764c35
+    sa-east-1:
+      AMI: ami-0c3b6e2e1c9b8c96d
+
+Resources:
+
+  # ============================================================================
+  # Security Group para los nodos API
+  # Solo acepta trafico en puerto 5000 desde el SG del ALB
+  # ============================================================================
+  ApiNodeSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-api-node-sg-${Environment}'
+      GroupDescription: SG nodos API - acepta :5000 desde el ALB solamente
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          SourceSecurityGroupId: !Ref AlbSgId
+          Description: Trafico HTTP desde el ALB hacia la API Flask
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Todo el trafico saliente
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-api-node-sg-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Lab
+          Value: m2-c2-ha
+
+  # ============================================================================
+  # Nodo 1: subnet privada AZ-A
+  # ============================================================================
+  ApiNode1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfile
+      SubnetId: !Ref PrivateSubnetAId
+      SecurityGroupIds:
+        - !Ref ApiNodeSg
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          exec > >(tee /var/log/user-data.log) 2>&1
+          echo "=== CloudCuyo HA API bootstrap ==="
+          date
+
+          dnf update -y
+          dnf install -y python3 python3-pip
+
+          # Obtener metadata de la instancia (resuelto en runtime, no por CF)
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+          AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+
+          mkdir -p /opt/cloudcuyo-api
+
+          # Escribir la app Flask. Heredoc con comillas simples: bash no interpola adentro.
+          cat > /opt/cloudcuyo-api/app.py << 'PYAPP'
+          import os
+          import signal
+          import threading
+          import time
+          from flask import Flask, jsonify
+
+          app = Flask(__name__)
+          NODE = os.getenv("APP_NODE", "unknown")
+          AZ_NAME = os.getenv("APP_AZ", "unknown")
+
+          @app.get("/health")
+          def health():
+              return jsonify({"node": NODE, "az": AZ_NAME, "status": "ok"})
+
+          @app.get("/api/v1/health")
+          def v1_health():
+              return jsonify({"node": NODE, "az": AZ_NAME, "status": "ok", "version": "v1"})
+
+          @app.get("/api/v1/crash")
+          def crash():
+              """Lab 3: simula caida del proceso gunicorn en este nodo especifico."""
+              def _kill():
+                  time.sleep(0.1)
+                  os.kill(os.getpid(), signal.SIGTERM)
+              threading.Thread(target=_kill, daemon=True).start()
+              return jsonify({"node": NODE, "message": "crashing in 100ms"})
+
+          @app.get("/health/deep")
+          def deep_health():
+              """Lab 3: simula un health check que verifica dependencias externas."""
+              time.sleep(0.05)
+              return jsonify({"node": NODE, "az": AZ_NAME, "status": "ok", "db": "simulated_ok"})
+
+          if __name__ == "__main__":
+              app.run(host="0.0.0.0", port=5000)
+          PYAPP
+
+          pip3 install flask gunicorn
+
+          # Crear servicio systemd.
+          # ${!INSTANCE_ID} y ${!AZ} → CF los deja como ${INSTANCE_ID} y ${AZ} para bash.
+          cat > /etc/systemd/system/cloudcuyo-api.service << SYSTEMD
+          [Unit]
+          Description=CloudCuyo HA Demo API
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          WorkingDirectory=/opt/cloudcuyo-api
+          Environment=APP_NODE=${!INSTANCE_ID}
+          Environment=APP_AZ=${!AZ}
+          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 app:app
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+          SYSTEMD
+
+          systemctl daemon-reload
+          systemctl enable cloudcuyo-api
+          systemctl start cloudcuyo-api
+          echo "=== CloudCuyo API lista en :5000 ==="
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-api-node-1-${Environment}'
+        - Key: Role
+          Value: api
+        - Key: Lab
+          Value: m2-c2-ha
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # Nodo 2: subnet privada AZ-B (misma configuracion que nodo 1)
+  # ============================================================================
+  ApiNode2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfile
+      SubnetId: !Ref PrivateSubnetBId
+      SecurityGroupIds:
+        - !Ref ApiNodeSg
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          exec > >(tee /var/log/user-data.log) 2>&1
+          echo "=== CloudCuyo HA API bootstrap ==="
+          date
+
+          dnf update -y
+          dnf install -y python3 python3-pip
+
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+          AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+
+          mkdir -p /opt/cloudcuyo-api
+
+          cat > /opt/cloudcuyo-api/app.py << 'PYAPP'
+          import os
+          import signal
+          import threading
+          import time
+          from flask import Flask, jsonify
+
+          app = Flask(__name__)
+          NODE = os.getenv("APP_NODE", "unknown")
+          AZ_NAME = os.getenv("APP_AZ", "unknown")
+
+          @app.get("/health")
+          def health():
+              return jsonify({"node": NODE, "az": AZ_NAME, "status": "ok"})
+
+          @app.get("/api/v1/health")
+          def v1_health():
+              return jsonify({"node": NODE, "az": AZ_NAME, "status": "ok", "version": "v1"})
+
+          @app.get("/api/v1/crash")
+          def crash():
+              def _kill():
+                  time.sleep(0.1)
+                  os.kill(os.getpid(), signal.SIGTERM)
+              threading.Thread(target=_kill, daemon=True).start()
+              return jsonify({"node": NODE, "message": "crashing in 100ms"})
+
+          @app.get("/health/deep")
+          def deep_health():
+              time.sleep(0.05)
+              return jsonify({"node": NODE, "az": AZ_NAME, "status": "ok", "db": "simulated_ok"})
+
+          if __name__ == "__main__":
+              app.run(host="0.0.0.0", port=5000)
+          PYAPP
+
+          pip3 install flask gunicorn
+
+          cat > /etc/systemd/system/cloudcuyo-api.service << SYSTEMD
+          [Unit]
+          Description=CloudCuyo HA Demo API
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          WorkingDirectory=/opt/cloudcuyo-api
+          Environment=APP_NODE=${!INSTANCE_ID}
+          Environment=APP_AZ=${!AZ}
+          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 app:app
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+          SYSTEMD
+
+          systemctl daemon-reload
+          systemctl enable cloudcuyo-api
+          systemctl start cloudcuyo-api
+          echo "=== CloudCuyo API lista en :5000 ==="
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-api-node-2-${Environment}'
+        - Key: Role
+          Value: api
+        - Key: Lab
+          Value: m2-c2-ha
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  ApiNode1Id:
+    Description: Instance ID del nodo 1 (AZ-A)
+    Value: !Ref ApiNode1
+
+  ApiNode1Ip:
+    Description: IP privada del nodo 1 (AZ-A) - usar en Lab 3 para crash directo
+    Value: !GetAtt ApiNode1.PrivateIp
+
+  ApiNode2Id:
+    Description: Instance ID del nodo 2 (AZ-B)
+    Value: !Ref ApiNode2
+
+  ApiNode2Ip:
+    Description: IP privada del nodo 2 (AZ-B) - usar en Lab 3 para crash directo
+    Value: !GetAtt ApiNode2.PrivateIp
+
+  ApiNodeSgId:
+    Description: SG de los nodos API - pasar como ApiSgId en ha-lab2-traffic-gen.yaml
+    Value: !Ref ApiNodeSg

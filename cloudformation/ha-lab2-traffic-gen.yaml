@@ -1,0 +1,295 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudCuyo HA Lab 2 - Traffic Generator para pruebas de carga y crash directo'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Configuracion de Red"
+        Parameters:
+          - VpcId
+          - PublicSubnetId
+          - ApiSgId
+      - Label:
+          default: "Configuracion de Carga"
+        Parameters:
+          - AlbTargetUrl
+          - RequestsPerSecond
+          - Workers
+      - Label:
+          default: "Configuracion de Instancia"
+        Parameters:
+          - InstanceType
+          - SsmInstanceProfile
+      - Label:
+          default: "Etiquetas"
+        Parameters:
+          - ProjectName
+          - Environment
+
+    ParameterLabels:
+      VpcId:
+        default: "VPC ID"
+      PublicSubnetId:
+        default: "Subnet Publica (para SSM via internet)"
+      ApiSgId:
+        default: "SG de los nodos API"
+      AlbTargetUrl:
+        default: "URL del ALB"
+      RequestsPerSecond:
+        default: "Requests por segundo"
+      Workers:
+        default: "Conexiones concurrentes"
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: ID de la VPC del laboratorio
+
+  PublicSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet publica donde se desplegara el traffic generator. Necesita salida a internet para SSM.
+
+  ApiSgId:
+    Type: String
+    Description: SG de los nodos API. El stack agrega una regla de ingress en :5000 desde el traffic generator para el Lab 3.
+    AllowedPattern: "^sg-[a-z0-9]+$"
+
+  SsmInstanceProfile:
+    Type: String
+    Description: Nombre del Instance Profile IAM con permisos de SSM Session Manager
+
+  AlbTargetUrl:
+    Type: String
+    Description: "URL del ALB incluyendo http://. Ejemplo: http://cloudcuyo-alb-xxxx.us-east-1.elb.amazonaws.com"
+    AllowedPattern: "^http://.*"
+
+  RequestsPerSecond:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 200
+    Description: Requests por segundo que envia el generador al ALB
+
+  Workers:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 50
+    Description: Numero de conexiones concurrentes
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+    Description: Tipo de instancia para el traffic generator
+
+  ProjectName:
+    Type: String
+    Default: cloudcuyo
+    AllowedPattern: "^[a-z0-9-]+$"
+    Description: Nombre del proyecto (prefijo para nombres y tags)
+
+  Environment:
+    Type: String
+    Default: ha-lab
+    AllowedValues:
+      - dev
+      - lab
+      - ha-lab
+      - staging
+    Description: Ambiente de despliegue
+
+Mappings:
+  # AMI IDs de Amazon Linux 2023 (SSM Agent preinstalado)
+  RegionMap:
+    us-east-1:
+      AMI: ami-0230bd60aa48260c6
+    us-east-2:
+      AMI: ami-0a606d8395a538502
+    us-west-1:
+      AMI: ami-0d9858aa3c6322f73
+    us-west-2:
+      AMI: ami-098e42ae54c764c35
+    sa-east-1:
+      AMI: ami-0c3b6e2e1c9b8c96d
+
+Resources:
+
+  # ============================================================================
+  # Security Group del traffic generator
+  # Solo egress: necesita salir al ALB (HTTP) y a SSM (HTTPS via internet)
+  # ============================================================================
+  TrafficGenSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-traffic-gen-sg-${Environment}'
+      GroupDescription: SG traffic generator - solo egress, SSM no requiere inbound
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Todo el trafico saliente (ALB y SSM endpoints)
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-traffic-gen-sg-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Lab
+          Value: m2-c2-ha
+
+  # ============================================================================
+  # Regla adicional en el SG de los nodos API:
+  # Permite acceso directo en :5000 desde el traffic generator.
+  # Necesario en Lab 3 para enviar /crash a una IP privada especifica.
+  # ============================================================================
+  ApiNodeDirectAccessRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ApiSgId
+      IpProtocol: tcp
+      FromPort: 5000
+      ToPort: 5000
+      SourceSecurityGroupId: !Ref TrafficGenSg
+      Description: !Sub 'Acceso directo desde ${ProjectName}-traffic-gen (Lab 3: crash de nodo especifico)'
+
+  # ============================================================================
+  # Instancia EC2 Traffic Generator
+  # Subnet publica con IP publica: SSM funciona via internet sin VPC endpoints
+  # ============================================================================
+  TrafficGeneratorInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref PublicSubnetId
+          GroupSet:
+            - !Ref TrafficGenSg
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          exec > >(tee /var/log/user-data.log) 2>&1
+          echo "=== CloudCuyo Traffic Generator bootstrap ==="
+          date
+
+          dnf update -y
+          dnf install -y httpd-tools  # instala `ab` (Apache Benchmark)
+
+          # ----------------------------------------------------------------
+          # Script principal de carga continua contra el ALB
+          # ----------------------------------------------------------------
+          cat > /usr/local/bin/cloudcuyo-load.sh << 'SCRIPT'
+          #!/bin/bash
+          # Uso: cloudcuyo-load.sh <url> <rps> <workers>
+          URL=${1:-http://localhost}
+          RPS=${2:-30}
+          WORKERS=${3:-5}
+          DURATION=60  # segundos por ronda de ab
+
+          echo "[$(date)] Iniciando carga: URL=$URL RPS=$RPS Workers=$WORKERS"
+          while true; do
+              TOTAL=$((RPS * DURATION))
+              echo "[$(date)] Ronda: $TOTAL requests, $WORKERS concurrent -> $URL/api/v1/health"
+              ab -n "$TOTAL" -c "$WORKERS" -q "$URL/api/v1/health" >> /var/log/cloudcuyo-load.log 2>&1
+              echo "[$(date)] Ronda completada. Pausa 3s..." >> /var/log/cloudcuyo-load.log
+              sleep 3
+          done
+          SCRIPT
+          chmod +x /usr/local/bin/cloudcuyo-load.sh
+
+          # ----------------------------------------------------------------
+          # Script para crashear un nodo especifico por IP privada (Lab 3)
+          # Uso: cloudcuyo-crash-node.sh 10.0.1.x
+          # ----------------------------------------------------------------
+          cat > /usr/local/bin/cloudcuyo-crash-node.sh << 'SCRIPT'
+          #!/bin/bash
+          NODE_IP=$1
+          if [ -z "$NODE_IP" ]; then
+              echo "Uso: cloudcuyo-crash-node.sh <ip-privada-del-nodo>"
+              echo "Ejemplo: cloudcuyo-crash-node.sh 10.0.1.20"
+              echo ""
+              echo "Las IPs privadas de los nodos estan en:"
+              echo "  CloudFormation > Stacks > cloudcuyo-ha-lab1-nodes > Outputs"
+              echo "  o EC2 > Instances > filtrar por tag Lab=m2-c2-ha"
+              exit 1
+          fi
+          echo "[$(date)] Enviando /crash a http://${NODE_IP}:5000/api/v1/crash ..."
+          curl -s --max-time 5 "http://${NODE_IP}:5000/api/v1/crash" || echo "(conexion cerrada por el crash - es esperado)"
+          echo ""
+          echo "El nodo $NODE_IP deberia caer en ~100ms."
+          echo "Observar en consola: EC2 > Target Groups > targets -> estado Unhealthy"
+          SCRIPT
+          chmod +x /usr/local/bin/cloudcuyo-crash-node.sh
+
+          # ----------------------------------------------------------------
+          # Servicio systemd: arranca la carga al iniciar la instancia
+          # AlbTargetUrl, RequestsPerSecond y Workers son parametros CF
+          # interpolados por !Sub antes de que bash corra este script.
+          # ----------------------------------------------------------------
+          cat > /etc/systemd/system/cloudcuyo-load.service << SYSTEMD
+          [Unit]
+          Description=CloudCuyo Traffic Load Generator
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          ExecStart=/usr/local/bin/cloudcuyo-load.sh ${AlbTargetUrl} ${RequestsPerSecond} ${Workers}
+          Restart=always
+          RestartSec=10
+          StandardOutput=append:/var/log/cloudcuyo-load.log
+          StandardError=append:/var/log/cloudcuyo-load.log
+
+          [Install]
+          WantedBy=multi-user.target
+          SYSTEMD
+
+          systemctl daemon-reload
+          systemctl enable cloudcuyo-load
+          systemctl start cloudcuyo-load
+
+          echo "=== Traffic Generator listo ==="
+          echo "Ver carga en tiempo real: tail -f /var/log/cloudcuyo-load.log"
+          echo "Crashear un nodo: cloudcuyo-crash-node.sh <ip-privada>"
+          echo "Detener carga: systemctl stop cloudcuyo-load"
+          echo "Reiniciar carga: systemctl start cloudcuyo-load"
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-traffic-gen-${Environment}'
+        - Key: Role
+          Value: traffic-generator
+        - Key: Lab
+          Value: m2-c2-ha
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  TrafficGeneratorInstanceId:
+    Description: "Instance ID del traffic generator. Conectar via: aws ssm start-session --target <id>"
+    Value: !Ref TrafficGeneratorInstance
+
+  TrafficGeneratorPublicIp:
+    Description: IP publica del traffic generator (informativa)
+    Value: !GetAtt TrafficGeneratorInstance.PublicIp
+
+  SsmConnectCommand:
+    Description: Comando para conectarse al traffic generator via SSM Session Manager
+    Value: !Sub "aws ssm start-session --target ${TrafficGeneratorInstance} --region ${AWS::Region}"
+
+  LoadLogCommand:
+    Description: Comando SSM para ver el log de carga en tiempo real (ejecutar dentro de la sesion SSM)
+    Value: "tail -f /var/log/cloudcuyo-load.log"
+
+  CrashNodeCommand:
+    Description: Comando para crashear un nodo especifico (ejecutar dentro de la sesion SSM)
+    Value: "cloudcuyo-crash-node.sh <ip-privada-del-nodo>"

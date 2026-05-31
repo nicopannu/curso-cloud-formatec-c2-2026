@@ -12,13 +12,14 @@ Cada lab tiene su propia branch. Clonar o cambiar a la branch correspondiente an
 |---|---|
 | `main` | Documentación general, estructura del repo |
 | `m2-c1-lab` | Módulo 2 - Clase 1: REHOST + REPLATFORM (Guia 1 y Guia 2) |
+| `m2-c2-lab` | Módulo 2 - Clase 2: Alta Disponibilidad — ALB, ASG, Health Checks |
 
 ```bash
 git clone https://github.com/nicopannu/curso-cloud-formatec-c2-2026.git
 cd curso-cloud-formatec-c2-2026
 
 # Cambiar a la branch del lab
-git checkout m2-c1-lab
+git checkout m2-c2-lab
 ```
 
 ---
