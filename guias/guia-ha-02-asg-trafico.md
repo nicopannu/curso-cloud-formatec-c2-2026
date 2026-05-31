@@ -129,8 +129,8 @@ echo "ALB DNS: $ALB_DNS"
 $VpcId             = "vpc-xxxxxxxxx"
 $PublicSubnetAId   = "subnet-xxxxxxxxx"
 $PublicSubnetBId   = "subnet-xxxxxxxxx"
-$PrivateSubnetAId  = "subnet-xxxxxxxxx"
-$PrivateSubnetBId  = "subnet-xxxxxxxxx"
+$SubnetAId  = "subnet-xxxxxxxxx"
+$SubnetBId  = "subnet-xxxxxxxxx"
 $SsmInstanceProfile = "cloudcuyo-ssm-profile"
 
 $TgArn  = (Get-ELB2TargetGroup -Name "cloudcuyo-api-tg").TargetGroupArn

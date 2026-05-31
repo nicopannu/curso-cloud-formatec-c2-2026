@@ -8,8 +8,8 @@ Metadata:
           default: "Configuracion de Red"
         Parameters:
           - VpcId
-          - PrivateSubnetAId
-          - PrivateSubnetBId
+          - SubnetAId
+          - SubnetBId
           - AlbSgId
       - Label:
           default: "Configuracion de Instancia"
@@ -25,9 +25,9 @@ Metadata:
     ParameterLabels:
       VpcId:
         default: "VPC ID"
-      PrivateSubnetAId:
+      SubnetAId:
         default: "Subnet Privada AZ-A"
-      PrivateSubnetBId:
+      SubnetBId:
         default: "Subnet Privada AZ-B"
       AlbSgId:
         default: "Security Group del ALB (creado manualmente)"
@@ -41,13 +41,13 @@ Parameters:
     Type: AWS::EC2::VPC::Id
     Description: ID de la VPC del laboratorio
 
-  PrivateSubnetAId:
+  SubnetAId:
     Type: AWS::EC2::Subnet::Id
-    Description: Subnet privada en AZ-A donde se desplegara el nodo 1
+    Description: "Subnet AZ-A para el nodo 1. Usar subnet publica: los nodos necesitan internet para bootstrap (dnf, pip3) y no hay NAT Gateway en el lab."
 
-  PrivateSubnetBId:
+  SubnetBId:
     Type: AWS::EC2::Subnet::Id
-    Description: Subnet privada en AZ-B donde se desplegara el nodo 2
+    Description: "Subnet AZ-B para el nodo 2. Usar subnet publica: los nodos necesitan internet para bootstrap (dnf, pip3) y no hay NAT Gateway en el lab."
 
   AlbSgId:
     Type: String
@@ -129,7 +129,7 @@ Resources:
           Value: m2-c2-ha
 
   # ============================================================================
-  # Nodo 1: subnet privada AZ-A
+  # Nodo 1: subnet AZ-A
   # ============================================================================
   ApiNode1:
     Type: AWS::EC2::Instance
@@ -137,9 +137,12 @@ Resources:
       ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
       InstanceType: !Ref InstanceType
       IamInstanceProfile: !Ref SsmInstanceProfile
-      SubnetId: !Ref PrivateSubnetAId
-      SecurityGroupIds:
-        - !Ref ApiNodeSg
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetAId
+          GroupSet:
+            - !Ref ApiNodeSg
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -151,9 +154,14 @@ Resources:
           dnf update -y
           dnf install -y python3 python3-pip
 
-          # Obtener metadata de la instancia (resuelto en runtime, no por CF)
-          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-          AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+          # Obtener metadata de la instancia via IMDSv2
+          TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+            -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+          INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+            http://169.254.169.254/latest/meta-data/instance-id)
+          AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+            http://169.254.169.254/latest/meta-data/placement/availability-zone)
+          echo "Instance: $INSTANCE_ID AZ: $AZ"
 
           mkdir -p /opt/cloudcuyo-api
 
@@ -198,25 +206,8 @@ Resources:
 
           pip3 install flask gunicorn
 
-          # Crear servicio systemd.
-          # ${!INSTANCE_ID} y ${!AZ} → CF los deja como ${INSTANCE_ID} y ${AZ} para bash.
-          cat > /etc/systemd/system/cloudcuyo-api.service << SYSTEMD
-          [Unit]
-          Description=CloudCuyo HA Demo API
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          WorkingDirectory=/opt/cloudcuyo-api
-          Environment=APP_NODE=${!INSTANCE_ID}
-          Environment=APP_AZ=${!AZ}
-          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 app:app
-          Restart=always
-          RestartSec=3
-
-          [Install]
-          WantedBy=multi-user.target
-          SYSTEMD
+          # Crear servicio systemd usando printf para evitar conflicto !Sub / heredoc
+          printf '[Unit]\nDescription=CloudCuyo HA Demo API\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nWorkingDirectory=/opt/cloudcuyo-api\nEnvironment=APP_NODE=%s\nEnvironment=APP_AZ=%s\nExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 app:app\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=multi-user.target\n' "$INSTANCE_ID" "$AZ" > /etc/systemd/system/cloudcuyo-api.service
 
           systemctl daemon-reload
           systemctl enable cloudcuyo-api
@@ -235,7 +226,7 @@ Resources:
           Value: !Ref Environment
 
   # ============================================================================
-  # Nodo 2: subnet privada AZ-B (misma configuracion que nodo 1)
+  # Nodo 2: subnet AZ-B (misma configuracion que nodo 1)
   # ============================================================================
   ApiNode2:
     Type: AWS::EC2::Instance
@@ -243,9 +234,12 @@ Resources:
       ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
       InstanceType: !Ref InstanceType
       IamInstanceProfile: !Ref SsmInstanceProfile
-      SubnetId: !Ref PrivateSubnetBId
-      SecurityGroupIds:
-        - !Ref ApiNodeSg
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetBId
+          GroupSet:
+            - !Ref ApiNodeSg
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -257,8 +251,14 @@ Resources:
           dnf update -y
           dnf install -y python3 python3-pip
 
-          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-          AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+          # Obtener metadata de la instancia via IMDSv2
+          TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+            -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+          INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+            http://169.254.169.254/latest/meta-data/instance-id)
+          AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+            http://169.254.169.254/latest/meta-data/placement/availability-zone)
+          echo "Instance: $INSTANCE_ID AZ: $AZ"
 
           mkdir -p /opt/cloudcuyo-api
 
@@ -300,23 +300,8 @@ Resources:
 
           pip3 install flask gunicorn
 
-          cat > /etc/systemd/system/cloudcuyo-api.service << SYSTEMD
-          [Unit]
-          Description=CloudCuyo HA Demo API
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          WorkingDirectory=/opt/cloudcuyo-api
-          Environment=APP_NODE=${!INSTANCE_ID}
-          Environment=APP_AZ=${!AZ}
-          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 app:app
-          Restart=always
-          RestartSec=3
-
-          [Install]
-          WantedBy=multi-user.target
-          SYSTEMD
+          # Crear servicio systemd usando printf para evitar conflicto !Sub / heredoc
+          printf '[Unit]\nDescription=CloudCuyo HA Demo API\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nWorkingDirectory=/opt/cloudcuyo-api\nEnvironment=APP_NODE=%s\nEnvironment=APP_AZ=%s\nExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 app:app\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=multi-user.target\n' "$INSTANCE_ID" "$AZ" > /etc/systemd/system/cloudcuyo-api.service
 
           systemctl daemon-reload
           systemctl enable cloudcuyo-api

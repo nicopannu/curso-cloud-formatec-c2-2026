@@ -190,10 +190,10 @@ Resources:
           cat > /usr/local/bin/cloudcuyo-load.sh << 'SCRIPT'
           #!/bin/bash
           # Uso: cloudcuyo-load.sh <url> <rps> <workers>
-          URL=${1:-http://localhost}
-          RPS=${2:-30}
-          WORKERS=${3:-5}
-          DURATION=60  # segundos por ronda de ab
+          URL=$1
+          RPS=$2
+          WORKERS=$3
+          DURATION=60
 
           echo "[$(date)] Iniciando carga: URL=$URL RPS=$RPS Workers=$WORKERS"
           while true; do
@@ -222,8 +222,8 @@ Resources:
               echo "  o EC2 > Instances > filtrar por tag Lab=m2-c2-ha"
               exit 1
           fi
-          echo "[$(date)] Enviando /crash a http://${NODE_IP}:5000/api/v1/crash ..."
-          curl -s --max-time 5 "http://${NODE_IP}:5000/api/v1/crash" || echo "(conexion cerrada por el crash - es esperado)"
+          echo "[$(date)] Enviando /crash a http://$NODE_IP:5000/api/v1/crash ..."
+          curl -s --max-time 5 "http://$NODE_IP:5000/api/v1/crash" || echo "(conexion cerrada por el crash - es esperado)"
           echo ""
           echo "El nodo $NODE_IP deberia caer en ~100ms."
           echo "Observar en consola: EC2 > Target Groups > targets -> estado Unhealthy"

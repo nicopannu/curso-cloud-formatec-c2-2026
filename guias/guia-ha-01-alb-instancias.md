@@ -266,10 +266,8 @@ export SSM_INSTANCE_PROFILE=cloudcuyo-ssm-profile   # o el nombre del Lab 1
 
 ```powershell
 $VpcId              = "vpc-xxxxxxxxx"
-$PublicSubnetAId    = "subnet-xxxxxxxxx"
-$PublicSubnetBId    = "subnet-xxxxxxxxx"
-$PrivateSubnetAId   = "subnet-xxxxxxxxx"
-$PrivateSubnetBId   = "subnet-xxxxxxxxx"
+$PublicSubnetAId    = "subnet-xxxxxxxxx"   # AZ-A, ya existe
+$PublicSubnetBId    = "subnet-xxxxxxxxx"   # AZ-B, recien creada
 $SsmInstanceProfile = "cloudcuyo-ssm-profile"
 ```
 
@@ -325,6 +323,12 @@ Write-Host "ALB SG ID: $AlbSgId"
 
 ## Fase 2: Desplegar nodos API con CloudFormation
 
+> **Nota sobre subnets:** Los nodos de este lab se despliegan en las **subnets públicas** (no privadas). El motivo es que durante el bootstrap (UserData), los nodos necesitan acceso a internet para instalar dependencias (`dnf update`, `pip3 install flask gunicorn`). Sin un NAT Gateway en la VPC, las instancias en subnets privadas no tienen salida a internet y el bootstrap falla silenciosamente.
+>
+> Los nodos siguen protegidos: el Security Group solo permite tráfico en el puerto 5000 desde el SG del ALB. Los usuarios de internet no pueden acceder directamente a los nodos aunque tengan IP pública.
+>
+> En un entorno de producción con NAT Gateway, los nodos irían en subnets privadas.
+
 El stack `cloudformation/ha-lab1-nodes.yaml` crea las dos instancias EC2 con la API Flask corriendo en puerto 5000, distribuidas en AZ-A y AZ-B. El SG de los nodos solo permite trafico desde el SG del ALB creado en la Fase 1.
 
 ### 2.1 Desplegar con CloudFormation (AWS Console)
@@ -336,8 +340,8 @@ El stack `cloudformation/ha-lab1-nodes.yaml` crea las dos instancias EC2 con la 
 5. **Stack name:** `cloudcuyo-ha-lab1-nodes`
 6. **Parameters:**
    - **VpcId:** pegar `$VPC_ID`
-   - **PrivateSubnetAId:** pegar `$PRIVATE_SUBNET_A_ID`
-   - **PrivateSubnetBId:** pegar `$PRIVATE_SUBNET_B_ID`
+   - **SubnetAId:** pegar `$PUBLIC_SUBNET_A_ID`
+   - **SubnetBId:** pegar `$PUBLIC_SUBNET_B_ID`
    - **AlbSgId:** pegar `$ALB_SG_ID` (del paso anterior)
    - **SsmInstanceProfile:** pegar `$SSM_INSTANCE_PROFILE`
 7. Click **Next** dos veces
@@ -361,8 +365,8 @@ aws cloudformation create-stack \
   --template-body file://cloudformation/ha-lab1-nodes.yaml \
   --parameters \
     ParameterKey=VpcId,ParameterValue=$VPC_ID \
-    ParameterKey=PrivateSubnetAId,ParameterValue=$PRIVATE_SUBNET_A_ID \
-    ParameterKey=PrivateSubnetBId,ParameterValue=$PRIVATE_SUBNET_B_ID \
+    ParameterKey=SubnetAId,ParameterValue=$PUBLIC_SUBNET_A_ID \
+    ParameterKey=SubnetBId,ParameterValue=$PUBLIC_SUBNET_B_ID \
     ParameterKey=AlbSgId,ParameterValue=$ALB_SG_ID \
     ParameterKey=SsmInstanceProfile,ParameterValue=$SSM_INSTANCE_PROFILE \
   --capabilities CAPABILITY_NAMED_IAM
@@ -383,8 +387,8 @@ aws cloudformation describe-stacks \
 ```powershell
 $Parameters = @(
     @{ ParameterKey = "VpcId";               ParameterValue = $VpcId }
-    @{ ParameterKey = "PrivateSubnetAId";    ParameterValue = $PrivateSubnetAId }
-    @{ ParameterKey = "PrivateSubnetBId";    ParameterValue = $PrivateSubnetBId }
+    @{ ParameterKey = "SubnetAId";    ParameterValue = $SubnetAId }
+    @{ ParameterKey = "SubnetBId";    ParameterValue = $SubnetBId }
     @{ ParameterKey = "AlbSgId";             ParameterValue = $AlbSgId }
     @{ ParameterKey = "SsmInstanceProfile";  ParameterValue = $SsmInstanceProfile }
 )
