@@ -26,9 +26,9 @@ Metadata:
       VpcId:
         default: "VPC ID"
       SubnetAId:
-        default: "Subnet Privada AZ-A"
+        default: "Subnet Publica AZ-A"
       SubnetBId:
-        default: "Subnet Privada AZ-B"
+        default: "Subnet Publica AZ-B"
       AlbSgId:
         default: "Security Group del ALB (creado manualmente)"
       SsmInstanceProfile:

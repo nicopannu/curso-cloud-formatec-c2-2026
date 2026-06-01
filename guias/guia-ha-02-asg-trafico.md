@@ -36,7 +36,7 @@ Este lab tambien introduce un **generador de trafico** desplegado via CloudForma
    |                      |  |                       |
    | +------------------+ |  | +------------------+  |
    | | Traffic Generator| |  | |                  |  |
-   | | (EC2 con wrk)    | |  | |                  |  |
+   | | (EC2 con ab)     | |  | |                  |  |
    | +--------+---------+ |  | +------------------+  |
    |          |           |  |                       |
    |   +------+-------+   |  |                       |
@@ -87,7 +87,8 @@ Tener a mano:
 - Nombre del Instance Profile SSM (`cloudcuyo-ssm-role`)
 - DNS name del ALB (EC2 > Load Balancers > cloudcuyo-api-alb > columna DNS name)
 - ARN del Target Group (EC2 > Target Groups > cloudcuyo-api-tg > columna ARN)
-- ID del Security Group de los nodos API (output del stack ha-lab1-nodes o buscando `cloudcuyo-api-node-sg` en EC2 > Security Groups)
+- ID del Security Group del ALB (`cloudcuyo-alb-sg`)
+- El Security Group de los nodos del ASG se crea en la Fase 1.2 de este lab
 
 ---
 
@@ -115,6 +116,25 @@ Si el stack `cloudcuyo-ha-lab1-nodes` todavia existe (las 2 EC2 fijas siguen cor
 2. Debe aparecer sin targets registrados (o los targets en estado `draining` transitando a `deregistered`)
 3. Esperar a que no queden instancias activas antes de continuar
 
+### 1.2 Crear Security Group para los nodos del ASG
+
+Al eliminar el stack `cloudcuyo-ha-lab1-nodes`, tambien se elimina el Security Group que ese stack habia creado para los nodos fijos. Por eso el ASG necesita un Security Group nuevo, creado manualmente y fuera del stack anterior.
+
+> **¿Por que no reutilizar el `ApiNodeSgId` del Lab HA-01?** Ese SG pertenece al stack `cloudcuyo-ha-lab1-nodes`. Si se elimina el stack, CloudFormation elimina tambien el SG. Si el ASG usara ese SG, la eliminacion del stack fallaria o dejaria dependencias cruzadas. Crear un SG manual para el ASG deja claro que el ciclo de vida de los nodos autoscalados es independiente del stack de nodos fijos.
+
+1. Ir a **EC2 > Security Groups > Create security group**
+2. Configurar:
+   - **Security group name:** `cloudcuyo-api-node-sg`
+   - **Description:** `CloudCuyo API nodes - allow HTTP 5000 from ALB`
+   - **VPC:** seleccionar la VPC del lab
+3. En **Inbound rules > Add rule:**
+   - **Type:** Custom TCP
+   - **Port range:** `5000`
+   - **Source:** seleccionar el Security Group `cloudcuyo-alb-sg`
+4. En **Outbound rules:** dejar la regla por defecto `All traffic` hacia `0.0.0.0/0`
+5. Click **Create security group**
+6. Anotar el **Security Group ID**. Se usara en el Launch Template y en el stack del traffic generator como `ApiSgId`.
+
 ---
 
 ## Fase 2: Crear Launch Template
@@ -139,7 +159,7 @@ El Launch Template es el "molde" que el ASG usa para lanzar nuevas instancias. D
 4. Configurar seccion **Instance type:** `t3.micro`
 5. Configurar seccion **Key pair (login):** seleccionar `lab-key` (o dejar sin key pair si se usara solo SSM)
 6. Configurar seccion **Network settings:**
-   - **Firewall (security groups):** seleccionar `cloudcuyo-api-node-sg` (el SG de los nodos del Lab HA-01, o un SG equivalente que permita puerto 5000 desde el ALB)
+   - **Firewall (security groups):** seleccionar `cloudcuyo-api-node-sg` (el SG creado en la Fase 1.2, que permite puerto 5000 desde el ALB)
 7. Configurar seccion **Advanced details:**
    - **IAM instance profile:** seleccionar `cloudcuyo-ssm-role` (o el nombre del Instance Profile SSM)
    - **User data:** copiar y pegar el siguiente script completo en el campo User data:
@@ -261,6 +281,8 @@ systemctl start cloudcuyo-api
    - En **Health checks:**
      - **Health check type:** `EC2` (solo EC2 por ahora — se cambia en Lab HA-03)
      - **Health check grace period:** `120` segundos
+   - En **Monitoring / Additional settings** (si aparece en esta pantalla):
+     - Habilitar **Group metrics collection within CloudWatch**
    - Click **Next**
 
 > **¿Por que Health check type EC2 por ahora?** Intencionalmente. El Lab HA-03 demuestra que pasa cuando se deja en EC2 (no detecta fallas de proceso) y luego cambia a ELB (si las detecta). Si ya lo configuramos en ELB ahora, perdemos el experimento del Lab 3.
@@ -268,6 +290,8 @@ systemctl start cloudcuyo-api
 > **¿Por que Health check grace period de 120 segundos?** Cuando el ASG lanza una instancia nueva, el bootstrap (dnf update + pip install + arranque del servicio) tarda entre 60 y 90 segundos. Si el health check empieza inmediatamente, la instancia aparece como Unhealthy porque todavia no esta lista, el ASG la reemplaza... y asi en loop. Los 120 segundos dan tiempo suficiente para que la instancia arranque antes de ser evaluada.
 
 > **¿Por que asociar el ASG al Target Group aqui?** Al asociarlo durante la creacion, el ASG automaticamente registra cada instancia nueva en el Target Group cuando pasa a `InService`, y la desregistra cuando la termina. Sin esta asociacion, habria que registrar/desregistrar manualmente cada instancia, lo que anula el proposito del ASG.
+
+> **¿Por que habilitar group metrics?** El Lab HA-03 crea un dashboard con metricas del ASG como `GroupDesiredCapacity` y `GroupInServiceInstances`. Si la recoleccion de metricas de grupo queda deshabilitada, esas metricas no aparecen en CloudWatch y el alumno no puede completar el dashboard.
 
 5. **Paso 4 - Configure group size and scaling:**
    - **Desired capacity:** `2`
@@ -296,6 +320,15 @@ systemctl start cloudcuyo-api
 4. Ir a **EC2 > Target Groups > cloudcuyo-api-tg > Targets** → esperar a estado `Healthy` en ambas
 
 > El proceso completo (arranque de instancia + user-data + primera vez en Healthy) toma aproximadamente 2-3 minutos. El health check grace period de 120 segundos asegura que el ASG no marque las instancias como Unhealthy mientras la API esta iniciando.
+
+### 3.3 Verificar metricas de grupo del ASG
+
+1. Ir a **EC2 > Auto Scaling Groups > cloudcuyo-api-asg**
+2. Abrir la pestana **Monitoring**
+3. Verificar que las metricas de grupo esten habilitadas
+4. Si aparece un boton como **Enable group metrics collection** o **Edit monitoring**, habilitar las metricas del grupo
+
+> Estas metricas no son necesarias para escalar, pero si para el dashboard del Lab HA-03. Si no se habilitan, en CloudWatch no apareceran metricas como `GroupDesiredCapacity` o `GroupInServiceInstances`.
 
 ### Troubleshooting de la Fase 3
 
@@ -342,7 +375,7 @@ Con el ASG corriendo pero sin politica de escalado, la capacidad es fija en 2. L
 
 ## Fase 5: Desplegar Traffic Generator
 
-El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet publica con `wrk` instalado. Genera carga HTTP continua contra el ALB, lo que dispara el scale-out del ASG.
+El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet publica con `ab` (Apache Benchmark) instalado. Genera carga HTTP continua contra el ALB, lo que dispara el scale-out del ASG.
 
 > **¿Por que el traffic generator en una subnet publica?** La EC2 del traffic generator necesita acceso a internet para que el SSM Agent funcione (el agente se comunica con el servicio SSM en internet). Como no tenemos NAT Gateway para subnets privadas, la ponemos en subnet publica con IP publica. El trafico que genera hacia el ALB es interno a la VPC (ALB DNS resuelve a IPs privadas dentro de la red de AWS).
 
@@ -358,13 +391,17 @@ El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet pub
 6. **Parameters:**
    - **VpcId:** pegar el ID de la VPC
    - **PublicSubnetId:** pegar el ID de la subnet publica AZ-A
+   - **ApiSgId:** pegar el ID de `cloudcuyo-api-node-sg` (el SG creado en la Fase 1.2)
    - **SsmInstanceProfile:** pegar `cloudcuyo-ssm-role`
    - **AlbTargetUrl:** `http://<dns-del-alb>` (sin barra final — copiar el DNS name del ALB desde EC2 > Load Balancers)
    - **RequestsPerSecond:** `30`
    - **Workers:** `5`
-7. Marcar **I acknowledge...** > Click **Submit**
-8. Esperar **CREATE_COMPLETE** (~3 minutos)
-9. Ir a la pestana **Outputs** y anotar el Instance ID del traffic generator (columna **Value** de la fila `TrafficGenInstanceId`)
+7. Si la consola muestra algun checkbox de **Capabilities / IAM acknowledgment**, marcarlo. Si no aparece, es normal: este template no crea recursos IAM.
+8. Click **Submit**
+9. Esperar **CREATE_COMPLETE** (~3 minutos)
+10. Ir a la pestana **Outputs** y anotar el Instance ID del traffic generator (columna **Value** de la fila `TrafficGeneratorInstanceId`)
+
+> **Importante:** El servicio `cloudcuyo-load` arranca automaticamente durante el UserData. El trafico empieza pocos minutos despues de crear el stack; no hace falta iniciar nada manualmente para disparar el scale-out.
 
 ---
 
@@ -448,9 +485,9 @@ netstat -an | grep ESTABLISHED | wc -l
 
 ### 7.2 Observar el scale-in
 
-Despues de detener el trafico, la metrica `RequestCountPerTarget` cae por debajo del umbral de 100. El ASG espera el **scale-in cooldown** (configurado en 120 segundos) antes de terminar instancias.
+Despues de detener el trafico, la metrica `RequestCountPerTarget` cae por debajo del umbral. El scale-in de una politica **Target Tracking** es deliberadamente conservador: AWS espera varios datapoints de CloudWatch antes de reducir capacidad para evitar terminar instancias durante una pausa breve de trafico.
 
-> **¿Por que el scale-in tarda mas que el scale-out?** Es intencional. El scale-out debe ser rapido para absorber picos (60s de cooldown). El scale-in es mas conservador (120s) para evitar terminar instancias que podrian necesitarse si el trafico vuelve a subir. Terminar y volver a lanzar instancias innecesariamente tiene un costo tanto economico como de tiempo (bootstrap).
+> **¿Por que el scale-in tarda mas que el scale-out?** Es intencional. El scale-out debe ser rapido para absorber picos. El scale-in es mas conservador: la alarma baja de target tracking suele evaluar varios minutos de datos antes de actuar. Esto evita terminar instancias que podrian necesitarse si el trafico vuelve a subir.
 
 **Monitorear en consola:** Ir a **EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Activity** y refrescar la pagina cada 30 segundos.
 
@@ -464,7 +501,7 @@ actual capacity, decreasing the capacity from 4 to 2.
 
 Tambien observar la pestana **Instance management** para ver como las instancias extras pasan a estado `Terminating`.
 
-> **Cuanto tiempo tarda el scale-in?** Con cooldown de 120 segundos, la metrica debe estar por debajo del umbral durante todo ese periodo antes de que el ASG actue. Tipicamente el scale-in completo toma 3-5 minutos desde que se detiene el trafico.
+> **Cuanto tiempo tarda el scale-in?** En este lab puede tardar **15-20 minutos** desde que se detiene el trafico. Es normal ver `Desired=4` durante varios minutos aunque `RequestCountPerTarget` ya haya caido a 0. Cuando la alarma baja pasa a `ALARM`, el ASG reduce primero de 4 a 3 y luego de 3 a 2.
 
 ### 7.3 Verificar estado final
 
@@ -511,7 +548,7 @@ Eliminar en este orden:
 - El ASG lanza 2 instancias iniciales que quedan `Healthy` en el Target Group
 - Al generar carga, el `RequestCountPerTarget` supera 100 y el ASG lanza instancias adicionales (hasta 4)
 - Las instancias nuevas del ASG quedan `InService` y reciben trafico del ALB
-- Al detener el trafico, el ASG reduce la capacidad de vuelta a 2 instancias en ~3-5 minutos
+- Al detener el trafico, el ASG reduce la capacidad de vuelta a 2 instancias despues del periodo conservador de scale-in (~15-20 minutos)
 - En ningun momento la API deja de responder durante el scale-out ni el scale-in
 
 ---

@@ -130,7 +130,7 @@ Este lab requiere dos Availability Zones completas (public + private cada una). 
    - **IPv4 CIDR block:** `10.0.3.0/24`
 4. Click en **Create subnet**
 5. Ir a **VPC > Route tables**
-6. Seleccionar la **route table privada** (la que tiene ruta `0.0.0.0/0 → nat-xxxxx` o la instancia NAT)
+6. Seleccionar la **route table privada** del lab (la que no tiene ruta publica al Internet Gateway; si el entorno tuviera NAT o VPC endpoints, tambien podria tener rutas privadas adicionales)
 7. Ir a pestana **Subnet associations > Edit subnet associations**
 8. Agregar la nueva subnet `cloudcuyo-private-us-east-1b` > Guardar
 
@@ -210,15 +210,17 @@ El stack `cloudformation/ha-lab1-nodes.yaml` crea las dos instancias EC2 con la 
    - **AlbSgId:** pegar el Security Group ID del ALB (del paso 1.1)
    - **SsmInstanceProfile:** pegar `cloudcuyo-ssm-role` (o el nombre del Instance Profile SSM)
 7. Click **Next** dos veces
-8. Marcar **I acknowledge that AWS CloudFormation might create IAM resources with custom names**
+8. Si la consola muestra algun checkbox de **Capabilities / IAM acknowledgment**, marcarlo. Si no aparece, es normal: este template usa un Instance Profile existente pero no crea recursos IAM.
 9. Click **Submit**
 10. Esperar a estado **CREATE_COMPLETE** (~3-5 minutos)
 11. Ir a pestana **Outputs** y anotar:
-    - **ApiNode1PrivateIp:** IP privada del nodo 1 (AZ-A)
-    - **ApiNode2PrivateIp:** IP privada del nodo 2 (AZ-B)
-    - **ApiNode1InstanceId:** Instance ID del nodo 1
-    - **ApiNode2InstanceId:** Instance ID del nodo 2
-    - **ApiNodeSgId:** Security Group ID de los nodos (se reutiliza en Lab HA-02)
+    - **ApiNode1Ip:** IP privada del nodo 1 (AZ-A)
+    - **ApiNode2Ip:** IP privada del nodo 2 (AZ-B)
+    - **ApiNode1Id:** Instance ID del nodo 1
+    - **ApiNode2Id:** Instance ID del nodo 2
+    - **ApiNodeSgId:** Security Group ID de los nodos creados por este stack
+
+> **Importante para HA-02:** El `ApiNodeSgId` pertenece al stack `cloudcuyo-ha-lab1-nodes`. Cuando se elimina el stack al comenzar HA-02, ese Security Group tambien se elimina. En HA-02 se crea un nuevo SG manual para los nodos del ASG.
 
 > **Nota:** Las instancias recien lanzadas pueden tardar 1-2 minutos en inicializar la API via user-data. Si se intenta registrarlas en el Target Group de inmediato, pueden aparecer en estado `Initial`. Eso es normal.
 
@@ -227,7 +229,7 @@ El stack `cloudformation/ha-lab1-nodes.yaml` crea las dos instancias EC2 con la 
 | Sintoma | Posible causa | Correccion |
 |---|---|---|
 | Stack queda en `CREATE_FAILED` | Parametro incorrecto (subnet ID, SG ID) | Revisar eventos del stack en CloudFormation > Events |
-| Stack falla con error IAM | Checkbox de capacidades IAM no marcado | Marcar **I acknowledge that AWS CloudFormation might create IAM resources** en la consola |
+| No aparece checkbox de capacidades IAM | El template no crea recursos IAM | Es normal; continuar con **Submit** |
 | Instancias en estado `running` pero API no responde | User-data aun ejecutando | Esperar 2-3 minutos, luego verificar via SSM |
 
 ---
@@ -375,7 +377,7 @@ Este experimento ilustra la ventaja clave del ALB sobre un servidor unico: cuand
 
 1. Abrir **EC2 > Target Groups > cloudcuyo-api-tg > Targets** en otra pestana del navegador
 2. Refrescar la pagina cada 15 segundos para observar el cambio de estado
-3. La instancia terminada debe pasar de `Healthy` a `Unhealthy`
+3. La instancia terminada puede pasar por `draining`, `Unhealthy`, `unused` o desaparecer de la lista de targets. Lo importante es que el Target Group quede con un solo target `Healthy` y el ALB deje de enviar trafico al nodo terminado.
 
 ### 6.3 Secuencia esperada de eventos
 
@@ -428,7 +430,7 @@ Este experimento ilustra la ventaja clave del ALB sobre un servidor unico: cuand
 - El campo `node` alterna entre los dos Instance IDs en refreshes sucesivos
 - El campo `az` muestra `us-east-1a` y `us-east-1b` en requests alternos
 - Tras terminar un nodo, el ALB sigue respondiendo sin timeouts con el nodo sano
-- El Target Group muestra el nodo terminado como `Unhealthy` y el sano como `Healthy`
+- El Target Group queda con el nodo sano como `Healthy`; el nodo terminado puede aparecer como `draining`/`Unhealthy`/`unused` durante unos minutos o desaparecer de la lista
 - El stack `cloudcuyo-ha-lab1-nodes` se puede eliminar sin errores
 
 ---

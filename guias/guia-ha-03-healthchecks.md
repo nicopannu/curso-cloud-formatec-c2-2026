@@ -262,10 +262,11 @@ Despues de habilitar ELB health checks (Fase 3), el ASG reconcilia el estado en 
 | Tiempo | ASG InService | TG Healthy | Evento |
 |---|---|---|---|
 | T+0 (post Fase 3) | 2 | 1 | ELB health check habilitado |
-| T+1-3 min | 1 | 1 | ASG termina instancia Unhealthy |
-| T+1-3 min | 2 | 1 | ASG lanza nueva instancia |
-| T+3-5 min | 2 | 1 | Nueva instancia en grace period (120s) |
-| T+5-6 min | 2 | 2 | Nueva instancia pasa health check, queda Healthy |
+| T+1-3 min | 1-2 | 1 | ASG marca la instancia Unhealthy y empieza el reemplazo |
+| T+1-3 min | 2 | 1 | ASG lanza una nueva instancia |
+| T+3-5 min | 2 | 1-2 | Nueva instancia arranca; puede aparecer `Initial` o `Unhealthy` durante bootstrap |
+| T+5-6 min | 2 | 2 | Nueva instancia pasa health check, queda `Healthy` |
+| T+5 min aprox. | 2 | 2 | El target viejo puede seguir `draining` hasta que termine el deregistration delay |
 
 Verificar el progreso en:
 - **EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Instance management** (refrescar cada 30s)
@@ -276,7 +277,8 @@ Verificar el progreso en:
 Una vez que el ciclo completa:
 
 1. Ir a **EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Instance management**
-   - Los Instance IDs deben ser diferentes a los originales del Experimento 1
+   - El nodo que se rompio debe tener un Instance ID nuevo
+   - El nodo que permanecio sano puede conservar el mismo Instance ID
    - Ambas instancias deben estar `InService`
 2. Ir a **EC2 > Target Groups > cloudcuyo-api-tg > Targets**
    - Ambos targets deben estar `Healthy`
@@ -302,7 +304,7 @@ sudo systemctl stop cloudcuyo-api
 
 | Sintoma | Posible causa | Correccion |
 |---|---|---|
-| El ASG no reemplaza la instancia despues de 5 minutos | Health check grace period aun activo, o la instancia fue marcada Healthy por EC2 | Verificar que ELB health check fue habilitado correctamente y esperar el ciclo completo |
+| El ASG no reemplaza la instancia despues de 5 minutos | ELB health check no fue habilitado correctamente, o el Target Group todavia no marco el target como Unhealthy | Verificar que el ASG muestre `EC2 and ELB` y que el Target Group muestre el target `Unhealthy` |
 | Nueva instancia queda en `Pending` por mas de 5 minutos | User-data falla en la nueva instancia | Conectarse via SSM a la nueva instancia y revisar `/var/log/user-data.log` |
 | El browser muestra timeouts durante el reemplazo | Normal: hay un breve periodo con 1 instancia sana | El ALB draining protege de errores, pero puede haber latencia aumentada |
 
@@ -389,14 +391,23 @@ La API demo siempre reporta la DB como ok porque es simulada. Pero consideremos 
 
 Crear un dashboard basico para monitorear la salud del sistema. Esto es especialmente util para tener visibilidad en tiempo real durante experimentos o incidentes.
 
-### 6.1 Crear el dashboard (AWS Console)
+### 6.1 Verificar metricas de grupo del ASG
+
+Antes de crear el dashboard, confirmar que el ASG publica metricas de grupo. Si no se habilitaron en HA-02, CloudWatch no mostrara `GroupDesiredCapacity` ni `GroupInServiceInstances`.
+
+1. Ir a **EC2 > Auto Scaling Groups > cloudcuyo-api-asg**
+2. Abrir la pestana **Monitoring**
+3. Si aparece un boton como **Enable group metrics collection** o **Edit monitoring**, habilitar las metricas del grupo
+4. Esperar 2-5 minutos para que las metricas aparezcan en CloudWatch
+
+### 6.2 Crear el dashboard (AWS Console)
 
 1. Ir a **CloudWatch > Dashboards > Create dashboard**
 2. **Dashboard name:** `CloudCuyo-HA-Monitor`
 3. Click **Create dashboard**
 4. Seleccionar widget type: **Line** → **Next**
 
-### 6.2 Agregar metrica HealthyHostCount
+### 6.3 Agregar metrica HealthyHostCount
 
 1. En el wizard de metricas, buscar `HealthyHostCount`
 2. Navegar: **ApplicationELB > Per AppELB, per TG Metrics**
@@ -406,17 +417,19 @@ Crear un dashboard basico para monitorear la salud del sistema. Esto es especial
    - **Statistic:** `Average`
 5. Click **Create widget**
 
-### 6.3 Agregar metrica UnhealthyHostCount
+### 6.4 Agregar metrica UnhealthyHostCount
 
 Repetir el proceso con `UnhealthyHostCount` del mismo Target Group.
 
-### 6.4 Agregar metricas del ASG
+### 6.5 Agregar metricas del ASG
 
 Repetir para:
 - **AutoScaling > GroupMetrics > GroupDesiredCapacity** del ASG `cloudcuyo-api-asg`
 - **AutoScaling > GroupMetrics > GroupInServiceInstances** del mismo ASG
 
-### 6.5 Reproducir el Experimento 1 con el dashboard visible
+> Si estas metricas no aparecen, volver a la Fase 6.1 y confirmar que la recoleccion de metricas de grupo esta habilitada. Luego esperar unos minutos y refrescar el selector de metricas.
+
+### 6.6 Reproducir el Experimento 1 con el dashboard visible
 
 Para ver el dashboard en accion, repetir la secuencia del Experimento 1:
 
