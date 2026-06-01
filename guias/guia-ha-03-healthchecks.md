@@ -4,7 +4,7 @@
 
 **Duracion estimada:** 2 horas
 
-**Estrategia 6R:** **Alta Disponibilidad** — resiliencia automatica a nivel de proceso
+**Módulo:** Módulo 2 — Clase 2: Alta Disponibilidad
 
 ---
 
@@ -773,7 +773,6 @@ aws cloudwatch delete-dashboards \
 
 - VPC (`10.0.0.0/16`), subnets, Internet Gateway, route tables
 - IAM Role SSM + Instance Profile
-- Stack `cloudcuyo-nat` si existe
 - Key pair `lab-key`
 
 ---
@@ -792,7 +791,7 @@ aws cloudwatch delete-dashboards \
 
 Al completar los tres labs de este modulo, CloudCuyo paso de:
 
-**Estado inicial (Lab 1 - REHOST):**
+**Estado inicial (arquitectura de partida):**
 - `api01`: servidor unico, SPOF
 - `lb01`: NGINX en EC2, otro SPOF
 - Capacidad fija, sin escalado automatico
@@ -804,5 +803,3 @@ Al completar los tres labs de este modulo, CloudCuyo paso de:
 - Auto Scaling Group: capacidad se ajusta automaticamente a la carga
 - ELB health checks: reemplazo automatico ante fallas de proceso
 - CloudWatch dashboard: visibilidad en tiempo real del estado del sistema
-
-El proximo paso natural es REPLATFORM de la base de datos: mover de EC2 + PostgreSQL manual a Amazon RDS con Multi-AZ para eliminar el ultimo SPOF del stack.

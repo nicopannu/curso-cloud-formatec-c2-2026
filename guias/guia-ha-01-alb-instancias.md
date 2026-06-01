@@ -4,13 +4,13 @@
 
 **Duracion estimada:** 1.5-2 horas
 
-**Estrategia 6R:** **Alta Disponibilidad** — REPLACE (lb01 → ALB administrado)
+**Módulo:** Módulo 2 — Clase 2: Alta Disponibilidad
 
 ---
 
 ## Contexto
 
-CloudCuyo ya tiene la API corriendo en `api01` (REHOST del Lab 1). Funciona, pero tiene un problema arquitectonico critico: `api01` es un **punto unico de falla (SPOF)**. Si esa instancia se cae, toda la API queda inaccesible. Los clientes que usan los endpoints `/api/v1/*` para sus sistemas de monitoreo y facturacion pierden conectividad sin previo aviso.
+CloudCuyo tiene la API corriendo en una sola instancia `api01`. Funciona, pero tiene un problema arquitectonico critico: `api01` es un **punto unico de falla (SPOF)**. Si esa instancia se cae, toda la API queda inaccesible. Los clientes que usan los endpoints `/api/v1/*` para sus sistemas de monitoreo y facturacion pierden conectividad sin previo aviso.
 
 El `lb01` heredado del on-premise tampoco ayuda: es otra instancia EC2 que puede fallar, y distribuye trafico solo entre los frontends estaticos, no entre multiples instancias de API.
 
@@ -91,18 +91,18 @@ Get-STSCallerIdentity
 
 ### Recursos de red necesarios
 
-Este lab requiere dos Availability Zones completas (public + private cada una). Los recursos del Lab 1 cubren la AZ-A. La AZ-B debe crearse como parte de los pre-requisitos de este lab.
+Este lab requiere dos Availability Zones completas (public + private cada una). La VPC del lab ya tiene subnets en AZ-A. La AZ-B se crea como parte de los pre-requisitos de este lab.
 
 **Recursos requeridos antes de comenzar las Fases:**
 
 | Recurso | Descripcion | Estado |
 |---|---|---|
-| VPC `10.0.0.0/16` con IGW | Del Lab 1 o pre-provisionada | Debe existir |
-| Public Subnet AZ-A (`10.0.0.0/24`) | Del Lab 1, asociada a RTB publica | Debe existir |
-| Private Subnet AZ-A (`10.0.1.0/24`) | Del Lab 1, asociada a RTB privada | Debe existir |
+| VPC `10.0.0.0/16` con IGW | Pre-existente en la cuenta | Debe existir |
+| Public Subnet AZ-A (`10.0.0.0/24`) | Pre-existente, asociada a RTB publica | Debe existir |
+| Private Subnet AZ-A (`10.0.1.0/24`) | Pre-existente, asociada a RTB privada | Debe existir |
 | Public Subnet AZ-B (`10.0.2.0/24`) | **Crear en este pre-req** | A crear |
 | Private Subnet AZ-B (`10.0.3.0/24`) | **Crear en este pre-req** | A crear |
-| IAM Role SSM + Instance Profile | **Crear si no existe** (del Lab 1 puede existir) | A verificar/crear |
+| IAM Role SSM + Instance Profile | **Crear si no existe** | A verificar/crear |
 
 ---
 
@@ -223,14 +223,12 @@ Write-Host "Private Subnet B: $($PrivateSubnetB.SubnetId)"
 
 > **¿Por que necesitan las EC2 un IAM Role?** Por defecto, una instancia EC2 no tiene permisos para interactuar con otros servicios de AWS. El IAM Role actua como una "identidad" que se asigna a la instancia y le otorga permisos especificos. En este caso, `AmazonSSMManagedInstanceCore` permite al SSM Agent de la instancia comunicarse con el servicio Systems Manager sin necesidad de una clave SSH ni una IP publica accesible. Esto es mas seguro y operativamente mas simple que gestionar claves SSH.
 
-Si ya completaste el Lab 1 y el stack `cloudcuyo-nat` esta activo, el Instance Profile SSM ya existe. Obtenerlo con:
+Si ya existe un Instance Profile SSM en la cuenta, obtener su nombre con:
 
 ```bash
-SSM_INSTANCE_PROFILE=$(aws cloudformation describe-stacks \
-  --stack-name cloudcuyo-nat \
-  --query 'Stacks[0].Outputs[?OutputKey==`SSMInstanceProfileName`].OutputValue' \
-  --output text)
-echo "SSM Instance Profile: $SSM_INSTANCE_PROFILE"
+aws iam list-instance-profiles \
+  --query 'InstanceProfiles[*].InstanceProfileName' \
+  --output table
 ```
 
 **Si no existe, crearlo manualmente:**
@@ -263,9 +261,9 @@ Completar y exportar antes de empezar las Fases:
 
 ```bash
 export VPC_ID=vpc-xxxxxxxxx
-export PUBLIC_SUBNET_A_ID=subnet-xxxxxxxxx   # AZ-A, del Lab 1
+export PUBLIC_SUBNET_A_ID=subnet-xxxxxxxxx   # AZ-A, ya existe
 export PUBLIC_SUBNET_B_ID=subnet-xxxxxxxxx   # AZ-B, recien creada
-export SSM_INSTANCE_PROFILE=cloudcuyo-ssm-profile   # o el nombre del Lab 1
+export SSM_INSTANCE_PROFILE=cloudcuyo-ssm-profile   
 ```
 
 **PowerShell:**
@@ -513,7 +511,7 @@ El Target Group es el componente que le dice al ALB a que instancias enviar traf
 4. En **Network mapping:**
    - **VPC:** seleccionar la VPC del lab
    - **Mappings:** marcar las dos AZs y seleccionar las public subnets:
-     - `us-east-1a` → `cloudcuyo-public-us-east-1a` (o la de AZ-A del Lab 1)
+     - `us-east-1a` → subnet publica AZ-A
      - `us-east-1b` → `cloudcuyo-public-us-east-1b` (recien creada)
 5. En **Security groups:**
    - Quitar el SG default
@@ -769,7 +767,6 @@ aws ec2 delete-security-group --group-id $ALB_SG_ID
 
 - VPC, subnets, Internet Gateway, route tables
 - IAM Role SSM + Instance Profile
-- Stack `cloudcuyo-nat` si existe
 
 ---
 

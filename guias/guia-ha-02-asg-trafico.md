@@ -4,7 +4,7 @@
 
 **Duracion estimada:** 2-3 horas
 
-**Estrategia 6R:** **Alta Disponibilidad** — escalado automatico con Auto Scaling Group
+**Módulo:** Módulo 2 — Clase 2: Alta Disponibilidad
 
 ---
 
@@ -49,7 +49,7 @@ Este lab tambien introduce un **generador de trafico** desplegado via CloudForma
                          |
               +----------+-------------+
               |    Target Group        |
-              |   (mismo del Lab 1)    |
+              |   (existente del Lab HA-01)    |
               +-----+------+------+---+
                     |      |      |
                     |      |      |
@@ -114,7 +114,7 @@ export ALB_DNS=$(aws elbv2 describe-load-balancers \
   --query 'LoadBalancers[0].DNSName' \
   --output text)
 
-# Obtener SG de los nodos API (output del stack del Lab 1, o recrear)
+# Obtener SG de los nodos API (output del stack ha-lab1-nodes, o el SG creado en HA-01)
 export API_NODE_SG_ID=sg-xxxxxxxxx
 
 echo "TG ARN: $TG_ARN"
@@ -719,7 +719,6 @@ Write-Host "Traffic generator eliminado. Completar limpieza de ASG, LT, ALB y TG
 
 - VPC, subnets, Internet Gateway, route tables
 - IAM Role SSM + Instance Profile
-- Stack `cloudcuyo-nat` si existe
 
 ---
 

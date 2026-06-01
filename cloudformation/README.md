@@ -59,7 +59,7 @@ aws cloudformation create-stack \
 |---|---|
 | `VpcId` | ID de la VPC del lab |
 | `PublicSubnetId` | Subnet pública para el generador |
-| `ApiSgId` | SG de los nodos API (output `ApiNodeSgId` del Lab 1, o SG del ASG en Lab 2) |
+| `ApiSgId` | SG de los nodos API (output `ApiNodeSgId` del stack `cloudcuyo-ha-lab1-nodes`, o SG creado en HA-01) |
 | `SsmInstanceProfile` | Instance Profile SSM |
 | `AlbTargetUrl` | URL completa del ALB, ej: `http://cloudcuyo-alb-xxx.us-east-1.elb.amazonaws.com` |
 
