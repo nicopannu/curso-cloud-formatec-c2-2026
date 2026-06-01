@@ -71,6 +71,8 @@ Este lab demuestra ambos comportamientos con experimentos controlados.
 
 **Verificar estado inicial antes de comenzar:**
 
+> **¿Por que verificar que el ASG tenga exactamente HealthCheckType=EC2?** El experimento del Lab HA-03 depende de empezar en el estado "antes" (EC2 health check) para demostrar el problema. Si alguien cambio el health check a ELB durante el Lab HA-02, el Experimento 1 no funcionara como se espera: el ASG ya reemplazara la instancia automaticamente y no se podra observar el comportamiento problematico.
+
 **AWS Console:**
 
 1. **EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Instance management**
@@ -163,6 +165,8 @@ El EC2 health check tiene dos componentes:
 
 Esto significa que si `gunicorn` se cae (proceso muerto, OOM killer, excepcion no capturada), el EC2 health check seguira reportando la instancia como sana.
 
+> **¿Cual es la diferencia entre EC2 system status check y EC2 instance status check?** El system status check verifica que el hardware subyacente de AWS funcione (red fisica, energia). Si falla, el problema esta del lado de AWS y generalmente se resuelve solo o requiere migrar la instancia. El instance status check verifica que el sistema operativo de la instancia responda (kernel, networking interno). Si falla, generalmente requiere intervencion del usuario (reboot, reparacion del OS). Ninguno de los dos verifica que la APLICACION funcione.
+
 ### 1.2 Verificar la configuracion actual en consola
 
 1. Ir a **EC2 > Auto Scaling Groups > cloudcuyo-api-asg**
@@ -234,6 +238,8 @@ done
 
 ### 2.2 Matar el proceso gunicorn via SSM
 
+> **¿Por que conectarse al nodo via SSM y no directamente via el traffic generator?** En el Lab HA-03, el traffic generator tiene acceso directo a los nodos (regla en el SG de los nodos). Para el experimento del crash, usamos SSM directamente al nodo porque es mas claro pedagogicamente: "entro a la instancia y mato el proceso". En produccion, una falla real seria mas parecida a lo que simula el endpoint `/api/v1/crash` (proceso que se cae por si solo), que se puede probar desde el traffic generator en el experimento alternativo.
+
 **AWS Console:**
 
 1. Ir a **Systems Manager > Session Manager > Start session**
@@ -264,7 +270,7 @@ ss -tlnp | grep 5000
 # No debe aparecer nada en el puerto 5000
 ```
 
-> **Por que `systemctl stop` y no `kill -9`?** Ambos producen el mismo resultado observable: el puerto 5000 deja de responder. `systemctl stop` es mas limpio para el experimento, pero en produccion los crashes reales son mas abruptos. El comportamiento del ALB y el ASG es identico en ambos casos.
+> **¿Por que `systemctl stop` y no `kill -9`?** `systemctl stop` envia SIGTERM al proceso, que es la senal estandar de "terminacion ordenada". `kill -9` envia SIGKILL, que es forzoso e inmediato. En produccion, los crashes reales suelen ser mas parecidos a SIGKILL (OOM killer, SIGSEGV). Para el experimento, ambos producen el mismo resultado observable: el puerto 5000 deja de responder y el ALB marca el target como Unhealthy.
 
 ### 2.3 Observar lo que pasa
 
@@ -351,6 +357,10 @@ Con `EC2 and ELB` activado, el ASG ahora toma decisiones de reemplazo basandose 
 - Si el ALB reporta la instancia como Unhealthy → el ASG **tambien** la reemplaza
 
 El health check grace period de 120 segundos sigue siendo valido: instancias recien lanzadas no son evaluadas por el health check ELB durante los primeros 120 segundos, para que tengan tiempo de arrancar.
+
+> **¿Por que el cambio no es instantaneo?** Al cambiar a `EC2 and ELB`, el ASG no evalua el estado inmediatamente. Espera el proximo ciclo de evaluacion de health checks, que puede demorar 1-3 minutos. Durante ese tiempo, la instancia que fallo en el Experimento 1 sigue apareciendo como `InService` en el ASG aunque el Target Group la muestre como `Unhealthy`.
+
+> **¿Por que mantener el grace period en 120s despues del cambio?** El grace period protege tanto las instancias existentes como las nuevas. Si lo bajamos a 0, el ASG podria evaluar una instancia que acaba de lanzarse y todavia esta en bootstrap. Mantenerlo en 120s es la configuracion correcta para produccion.
 
 ---
 
@@ -522,6 +532,8 @@ La API demo siempre reporta la DB como ok porque es simulada. Pero consideremos 
 | Los nodos en AZ-B siguen sanos y reciben trafico | Eventualmente el ASG agota el maximo de instancias |
 
 **El deep check convirtio un problema de DB en un problema de instancias**. El ASG intento "arreglar" algo que no se podia arreglar reemplazando instancias.
+
+> **¿Cuando SI conviene usar deep health check?** En arquitecturas donde la dependencia externa tiene alta disponibilidad independiente (ej: un cache Redis Multi-AZ, una base de datos RDS Multi-AZ con failover automatico). Si la dependencia puede fallar por si sola y hacer failover sin afectar a los nodos, el deep check puede detectar el problema antes. Pero si la dependencia puede fallar en toda una AZ al mismo tiempo que los nodos, el deep check causa el efecto cascada descrito en la tabla.
 
 ### 5.5 Tabla de trade-offs
 

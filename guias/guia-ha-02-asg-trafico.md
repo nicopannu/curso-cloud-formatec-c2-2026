@@ -56,7 +56,7 @@ Este lab tambien introduce un **generador de trafico** desplegado via CloudForma
               +-----+  +---+--+  +-+----+
               |        |      |        |
 +------+------+--+  +--+------+--+  +--+------+--+  (hasta 4)
-| Private Sub AZ-A |  | Private Sub AZ-A |  | Private Sub AZ-B |
+| Public Sub AZ-A  |  | Public Sub AZ-A  |  | Public Sub AZ-B  |
 |                  |  |                  |  |                  |
 | +-------------+  |  | +-------------+  |  | +-------------+  |
 | | api-asg-x   |  |  | | api-asg-x   |  |  | | api-asg-x   |  |
@@ -100,8 +100,6 @@ Ambos comandos deben devolver resultados sin error. Si alguno falla, volver al L
 export VPC_ID=vpc-xxxxxxxxx
 export PUBLIC_SUBNET_A_ID=subnet-xxxxxxxxx     # AZ-A
 export PUBLIC_SUBNET_B_ID=subnet-xxxxxxxxx     # AZ-B
-export PRIVATE_SUBNET_A_ID=subnet-xxxxxxxxx    # AZ-A
-export PRIVATE_SUBNET_B_ID=subnet-xxxxxxxxx    # AZ-B
 export SSM_INSTANCE_PROFILE=cloudcuyo-ssm-profile
 
 # Obtener ARN del Target Group (necesario para el ASG)
@@ -129,8 +127,6 @@ echo "ALB DNS: $ALB_DNS"
 $VpcId             = "vpc-xxxxxxxxx"
 $PublicSubnetAId   = "subnet-xxxxxxxxx"
 $PublicSubnetBId   = "subnet-xxxxxxxxx"
-$SubnetAId  = "subnet-xxxxxxxxx"
-$SubnetBId  = "subnet-xxxxxxxxx"
 $SsmInstanceProfile = "cloudcuyo-ssm-profile"
 
 $TgArn  = (Get-ELB2TargetGroup -Name "cloudcuyo-api-tg").TargetGroupArn
@@ -144,6 +140,8 @@ Write-Host "ALB DNS: $AlbDns"
 ## Fase 1: Eliminar los nodos fijos del Lab HA-01
 
 Si el stack `cloudcuyo-ha-lab1-nodes` todavia existe (las 2 EC2 fijas siguen corriendo), se debe eliminar antes de crear el ASG. No es posible tener dos conjuntos de targets en el mismo Target Group con diferente ciclo de vida.
+
+> **¿Por que eliminar primero los nodos del Lab HA-01?** El Target Group tiene registrados los dos nodos EC2 del stack anterior. Si creamos el ASG apuntando al mismo Target Group sin eliminar esos nodos primero, tendriamos instancias "viejas" compitiendo con las instancias del ASG. El stack se puede eliminar sin tocar el ALB ni el Target Group: son recursos independientes.
 
 **Verificar si el stack existe:**
 
@@ -186,6 +184,8 @@ Write-Host "Nodos fijos eliminados."
 
 El Launch Template es el "molde" que el ASG usa para lanzar nuevas instancias. Define la AMI, el tipo de instancia, el security group, el IAM profile y el user-data con la instalacion de la API.
 
+> **¿Que es un Launch Template?** Es la "receta" que el ASG usa para crear instancias nuevas. Contiene todo lo necesario para que cada instancia nueva sea identica a las anteriores: AMI, tipo de instancia, SG, IAM profile y script de arranque (UserData). Sin un Launch Template, el ASG no sabe como crear instancias. En versiones anteriores de AWS se usaban "Launch Configurations"; el Launch Template es su reemplazo moderno y mas flexible.
+
 ### 2.1 Crear Launch Template (AWS Console)
 
 1. Ir a **EC2 > Launch Templates > Create launch template**
@@ -196,14 +196,20 @@ El Launch Template es el "molde" que el ASG usa para lanzar nuevas instancias. D
    - Click en **Quick Start**
    - Seleccionar **Amazon Linux**
    - En el selector, elegir **Amazon Linux 2023 AMI** (la mas reciente disponible)
+
+> **¿Por que Amazon Linux 2023 y no otra AMI?** Amazon Linux 2023 tiene el SSM Agent preinstalado, lo que permite conectarse a las instancias via Systems Manager sin necesitar SSH ni una IP publica expuesta. Tambien tiene `dnf` como gestor de paquetes, que es mas moderno que `yum`. Para el lab es la opcion mas conveniente.
+
 4. Configurar seccion **Instance type:** `t3.micro`
 5. Configurar seccion **Key pair (login):** seleccionar `lab-key` (o dejar sin key pair si se usara solo SSM)
 6. Configurar seccion **Network settings:**
    - **Firewall (security groups):** seleccionar `cloudcuyo-api-node-sg` (el SG de los nodos del Lab HA-01, o un SG equivalente que permita puerto 5000 desde el ALB)
-   - **Auto-assign public IP:** `Disable` (los nodos van en subnets privadas)
 7. Configurar seccion **Advanced details:**
    - **IAM instance profile:** seleccionar `cloudcuyo-ssm-profile` (o el nombre del Instance Profile SSM)
    - **User data:** copiar y pegar el siguiente script completo:
+
+> **¿Por que el User Data y no una AMI pre-configurada?** En un entorno de lab, el User Data permite ver exactamente que se instala sin necesidad de gestionar AMIs propias. En produccion se preferiria una AMI "baked" (pre-configurada) para reducir el tiempo de bootstrap de nuevas instancias de ~2 minutos a ~30 segundos. Para el lab, la visibilidad del proceso es mas importante que la velocidad.
+
+> **¿Por que el systemd service usa `PLACEHOLDER_NODE` y luego `sed`?** Amazon Linux 2023 requiere IMDSv2 (token-based) para acceder a los metadatos de la instancia. Las variables `$INSTANCE_ID` y `$AZ` se obtienen durante el bootstrap, pero el archivo del servicio systemd se escribe con heredoc (comillas simples — bash no interpola variables en ese bloque). El truco es escribir `PLACEHOLDER_NODE` como valor temporario y luego reemplazarlo con `sed -i` usando la variable ya resuelta.
 
 ```bash
 #!/bin/bash
@@ -213,8 +219,12 @@ exec > >(tee /var/log/user-data.log) 2>&1
 dnf update -y
 dnf install -y python3 python3-pip
 
-INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/instance-id)
+AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/placement/availability-zone)
 
 mkdir -p /opt/cloudcuyo-api
 
@@ -254,20 +264,22 @@ PYAPP
 
 pip3 install flask gunicorn
 
-cat > /etc/systemd/system/cloudcuyo-api.service << SYSTEMD
+cat > /etc/systemd/system/cloudcuyo-api.service << 'SYSTEMD'
 [Unit]
 Description=CloudCuyo HA Demo API
 After=network-online.target
 [Service]
 WorkingDirectory=/opt/cloudcuyo-api
-Environment=APP_NODE=$INSTANCE_ID
-Environment=APP_AZ=$AZ
+Environment=APP_NODE=PLACEHOLDER_NODE
+Environment=APP_AZ=PLACEHOLDER_AZ
 ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 app:app
 Restart=always
 RestartSec=3
 [Install]
 WantedBy=multi-user.target
 SYSTEMD
+sed -i "s/PLACEHOLDER_NODE/$INSTANCE_ID/" /etc/systemd/system/cloudcuyo-api.service
+sed -i "s/PLACEHOLDER_AZ/$AZ/" /etc/systemd/system/cloudcuyo-api.service
 
 systemctl daemon-reload
 systemctl enable cloudcuyo-api
@@ -275,8 +287,6 @@ systemctl start cloudcuyo-api
 ```
 
 8. Click **Create launch template**
-
-> **Por que user-data y no una AMI pre-configurada?** En un ambiente de lab, el user-data permite ver exactamente que se instala sin necesidad de gestionar AMIs personalizadas. En produccion se preferiria una AMI "baked" para reducir el tiempo de arranque de nuevas instancias.
 
 ### 2.2 Verificar el Launch Template
 
@@ -299,10 +309,13 @@ systemctl start cloudcuyo-api
    - Click **Next**
 3. **Paso 2 - Choose instance launch options:**
    - **VPC:** seleccionar la VPC del lab
-   - **Availability Zones and subnets:** seleccionar las dos subnets privadas:
-     - `cloudcuyo-private-us-east-1a` (AZ-A)
-     - `cloudcuyo-private-us-east-1b` (AZ-B)
+   - **Availability Zones and subnets:** seleccionar las dos subnets publicas:
+     - `cloudcuyo-public-us-east-1a` (AZ-A)
+     - `cloudcuyo-public-us-east-1b` (AZ-B)
    - Click **Next**
+
+> **¿Por que subnets publicas y no privadas?** Las instancias del ASG necesitan acceso a internet para que el SSM Agent funcione (se comunica con el servicio SSM en internet) y para que el bootstrap descargue paquetes. Como no tenemos NAT Gateway, la unica opcion que tiene salida a internet es la subnet publica. El trafico de usuarios llega a traves del ALB, y el SG protege los nodos de acceso directo.
+
 4. **Paso 3 - Configure advanced options:**
    - En **Load balancing:**
      - Seleccionar **Attach to an existing load balancer**
@@ -312,12 +325,25 @@ systemctl start cloudcuyo-api
      - **Health check type:** `EC2` (solo EC2 por ahora — se cambia en Lab HA-03)
      - **Health check grace period:** `120` segundos
    - Click **Next**
+
+> **¿Por que Health check type EC2 por ahora?** Intencionalmente. El Lab HA-03 demuestra que pasa cuando se deja en EC2 (no detecta fallas de proceso) y luego cambia a ELB (si las detecta). Si ya lo configuramos en ELB ahora, perdemos el experimento del Lab 3.
+
+> **¿Por que Health check grace period de 120 segundos?** Cuando el ASG lanza una instancia nueva, el bootstrap (dnf update + pip install + arranque del servicio) tarda entre 60 y 90 segundos. Si el health check empieza inmediatamente, la instancia aparece como Unhealthy porque todavia no esta lista, el ASG la reemplaza... y asi en loop. Los 120 segundos dan tiempo suficiente para que la instancia arranque antes de ser evaluada.
+
+> **¿Por que asociar el ASG al Target Group aqui?** Al asociarlo durante la creacion, el ASG automaticamente registra cada instancia nueva en el Target Group cuando pasa a `InService`, y la desregistra cuando la termina. Sin esta asociacion, habria que registrar/desregistrar manualmente cada instancia, lo que anula el proposito del ASG.
+
 5. **Paso 4 - Configure group size and scaling:**
    - **Desired capacity:** `2`
    - **Minimum capacity:** `2`
    - **Maximum capacity:** `4`
    - **Automatic scaling:** `No scaling policies` por ahora (se agrega en Fase 4)
    - Click **Next**
+
+> **¿Que significan Desired, Minimum y Maximum?**
+> - **Desired (2):** cuantas instancias el ASG quiere mantener en este momento. Al crearlo, arranca 2.
+> - **Minimum (2):** el ASG nunca bajara de 2 instancias, aunque el trafico sea cero. Garantiza que siempre hay capacidad base disponible.
+> - **Maximum (4):** el ASG nunca superara 4 instancias, aunque la demanda lo pida. Protege contra costos inesperados o loops de escalado.
+
 6. **Paso 5 - Add notifications:** omitir, click **Next**
 7. **Paso 6 - Add tags:**
    - Agregar tag: `Key=Lab, Value=ha-02`
@@ -382,7 +408,13 @@ Con el ASG corriendo pero sin politica de escalado, la capacidad es fija en 2. L
    - **Instance warmup:** `60` segundos
 4. Click **Create**
 
-> **Por que 100 requests por target por minuto?** Es un valor intencialmente bajo para que el scale-out se dispare facilmente en el lab con el traffic generator. En produccion, este valor dependeria del benchmark de la aplicacion (cuantos requests/min puede manejar una instancia antes de que la latencia empiece a degradarse).
+> **¿Por que target tracking y no step scaling?** Target tracking funciona como un termostato: le decis "mantene el CPU en 50%" o "mantene 100 requests/target" y AWS calcula automaticamente cuantas instancias lanzar o terminar. Step scaling requiere definir manualmente: "si el CPU esta entre 60% y 80%, agregar 1 instancia; si esta entre 80% y 100%, agregar 2 instancias". Target tracking es mas simple y AWS optimiza la respuesta segun el comportamiento historico de la aplicacion.
+
+> **¿Por que `ALBRequestCountPerTarget` y no CPU?** Para una API que responde en pocos milisegundos, el CPU puede mantenerse bajo incluso con mucho trafico. La metrica de requests por target es mas directa: si el ALB esta enviando mas de 100 requests/minuto a cada instancia, es momento de escalar. En el lab usamos 100 porque es facil de superar con el traffic generator; en produccion el valor dependeria del benchmark real de la aplicacion.
+
+> **¿Que es el Instance Warmup (60s)?** Cuando el ASG lanza una instancia nueva en respuesta a la politica de scaling, esa instancia tarda en arrancar y empezar a recibir trafico. Durante ese tiempo, la metrica puede parecer que sigue alta (pocas instancias activas), lo que podria disparar mas scale-outs innecesarios. El warmup de 60s le dice al ASG "espera este tiempo antes de evaluar de nuevo si necesitas mas instancias".
+
+> **¿Por que 100 requests por target por minuto?** Es un valor intencionalmente bajo para que el scale-out se dispare facilmente en el lab con el traffic generator. En produccion, este valor dependeria del benchmark de la aplicacion (cuantos requests/min puede manejar una instancia antes de que la latencia empiece a degradarse).
 
 ### 4.2 Verificar que la politica exista
 
@@ -408,6 +440,10 @@ Get-ASScalingPolicy -AutoScalingGroupName "cloudcuyo-api-asg" |
 ## Fase 5: Desplegar Traffic Generator
 
 El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet publica con `wrk` instalado. Genera carga HTTP continua contra el ALB, lo que dispara el scale-out del ASG.
+
+> **¿Por que el traffic generator en una subnet publica?** La EC2 del traffic generator necesita acceso a internet para que el SSM Agent funcione (el agente se comunica con el servicio SSM en internet). Como no tenemos NAT Gateway para subnets privadas, la ponemos en subnet publica con IP publica. El trafico que genera hacia el ALB es interno a la VPC (ALB DNS resuelve a IPs privadas dentro de la red de AWS).
+
+> **¿Por que `ab` (Apache Benchmark) y no un loop de `curl`?** `ab` genera multiples requests concurrentes de forma eficiente y mide el rendimiento. Un loop de `curl` secuencial generaria pocos requests/segundo. Para disparar el scale-out necesitamos superar 100 requests/minuto por target con 30 RPS y 5 workers concurrentes, lo que `ab` maneja facilmente.
 
 ### 5.1 Desplegar con CloudFormation (AWS Console)
 
@@ -601,6 +637,8 @@ netstat -an | grep ESTABLISHED | wc -l
 ### 7.2 Observar el scale-in
 
 Despues de detener el trafico, la metrica `RequestCountPerTarget` cae por debajo del umbral de 100. El ASG espera el **scale-in cooldown** (configurado en 120 segundos) antes de terminar instancias.
+
+> **¿Por que el scale-in tarda mas que el scale-out?** Es intencional. El scale-out debe ser rapido para absorber picos (60s de cooldown). El scale-in es mas conservador (120s) para evitar terminar instancias que podrian necesitarse si el trafico vuelve a subir. Terminar y volver a lanzar instancias innecesariamente tiene un costo tanto economico como de tiempo (bootstrap).
 
 **En consola:** EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Activity
 

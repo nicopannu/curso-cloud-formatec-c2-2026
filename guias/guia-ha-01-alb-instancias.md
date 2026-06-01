@@ -55,8 +55,8 @@ En este lab se reemplaza ese esquema fragil por un **Application Load Balancer a
         +--------------+        +--------------+
         |                                      |
 +-------+------------------+    +--------------+--------+
-| Private Subnet AZ-A      |    | Private Subnet AZ-B   |
-| (10.0.1.0/24)            |    | (10.0.3.0/24)         |
+| Public Subnet AZ-A       |    | Public Subnet AZ-B    |
+| (10.0.0.0/24)            |    | (10.0.2.0/24)         |
 |                          |    |                       |
 |  +-------------------+   |    |  +-------------------+|
 |  | api-node-1        |   |    |  | api-node-2        ||
@@ -108,6 +108,8 @@ Este lab requiere dos Availability Zones completas (public + private cada una). 
 
 ### Pre-req A: Crear Public Subnet AZ-B (`10.0.2.0/24`)
 
+> **¿Por que necesitamos una segunda AZ?** Un ALB necesita estar en al menos dos Availability Zones para ser altamente disponible. Una AZ es un datacenter fisicamente separado dentro de la region. Si todo esta en una sola AZ y esa falla, el ALB tambien cae. Distribuir en dos AZs significa que una puede fallar sin afectar el servicio.
+
 **Usando AWS Console:**
 
 1. Ir a **VPC > Subnets**
@@ -124,6 +126,8 @@ Este lab requiere dos Availability Zones completas (public + private cada una). 
 9. Seleccionar la **route table publica** (la que tiene ruta `0.0.0.0/0 → igw-xxxxx`)
 10. Ir a pestana **Subnet associations > Edit subnet associations**
 11. Agregar la nueva subnet `cloudcuyo-public-us-east-1b` > Guardar
+
+> **¿Por que asociar la subnet a la route table publica?** Una subnet "publica" es simplemente una subnet cuya route table tiene una ruta `0.0.0.0/0 → IGW`. Sin esa ruta, el trafico de internet no llega. Asociar la nueva subnet a la misma route table publica garantiza que el ALB pueda recibir trafico externo desde ambas AZs.
 
 **Alternativa CLI:**
 
@@ -165,6 +169,8 @@ Write-Host "Public Subnet B: $($PublicSubnetB.SubnetId)"
 ---
 
 ### Pre-req B: Crear Private Subnet AZ-B (`10.0.3.0/24`)
+
+> **¿Por que creamos la subnet privada si los nodos van en publicas?** La subnet privada AZ-B es un pre-requisito para labs futuros (HA-02 y HA-03) y para contar con la estructura de red correcta (cada AZ deberia tener una subnet publica y una privada). No la usamos en este lab pero la creamos ahora para no tener que interrumpir el flujo despues.
 
 **Usando AWS Console:**
 
@@ -215,6 +221,8 @@ Write-Host "Private Subnet B: $($PrivateSubnetB.SubnetId)"
 
 ### Pre-req C: Verificar o crear IAM Role SSM
 
+> **¿Por que necesitan las EC2 un IAM Role?** Por defecto, una instancia EC2 no tiene permisos para interactuar con otros servicios de AWS. El IAM Role actua como una "identidad" que se asigna a la instancia y le otorga permisos especificos. En este caso, `AmazonSSMManagedInstanceCore` permite al SSM Agent de la instancia comunicarse con el servicio Systems Manager sin necesidad de una clave SSH ni una IP publica accesible. Esto es mas seguro y operativamente mas simple que gestionar claves SSH.
+
 Si ya completaste el Lab 1 y el stack `cloudcuyo-nat` esta activo, el Instance Profile SSM ya existe. Obtenerlo con:
 
 ```bash
@@ -257,8 +265,6 @@ Completar y exportar antes de empezar las Fases:
 export VPC_ID=vpc-xxxxxxxxx
 export PUBLIC_SUBNET_A_ID=subnet-xxxxxxxxx   # AZ-A, del Lab 1
 export PUBLIC_SUBNET_B_ID=subnet-xxxxxxxxx   # AZ-B, recien creada
-export PRIVATE_SUBNET_A_ID=subnet-xxxxxxxxx  # AZ-A, del Lab 1
-export PRIVATE_SUBNET_B_ID=subnet-xxxxxxxxx  # AZ-B, recien creada
 export SSM_INSTANCE_PROFILE=cloudcuyo-ssm-profile   # o el nombre del Lab 1
 ```
 
@@ -276,6 +282,10 @@ $SsmInstanceProfile = "cloudcuyo-ssm-profile"
 ## Fase 1: Crear Security Group del ALB
 
 El Security Group del ALB se crea **primero** porque los nodos API necesitan su ID para restringir el trafico: solo aceptan conexiones desde el ALB, no desde Internet directamente.
+
+> **¿Por que crear el SG del ALB ANTES de desplegar el stack?** El stack de CloudFormation necesita el ID del SG del ALB como parametro porque lo usa para configurar el SG de los nodos API: las instancias solo aceptan trafico en puerto 5000 desde el SG del ALB. Si el ALB SG no existe, el stack no se puede desplegar.
+
+> **¿Por que un Security Group separado para el ALB y otro para los nodos?** Es el patron estandar de seguridad en AWS. El ALB SG acepta trafico publico (port 80 desde `0.0.0.0/0`). El SG de los nodos solo acepta trafico desde el SG del ALB. Esto garantiza que ningun usuario pueda llegar directamente a los nodos de API, solo a traves del balanceador. Incluso si los nodos tienen IP publica (como en este lab), el SG los protege.
 
 ### 1.1 Crear SG del ALB (AWS Console)
 
@@ -323,11 +333,9 @@ Write-Host "ALB SG ID: $AlbSgId"
 
 ## Fase 2: Desplegar nodos API con CloudFormation
 
-> **Nota sobre subnets:** Los nodos de este lab se despliegan en las **subnets públicas** (no privadas). El motivo es que durante el bootstrap (UserData), los nodos necesitan acceso a internet para instalar dependencias (`dnf update`, `pip3 install flask gunicorn`). Sin un NAT Gateway en la VPC, las instancias en subnets privadas no tienen salida a internet y el bootstrap falla silenciosamente.
->
-> Los nodos siguen protegidos: el Security Group solo permite tráfico en el puerto 5000 desde el SG del ALB. Los usuarios de internet no pueden acceder directamente a los nodos aunque tengan IP pública.
->
-> En un entorno de producción con NAT Gateway, los nodos irían en subnets privadas.
+> **¿Que crea el stack?** El stack despliega dos instancias EC2 con Amazon Linux 2023. Cada instancia ejecuta un script de bootstrap (UserData) que instala Python, Flask y Gunicorn, luego arranca la API como un servicio systemd. El campo `node` en las respuestas de la API se obtiene del Instance Metadata Service (IMDS) de AWS al momento de arrancar, por eso cada nodo responde con su propio Instance ID.
+
+> **¿Por que subnets publicas y no privadas?** Las instancias necesitan acceso a internet durante el bootstrap para descargar paquetes (`dnf update`, `pip3 install flask gunicorn`). Sin un NAT Gateway en la VPC, las instancias en subnets privadas no tienen salida a internet y el bootstrap falla silenciosamente. Aunque las instancias tienen IP publica, el SG las protege: solo el ALB puede llegar al puerto 5000. En un entorno de produccion con NAT Gateway, los nodos irian en subnets privadas.
 
 El stack `cloudformation/ha-lab1-nodes.yaml` crea las dos instancias EC2 con la API Flask corriendo en puerto 5000, distribuidas en AZ-A y AZ-B. El SG de los nodos solo permite trafico desde el SG del ALB creado en la Fase 1.
 
@@ -449,6 +457,8 @@ echo "API Node SG: $API_NODE_SG_ID"
 
 El Target Group es el componente que le dice al ALB a que instancias enviar trafico y como verificar su salud.
 
+> **¿Que es un Target Group?** Un Target Group es la "lista de destinos" del ALB. El ALB no habla directamente con las instancias: habla con un Target Group, y el Target Group sabe a cuales instancias enviar el trafico. Esta separacion permite que el ALB tenga multiples Target Groups (para diferentes rutas o aplicaciones) y que el Target Group pueda cambiar sus miembros (como hace el ASG en Lab HA-02) sin modificar el ALB.
+
 ### 3.1 Crear Target Group (AWS Console)
 
 1. Ir a **EC2 > Target Groups > Create target group**
@@ -474,7 +484,11 @@ El Target Group es el componente que le dice al ALB a que instancias enviar traf
 7. Click **Create target group**
 8. Anotar el **ARN del Target Group** (se reutiliza en Lab HA-02)
 
-> **Por que umbral 2 en lugar de 3?** En un grupo de dos instancias, un umbral de 3 checks fallidos antes de marcar Unhealthy introduce ~45 segundos de latencia antes de que el ALB deje de enviar trafico al nodo caido. Con umbral 2 e intervalo 15s, el ALB reacciona en ~30 segundos.
+> **¿Por que el protocolo HTTP y el puerto 5000?** La API Flask corre detras de Gunicorn en el puerto 5000. El ALB se comunica con los nodos en ese puerto. El trafico externo llega al ALB en el puerto 80 (HTTP), y el ALB lo reenvía internamente a los nodos en el puerto 5000. El Target Group define ese reenvio interno.
+
+> **¿Por que el health check path es `/health`?** El ALB necesita un endpoint que le diga si la instancia esta sana. `/health` es un endpoint de la API que devuelve `{"status": "ok"}` con codigo HTTP 200 cuando la API esta funcionando. El ALB hace GET a ese path cada 15 segundos. Si recibe 200, el target esta Healthy. Si no recibe respuesta o recibe un error, el target esta Unhealthy.
+
+> **¿Que significan los umbrales 2/2 con intervalo 15s?** Umbral healthy=2 significa que se necesitan 2 checks consecutivos exitosos para marcar un target como Healthy. Umbral unhealthy=2 significa 2 checks fallidos consecutivos para marcarlo como Unhealthy. Con intervalo de 15s, el ALB tarda ~30s en detectar que un nodo caido esta Unhealthy y dejar de enviarle trafico. Un umbral mas bajo reacciona mas rapido pero es mas susceptible a falsos positivos.
 
 ### Troubleshooting de la Fase 3
 
@@ -510,6 +524,10 @@ El Target Group es el componente que le dice al ALB a que instancias enviar traf
 7. Click **Create load balancer**
 8. Esperar a que el estado sea **Active** (~2-3 minutos)
 9. Copiar el **DNS name** del ALB (ejemplo: `cloudcuyo-api-alb-123456789.us-east-1.elb.amazonaws.com`)
+
+> **¿Que es "internet-facing"?** Un ALB internet-facing tiene IPs publicas y puede recibir trafico desde internet. La alternativa es "internal", que solo acepta trafico desde dentro de la VPC (util para microservicios que se comunican entre si). Para CloudCuyo, la API es publica, asi que necesitamos internet-facing.
+
+> **¿Por que el ALB necesita estar en AMBAS subnets publicas?** El ALB distribuye el trafico entre AZs. Para hacer eso, necesita un nodo propio en cada AZ. Al seleccionar las dos subnets publicas (AZ-A y AZ-B), AWS despliega el ALB en ambas zonas. Si una AZ falla, el nodo del ALB en la AZ sana sigue operando.
 
 **Bash:**
 
@@ -620,7 +638,7 @@ $AlbDns = "<dns-del-alb>"
 }
 ```
 
-> **Que observar:** El campo `node` (Instance ID) y `az` deben cambiar entre requests. Esto confirma que el ALB distribuye el trafico entre las dos instancias en distintas Availability Zones.
+> **¿Por que el campo `node` alterna?** El ALB usa round-robin por defecto: cada request va a una instancia diferente en orden rotatorio. El campo `node` contiene el Instance ID de la EC2 que respondio (obtenido del IMDS al arrancar). Ver que alterna entre dos Instance IDs distintos confirma que el ALB esta distribuyendo el trafico y que ambos nodos estan procesando requests.
 
 ---
 
@@ -636,7 +654,7 @@ Este experimento ilustra la ventaja clave del ALB sobre un servidor unico: cuand
 2. Seleccionar `cloudcuyo-api-node-1` (o el nodo en AZ-A)
 3. **Instance state > Terminate instance > Terminate**
 
-> **Por que Terminate y no Stop?** Terminate simula una falla catastrofica (crash, hardware failure). Stop simula un mantenimiento planificado. Para el experimento de HA, Terminate es mas representativo.
+> **¿Que diferencia hay entre Stop y Terminate?** Stop apaga la VM pero la conserva (como "hibernar"). Terminate la destruye permanentemente. Para simular una falla real (crash de hardware, falla de zona), usamos Terminate. El ALB detecta la falla cuando los health checks fallan —no cuando la instancia se termina— asi que el comportamiento es el mismo en ambos casos.
 
 ### 6.2 Observar el comportamiento del ALB
 
