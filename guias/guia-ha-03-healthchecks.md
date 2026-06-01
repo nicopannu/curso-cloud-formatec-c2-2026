@@ -110,8 +110,6 @@ aws autoscaling describe-auto-scaling-groups \
 
 **Variables de entorno para este lab:**
 
-**Bash:**
-
 ```bash
 export ALB_DNS=$(aws elbv2 describe-load-balancers \
   --names cloudcuyo-api-alb \
@@ -131,18 +129,6 @@ export TRAFFIC_GEN_ID=$(aws cloudformation describe-stacks \
 echo "ALB DNS:        $ALB_DNS"
 echo "TG ARN:         $TG_ARN"
 echo "Traffic Gen ID: $TRAFFIC_GEN_ID"
-```
-
-**PowerShell:**
-
-```powershell
-$AlbDns       = (Get-ELB2LoadBalancer -Name "cloudcuyo-api-alb").DNSName
-$TgArn        = (Get-ELB2TargetGroup -Name "cloudcuyo-api-tg").TargetGroupArn
-$TrafficGenId = ((Get-CFNStack -StackName "cloudcuyo-ha-traffic-gen").Outputs |
-                  Where-Object { $_.OutputKey -eq "TrafficGenInstanceId" }).OutputValue
-Write-Host "ALB DNS: $AlbDns"
-Write-Host "TG ARN:  $TgArn"
-Write-Host "Traffic Generator: $TrafficGenId"
 ```
 
 ---
@@ -184,8 +170,6 @@ Anotar los IDs y las IPs privadas de las 2 instancias activas. Se necesitan en l
 1. Ir a **EC2 > Instances**
 2. Filtrar por tag `aws:autoscaling:groupName = cloudcuyo-api-asg`
 3. Anotar Instance ID e IP privada de cada instancia
-
-**Bash:**
 
 ```bash
 aws ec2 describe-instances \
@@ -245,8 +229,6 @@ done
 1. Ir a **Systems Manager > Session Manager > Start session**
 2. Seleccionar `$NODE_1_ID` (el nodo 1 del ASG)
 3. Click **Start session**
-
-**Bash:**
 
 ```bash
 aws ssm start-session --target $NODE_1_ID
@@ -329,8 +311,6 @@ Con ELB health checks (Fase 3), el ASG hubiera detectado el problema y lanzado u
 
 **Alternativa CLI:**
 
-**Bash:**
-
 ```bash
 aws autoscaling update-auto-scaling-group \
   --auto-scaling-group-name cloudcuyo-api-asg \
@@ -338,15 +318,6 @@ aws autoscaling update-auto-scaling-group \
   --health-check-grace-period 120
 
 echo "Health check actualizado a ELB."
-```
-
-**PowerShell:**
-
-```powershell
-Update-ASAutoScalingGroup -AutoScalingGroupName "cloudcuyo-api-asg" `
-  -HealthCheckType "ELB" `
-  -HealthCheckGracePeriod 120
-Write-Host "Health check actualizado a ELB."
 ```
 
 ### 3.2 Que significa este cambio
@@ -486,21 +457,12 @@ Monitorear el mismo ciclo de reemplazo en la terminal de monitoreo.
 
 **Alternativa CLI:**
 
-**Bash:**
-
 ```bash
 aws elbv2 modify-target-group \
   --target-group-arn $TG_ARN \
   --health-check-path /health/deep
 
 echo "Health check path actualizado a /health/deep"
-```
-
-**PowerShell:**
-
-```powershell
-Edit-ELB2TargetGroup -TargetGroupArn $TgArn -HealthCheckPath "/health/deep"
-Write-Host "Health check path actualizado a /health/deep"
 ```
 
 ### 5.3 Observar que el comportamiento es normal
@@ -598,8 +560,6 @@ Repetir para:
 
 ### 6.5 Alternativa: crear dashboard via CLI
 
-**Bash:**
-
 ```bash
 # Primero obtener el nombre del ALB y TG para las metricas
 ALB_DIMENSION=$(aws elbv2 describe-load-balancers \
@@ -640,20 +600,10 @@ Al finalizar el modulo de Alta Disponibilidad, eliminar todos los recursos cread
 
 ### Paso 1: Eliminar el Traffic Generator
 
-**Bash:**
-
 ```bash
 aws cloudformation delete-stack --stack-name cloudcuyo-ha-traffic-gen
 aws cloudformation wait stack-delete-complete --stack-name cloudcuyo-ha-traffic-gen
 echo "Traffic generator eliminado."
-```
-
-**PowerShell:**
-
-```powershell
-Remove-CFNStack -StackName "cloudcuyo-ha-traffic-gen" -Force
-Wait-CFNStack -StackName "cloudcuyo-ha-traffic-gen" -Status DELETE_COMPLETE -Timeout 300
-Write-Host "Traffic generator eliminado."
 ```
 
 ### Paso 2: Eliminar el Auto Scaling Group
@@ -666,8 +616,6 @@ Write-Host "Traffic generator eliminado."
 4. Escribir `delete` para confirmar
 5. Click **Delete**
 6. Esperar hasta que las instancias terminen (~2-3 minutos)
-
-**Bash:**
 
 ```bash
 aws autoscaling delete-auto-scaling-group \
@@ -684,8 +632,6 @@ echo "ASG eliminado (instancias terminando en background)."
 1. **EC2 > Launch Templates**
 2. Seleccionar `cloudcuyo-api-lt`
 3. **Actions > Delete template** → confirmar
-
-**Bash:**
 
 ```bash
 LT_ID=$(aws ec2 describe-launch-templates \
@@ -704,8 +650,6 @@ echo "Launch Template eliminado."
 1. **EC2 > Load Balancers** → seleccionar `cloudcuyo-api-alb` → **Actions > Delete**
 2. Esperar eliminacion completa
 3. **EC2 > Target Groups** → seleccionar `cloudcuyo-api-tg` → **Actions > Delete**
-
-**Bash:**
 
 ```bash
 ALB_ARN=$(aws elbv2 describe-load-balancers \
@@ -734,8 +678,6 @@ echo "ALB y Target Group eliminados."
 2. Eliminar `cloudcuyo-alb-sg` y `cloudcuyo-api-node-sg`
 3. Si aparece error de dependencia, verificar que el ALB ya fue eliminado completamente
 
-**Bash:**
-
 ```bash
 # Eliminar SG del ALB
 ALB_SG_ID=$(aws ec2 describe-security-groups \
@@ -761,8 +703,6 @@ echo "Security Groups eliminados."
 1. **CloudWatch > Dashboards**
 2. Seleccionar `CloudCuyo-HA-Monitor`
 3. **Actions > Delete**
-
-**Bash:**
 
 ```bash
 aws cloudwatch delete-dashboards \

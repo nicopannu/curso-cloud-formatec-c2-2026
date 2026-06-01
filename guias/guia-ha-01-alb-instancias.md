@@ -131,8 +131,6 @@ Este lab requiere dos Availability Zones completas (public + private cada una). 
 
 **Alternativa CLI:**
 
-**Bash:**
-
 ```bash
 # Crear subnet publica AZ-B
 PUBLIC_SUBNET_B_ID=$(aws ec2 create-subnet \
@@ -154,16 +152,6 @@ aws ec2 modify-subnet-attribute \
 aws ec2 associate-route-table \
   --subnet-id $PUBLIC_SUBNET_B_ID \
   --route-table-id $PUBLIC_RT_ID
-```
-
-**PowerShell:**
-
-```powershell
-$PublicSubnetB = New-EC2Subnet -VpcId $VpcId -CidrBlock "10.0.2.0/24" -AvailabilityZone "us-east-1b"
-New-EC2Tag -Resource $PublicSubnetB.SubnetId -Tag @{Key="Name"; Value="cloudcuyo-public-us-east-1b"}
-Edit-EC2SubnetAttribute -SubnetId $PublicSubnetB.SubnetId -MapPublicIpOnLaunch $true
-Register-EC2RouteTable -SubnetId $PublicSubnetB.SubnetId -RouteTableId $PublicRtId
-Write-Host "Public Subnet B: $($PublicSubnetB.SubnetId)"
 ```
 
 ---
@@ -188,8 +176,6 @@ Write-Host "Public Subnet B: $($PublicSubnetB.SubnetId)"
 
 **Alternativa CLI:**
 
-**Bash:**
-
 ```bash
 # Crear subnet privada AZ-B
 PRIVATE_SUBNET_B_ID=$(aws ec2 create-subnet \
@@ -206,15 +192,6 @@ echo "Private Subnet B: $PRIVATE_SUBNET_B_ID"
 aws ec2 associate-route-table \
   --subnet-id $PRIVATE_SUBNET_B_ID \
   --route-table-id $PRIVATE_RT_ID
-```
-
-**PowerShell:**
-
-```powershell
-$PrivateSubnetB = New-EC2Subnet -VpcId $VpcId -CidrBlock "10.0.3.0/24" -AvailabilityZone "us-east-1b"
-New-EC2Tag -Resource $PrivateSubnetB.SubnetId -Tag @{Key="Name"; Value="cloudcuyo-private-us-east-1b"}
-Register-EC2RouteTable -SubnetId $PrivateSubnetB.SubnetId -RouteTableId $PrivateRtId
-Write-Host "Private Subnet B: $($PrivateSubnetB.SubnetId)"
 ```
 
 ---
@@ -257,22 +234,11 @@ aws iam add-role-to-instance-profile \
 
 Completar y exportar antes de empezar las Fases:
 
-**Bash:**
-
 ```bash
 export VPC_ID=vpc-xxxxxxxxx
 export PUBLIC_SUBNET_A_ID=subnet-xxxxxxxxx   # AZ-A, ya existe
 export PUBLIC_SUBNET_B_ID=subnet-xxxxxxxxx   # AZ-B, recien creada
 export SSM_INSTANCE_PROFILE=cloudcuyo-ssm-profile   
-```
-
-**PowerShell:**
-
-```powershell
-$VpcId              = "vpc-xxxxxxxxx"
-$PublicSubnetAId    = "subnet-xxxxxxxxx"   # AZ-A, ya existe
-$PublicSubnetBId    = "subnet-xxxxxxxxx"   # AZ-B, recien creada
-$SsmInstanceProfile = "cloudcuyo-ssm-profile"
 ```
 
 ---
@@ -300,8 +266,6 @@ El Security Group del ALB se crea **primero** porque los nodos API necesitan su 
 
 **Alternativa CLI:**
 
-**Bash:**
-
 ```bash
 ALB_SG_ID=$(aws ec2 create-security-group \
   --group-name cloudcuyo-alb-sg \
@@ -317,14 +281,6 @@ aws ec2 authorize-security-group-ingress \
   --cidr 0.0.0.0/0
 
 echo "ALB SG ID: $ALB_SG_ID"
-```
-
-**PowerShell:**
-
-```powershell
-$AlbSgId = (New-EC2SecurityGroup -GroupName "cloudcuyo-alb-sg" -Description "CloudCuyo ALB - allow HTTP from Internet" -VpcId $VpcId)
-Grant-EC2SecurityGroupIngress -GroupId $AlbSgId -IpPermission @{IpProtocol="tcp"; FromPort=80; ToPort=80; IpRanges=@("0.0.0.0/0")}
-Write-Host "ALB SG ID: $AlbSgId"
 ```
 
 ---
@@ -363,8 +319,6 @@ El stack `cloudformation/ha-lab1-nodes.yaml` crea las dos instancias EC2 con la 
 
 **Alternativa CLI:**
 
-**Bash:**
-
 ```bash
 aws cloudformation create-stack \
   --stack-name cloudcuyo-ha-lab1-nodes \
@@ -388,34 +342,7 @@ aws cloudformation describe-stacks \
   --output table
 ```
 
-**PowerShell:**
-
-```powershell
-$Parameters = @(
-    @{ ParameterKey = "VpcId";               ParameterValue = $VpcId }
-    @{ ParameterKey = "SubnetAId";    ParameterValue = $SubnetAId }
-    @{ ParameterKey = "SubnetBId";    ParameterValue = $SubnetBId }
-    @{ ParameterKey = "AlbSgId";             ParameterValue = $AlbSgId }
-    @{ ParameterKey = "SsmInstanceProfile";  ParameterValue = $SsmInstanceProfile }
-)
-
-$TemplateBody = Get-Content -Path "cloudformation\ha-lab1-nodes.yaml" -Raw
-
-New-CFNStack -StackName "cloudcuyo-ha-lab1-nodes" `
-  -TemplateBody $TemplateBody `
-  -Parameter $Parameters `
-  -Capability CAPABILITY_NAMED_IAM
-
-Write-Host "Esperando creacion del stack..." -ForegroundColor Yellow
-Wait-CFNStack -StackName "cloudcuyo-ha-lab1-nodes" -Status CREATE_COMPLETE -Timeout 300
-
-$Stack = Get-CFNStack -StackName "cloudcuyo-ha-lab1-nodes"
-$Stack.Outputs | Format-Table -Property OutputKey, OutputValue
-```
-
 ### 2.2 Verificar que los nodos esten corriendo
-
-**Bash:**
 
 ```bash
 # Exportar IPs de los outputs
@@ -527,8 +454,6 @@ El Target Group es el componente que le dice al ALB a que instancias enviar traf
 
 > **¿Por que el ALB necesita estar en AMBAS subnets publicas?** El ALB distribuye el trafico entre AZs. Para hacer eso, necesita un nodo propio en cada AZ. Al seleccionar las dos subnets publicas (AZ-A y AZ-B), AWS despliega el ALB en ambas zonas. Si una AZ falla, el nodo del ALB en la AZ sana sigue operando.
 
-**Bash:**
-
 ```bash
 # Obtener DNS del ALB una vez creado
 ALB_DNS=$(aws elbv2 describe-load-balancers \
@@ -537,13 +462,6 @@ ALB_DNS=$(aws elbv2 describe-load-balancers \
   --output text)
 
 echo "ALB DNS: $ALB_DNS"
-```
-
-**PowerShell:**
-
-```powershell
-$AlbDns = (Get-ELB2LoadBalancer -Name "cloudcuyo-api-alb").DNSName
-Write-Host "ALB DNS: $AlbDns"
 ```
 
 ### Troubleshooting de la Fase 4
@@ -568,8 +486,6 @@ Una vez que el ALB esta Active y los dos targets estan Healthy, comprobar que el
 2. Pestana **Targets**
 3. Ambas instancias deben estar en estado **Healthy**
 
-**Bash:**
-
 ```bash
 # Verificar estado de los targets
 aws elbv2 describe-target-health \
@@ -581,18 +497,7 @@ aws elbv2 describe-target-health \
   --output table
 ```
 
-**PowerShell:**
-
-```powershell
-$TgArn = (Get-ELB2TargetGroup -Name "cloudcuyo-api-tg").TargetGroupArn
-Get-ELB2TargetHealth -TargetGroupArn $TgArn | Select-Object -ExpandProperty TargetHealthDescriptions |
-  ForEach-Object { [PSCustomObject]@{InstanceId=$_.Target.Id; State=$_.TargetHealth.State} } |
-  Format-Table
-```
-
 ### 5.2 Probar distribucion round-robin
-
-**Bash:**
 
 ```bash
 export ALB_DNS=<dns-del-alb>
@@ -620,19 +525,6 @@ Respuesta esperada (el campo `node` debe alternar entre los dos Instance IDs):
     "node": "i-0f9e8d7c6b5a43210",
     "az": "us-east-1b",
     "status": "ok"
-}
-```
-
-**PowerShell:**
-
-```powershell
-$AlbDns = "<dns-del-alb>"
-
-1..10 | ForEach-Object {
-    Write-Host "Request $_:"
-    $Response = Invoke-RestMethod -Uri "http://$AlbDns/health"
-    $Response | ConvertTo-Json
-    Start-Sleep -Seconds 1
 }
 ```
 
@@ -712,22 +604,12 @@ watch -n 10 "aws elbv2 describe-target-health \
 
 ### Eliminar stack de nodos (siempre)
 
-**Bash:**
-
 ```bash
 aws cloudformation delete-stack --stack-name cloudcuyo-ha-lab1-nodes
 
 echo "Esperando eliminacion del stack..."
 aws cloudformation wait stack-delete-complete --stack-name cloudcuyo-ha-lab1-nodes
 echo "Stack eliminado."
-```
-
-**PowerShell:**
-
-```powershell
-Remove-CFNStack -StackName "cloudcuyo-ha-lab1-nodes" -Force
-Wait-CFNStack -StackName "cloudcuyo-ha-lab1-nodes" -Status DELETE_COMPLETE -Timeout 300
-Write-Host "Stack eliminado."
 ```
 
 ### Si NO continuaras con Lab HA-02: eliminar ALB y recursos asociados
@@ -737,8 +619,6 @@ Write-Host "Stack eliminado."
 1. **EC2 > Load Balancers** → seleccionar `cloudcuyo-api-alb` → Actions > Delete → confirmar
 2. **EC2 > Target Groups** → seleccionar `cloudcuyo-api-tg` → Actions > Delete
 3. **EC2 > Security Groups** → seleccionar `cloudcuyo-alb-sg` → Actions > Delete
-
-**Bash:**
 
 ```bash
 # Obtener ARN del ALB y TG

@@ -94,8 +94,6 @@ Ambos comandos deben devolver resultados sin error. Si alguno falla, volver al L
 
 **Variables de entorno para este lab:**
 
-**Bash:**
-
 ```bash
 export VPC_ID=vpc-xxxxxxxxx
 export PUBLIC_SUBNET_A_ID=subnet-xxxxxxxxx     # AZ-A
@@ -121,20 +119,6 @@ echo "TG ARN: $TG_ARN"
 echo "ALB DNS: $ALB_DNS"
 ```
 
-**PowerShell:**
-
-```powershell
-$VpcId             = "vpc-xxxxxxxxx"
-$PublicSubnetAId   = "subnet-xxxxxxxxx"
-$PublicSubnetBId   = "subnet-xxxxxxxxx"
-$SsmInstanceProfile = "cloudcuyo-ssm-profile"
-
-$TgArn  = (Get-ELB2TargetGroup -Name "cloudcuyo-api-tg").TargetGroupArn
-$AlbDns = (Get-ELB2LoadBalancer -Name "cloudcuyo-api-alb").DNSName
-Write-Host "TG ARN: $TgArn"
-Write-Host "ALB DNS: $AlbDns"
-```
-
 ---
 
 ## Fase 1: Eliminar los nodos fijos del Lab HA-01
@@ -154,22 +138,12 @@ aws cloudformation describe-stacks \
 
 **Si el stack existe, eliminarlo:**
 
-**Bash:**
-
 ```bash
 aws cloudformation delete-stack --stack-name cloudcuyo-ha-lab1-nodes
 
 echo "Esperando eliminacion..."
 aws cloudformation wait stack-delete-complete --stack-name cloudcuyo-ha-lab1-nodes
 echo "Nodos fijos eliminados."
-```
-
-**PowerShell:**
-
-```powershell
-Remove-CFNStack -StackName "cloudcuyo-ha-lab1-nodes" -Force
-Wait-CFNStack -StackName "cloudcuyo-ha-lab1-nodes" -Status DELETE_COMPLETE -Timeout 300
-Write-Host "Nodos fijos eliminados."
 ```
 
 **Verificar que el Target Group quede vacio:**
@@ -369,18 +343,6 @@ aws autoscaling describe-auto-scaling-groups \
   --output table
 ```
 
-**PowerShell:**
-
-```powershell
-$Asg = Get-ASAutoScalingGroup -AutoScalingGroupName "cloudcuyo-api-asg"
-[PSCustomObject]@{
-    Desired   = $Asg.DesiredCapacity
-    Min       = $Asg.MinSize
-    Max       = $Asg.MaxSize
-    InService = ($Asg.Instances | Where-Object { $_.LifecycleState -eq "InService" }).Count
-} | Format-List
-```
-
 ### Troubleshooting de la Fase 3
 
 | Sintoma | Posible causa | Correccion |
@@ -418,21 +380,11 @@ Con el ASG corriendo pero sin politica de escalado, la capacidad es fija en 2. L
 
 ### 4.2 Verificar que la politica exista
 
-**Bash:**
-
 ```bash
 aws autoscaling describe-policies \
   --auto-scaling-group-name cloudcuyo-api-asg \
   --query 'ScalingPolicies[*].[PolicyName,PolicyType,TargetTrackingConfiguration.TargetValue]' \
   --output table
-```
-
-**PowerShell:**
-
-```powershell
-Get-ASScalingPolicy -AutoScalingGroupName "cloudcuyo-api-asg" |
-  Select-Object PolicyName, PolicyType, @{N="TargetValue"; E={$_.TargetTrackingConfiguration.TargetValue}} |
-  Format-Table
 ```
 
 ---
@@ -465,8 +417,6 @@ El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet pub
 
 **Alternativa CLI:**
 
-**Bash:**
-
 ```bash
 aws cloudformation create-stack \
   --stack-name cloudcuyo-ha-traffic-gen \
@@ -491,30 +441,6 @@ TRAFFIC_GEN_ID=$(aws cloudformation describe-stacks \
 echo "Traffic Generator Instance ID: $TRAFFIC_GEN_ID"
 ```
 
-**PowerShell:**
-
-```powershell
-$TgParams = @(
-    @{ ParameterKey = "VpcId";              ParameterValue = $VpcId }
-    @{ ParameterKey = "PublicSubnetId";     ParameterValue = $PublicSubnetAId }
-    @{ ParameterKey = "SsmInstanceProfile"; ParameterValue = $SsmInstanceProfile }
-    @{ ParameterKey = "AlbTargetUrl";       ParameterValue = "http://$AlbDns" }
-    @{ ParameterKey = "RequestsPerSecond";  ParameterValue = "30" }
-    @{ ParameterKey = "Workers";            ParameterValue = "5" }
-)
-
-New-CFNStack -StackName "cloudcuyo-ha-traffic-gen" `
-  -TemplateBody (Get-Content "cloudformation\ha-lab2-traffic-gen.yaml" -Raw) `
-  -Parameter $TgParams `
-  -Capability CAPABILITY_NAMED_IAM
-
-Wait-CFNStack -StackName "cloudcuyo-ha-traffic-gen" -Status CREATE_COMPLETE -Timeout 300
-
-$TrafficGenId = ((Get-CFNStack -StackName "cloudcuyo-ha-traffic-gen").Outputs |
-  Where-Object { $_.OutputKey -eq "TrafficGenInstanceId" }).OutputValue
-Write-Host "Traffic Generator: $TrafficGenId"
-```
-
 ---
 
 ## Fase 6: Observar scale-out bajo carga
@@ -527,16 +453,8 @@ Write-Host "Traffic Generator: $TrafficGenId"
 2. Seleccionar la instancia del traffic generator
 3. Click **Start session**
 
-**Bash:**
-
 ```bash
 aws ssm start-session --target $TRAFFIC_GEN_ID
-```
-
-**PowerShell:**
-
-```powershell
-Start-SSMSession -Target $TrafficGenId
 ```
 
 ### 6.2 Verificar que el trafico esta siendo generado
@@ -692,8 +610,6 @@ aws cloudformation delete-stack --stack-name cloudcuyo-ha-traffic-gen
 
 ### Limpieza completa (si no se continua con Lab HA-03)
 
-**Bash:**
-
 ```bash
 # 1. Eliminar traffic generator
 aws cloudformation delete-stack --stack-name cloudcuyo-ha-traffic-gen
@@ -705,14 +621,6 @@ aws cloudformation wait stack-delete-complete --stack-name cloudcuyo-ha-traffic-
 # 4. EC2 > Load Balancers > cloudcuyo-api-alb > Actions > Delete
 # 5. EC2 > Target Groups > cloudcuyo-api-tg > Actions > Delete
 # 6. EC2 > Security Groups > cloudcuyo-alb-sg y cloudcuyo-api-node-sg > Delete
-```
-
-**PowerShell:**
-
-```powershell
-Remove-CFNStack -StackName "cloudcuyo-ha-traffic-gen" -Force
-Wait-CFNStack  -StackName "cloudcuyo-ha-traffic-gen" -Status DELETE_COMPLETE -Timeout 300
-Write-Host "Traffic generator eliminado. Completar limpieza de ASG, LT, ALB y TG desde consola."
 ```
 
 ### NO eliminar (pre-requisitos persistentes)
