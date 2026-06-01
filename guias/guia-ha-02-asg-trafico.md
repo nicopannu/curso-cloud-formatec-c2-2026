@@ -78,46 +78,16 @@ Este lab tambien introduce un **generador de trafico** desplegado via CloudForma
 - Si se elimino el stack `cloudcuyo-ha-lab1-nodes` al final del Lab HA-01, el ALB y TG pueden seguir existiendo de todos modos (el stack solo contenia las 2 EC2 fijas, no el ALB).
 - Region: **us-east-1**
 
-**Verificar que el ALB y TG existan:**
+> **Antes de comenzar:** Verificar que el ALB `cloudcuyo-api-alb` y el Target Group `cloudcuyo-api-tg` existen en **EC2 > Load Balancers** y **EC2 > Target Groups**. Ambos deben aparecer en la lista. Si alguno no existe, volver al Lab HA-01 para recrearlo.
 
-```bash
-aws elbv2 describe-load-balancers --names cloudcuyo-api-alb \
-  --query 'LoadBalancers[0].[LoadBalancerName,State.Code]' \
-  --output text
-
-aws elbv2 describe-target-groups --names cloudcuyo-api-tg \
-  --query 'TargetGroups[0].[TargetGroupName,TargetType]' \
-  --output text
-```
-
-Ambos comandos deben devolver resultados sin error. Si alguno falla, volver al Lab HA-01 para recrear los recursos.
-
-**Variables de entorno para este lab:**
-
-```bash
-export VPC_ID=vpc-xxxxxxxxx
-export PUBLIC_SUBNET_A_ID=subnet-xxxxxxxxx     # AZ-A
-export PUBLIC_SUBNET_B_ID=subnet-xxxxxxxxx     # AZ-B
-export SSM_INSTANCE_PROFILE=cloudcuyo-ssm-profile
-
-# Obtener ARN del Target Group (necesario para el ASG)
-export TG_ARN=$(aws elbv2 describe-target-groups \
-  --names cloudcuyo-api-tg \
-  --query 'TargetGroups[0].TargetGroupArn' \
-  --output text)
-
-# Obtener DNS del ALB
-export ALB_DNS=$(aws elbv2 describe-load-balancers \
-  --names cloudcuyo-api-alb \
-  --query 'LoadBalancers[0].DNSName' \
-  --output text)
-
-# Obtener SG de los nodos API (output del stack ha-lab1-nodes, o el SG creado en HA-01)
-export API_NODE_SG_ID=sg-xxxxxxxxx
-
-echo "TG ARN: $TG_ARN"
-echo "ALB DNS: $ALB_DNS"
-```
+Tener a mano:
+- ID de la VPC (VPC > Your VPCs)
+- ID de la subnet publica AZ-A
+- ID de la subnet publica AZ-B
+- Nombre del Instance Profile SSM (`cloudcuyo-ssm-role`)
+- DNS name del ALB (EC2 > Load Balancers > cloudcuyo-api-alb > columna DNS name)
+- ARN del Target Group (EC2 > Target Groups > cloudcuyo-api-tg > columna ARN)
+- ID del Security Group de los nodos API (output del stack ha-lab1-nodes o buscando `cloudcuyo-api-node-sg` en EC2 > Security Groups)
 
 ---
 
@@ -129,22 +99,15 @@ Si el stack `cloudcuyo-ha-lab1-nodes` todavia existe (las 2 EC2 fijas siguen cor
 
 **Verificar si el stack existe:**
 
-```bash
-aws cloudformation describe-stacks \
-  --stack-name cloudcuyo-ha-lab1-nodes \
-  --query 'Stacks[0].StackStatus' \
-  --output text 2>/dev/null || echo "Stack no existe"
-```
+1. Ir a **CloudFormation > Stacks**
+2. Buscar `cloudcuyo-ha-lab1-nodes` en la lista
+3. Si aparece con estado `CREATE_COMPLETE`, proceder a eliminarlo
 
 **Si el stack existe, eliminarlo:**
 
-```bash
-aws cloudformation delete-stack --stack-name cloudcuyo-ha-lab1-nodes
-
-echo "Esperando eliminacion..."
-aws cloudformation wait stack-delete-complete --stack-name cloudcuyo-ha-lab1-nodes
-echo "Nodos fijos eliminados."
-```
+1. Seleccionar `cloudcuyo-ha-lab1-nodes`
+2. Click **Delete** > confirmar
+3. Esperar a que el stack desaparezca de la lista
 
 **Verificar que el Target Group quede vacio:**
 
@@ -178,8 +141,8 @@ El Launch Template es el "molde" que el ASG usa para lanzar nuevas instancias. D
 6. Configurar seccion **Network settings:**
    - **Firewall (security groups):** seleccionar `cloudcuyo-api-node-sg` (el SG de los nodos del Lab HA-01, o un SG equivalente que permita puerto 5000 desde el ALB)
 7. Configurar seccion **Advanced details:**
-   - **IAM instance profile:** seleccionar `cloudcuyo-ssm-profile` (o el nombre del Instance Profile SSM)
-   - **User data:** copiar y pegar el siguiente script completo:
+   - **IAM instance profile:** seleccionar `cloudcuyo-ssm-role` (o el nombre del Instance Profile SSM)
+   - **User data:** copiar y pegar el siguiente script completo en el campo User data:
 
 > **¿Por que el User Data y no una AMI pre-configurada?** En un entorno de lab, el User Data permite ver exactamente que se instala sin necesidad de gestionar AMIs propias. En produccion se preferiria una AMI "baked" (pre-configurada) para reducir el tiempo de bootstrap de nuevas instancias de ~2 minutos a ~30 segundos. Para el lab, la visibilidad del proceso es mas importante que la velocidad.
 
@@ -334,21 +297,12 @@ systemctl start cloudcuyo-api
 
 > El proceso completo (arranque de instancia + user-data + primera vez en Healthy) toma aproximadamente 2-3 minutos. El health check grace period de 120 segundos asegura que el ASG no marque las instancias como Unhealthy mientras la API esta iniciando.
 
-**Bash — verificar el estado del ASG:**
-
-```bash
-aws autoscaling describe-auto-scaling-groups \
-  --auto-scaling-group-names cloudcuyo-api-asg \
-  --query 'AutoScalingGroups[0].{Desired:DesiredCapacity,Min:MinSize,Max:MaxSize,InService:Instances[?LifecycleState==`InService`]|length(@)}' \
-  --output table
-```
-
 ### Troubleshooting de la Fase 3
 
 | Sintoma | Posible causa | Correccion |
 |---|---|---|
 | Instancias no pasan de `Pending` a `InService` | User-data falla o SSM profile incorrecto | Conectarse via SSM y revisar `/var/log/user-data.log` |
-| Targets en `Unhealthy` tras el grace period | Puerto 5000 no accesible o API no arranco | Revisar SG y logs de systemd: `journalctl -u cloudcuyo-api` |
+| Targets en `Unhealthy` tras el grace period | Puerto 5000 no accesible o API no arranco | Revisar SG y logs de systemd via SSM: `journalctl -u cloudcuyo-api` |
 | ASG no lanza instancias | Cuota de instancias alcanzada | Verificar en EC2 > Limits |
 
 ---
@@ -380,12 +334,9 @@ Con el ASG corriendo pero sin politica de escalado, la capacidad es fija en 2. L
 
 ### 4.2 Verificar que la politica exista
 
-```bash
-aws autoscaling describe-policies \
-  --auto-scaling-group-name cloudcuyo-api-asg \
-  --query 'ScalingPolicies[*].[PolicyName,PolicyType,TargetTrackingConfiguration.TargetValue]' \
-  --output table
-```
+1. Ir a **EC2 > Auto Scaling Groups > cloudcuyo-api-asg**
+2. Pestana **Automatic scaling**
+3. Debe aparecer `cloudcuyo-api-request-tracking` de tipo `Target tracking scaling`
 
 ---
 
@@ -405,41 +356,15 @@ El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet pub
 4. Click **Next**
 5. **Stack name:** `cloudcuyo-ha-traffic-gen`
 6. **Parameters:**
-   - **VpcId:** pegar `$VPC_ID`
-   - **PublicSubnetId:** pegar `$PUBLIC_SUBNET_A_ID`
-   - **SsmInstanceProfile:** pegar `$SSM_INSTANCE_PROFILE`
-   - **AlbTargetUrl:** `http://<dns-del-alb>` (sin barra final)
+   - **VpcId:** pegar el ID de la VPC
+   - **PublicSubnetId:** pegar el ID de la subnet publica AZ-A
+   - **SsmInstanceProfile:** pegar `cloudcuyo-ssm-role`
+   - **AlbTargetUrl:** `http://<dns-del-alb>` (sin barra final — copiar el DNS name del ALB desde EC2 > Load Balancers)
    - **RequestsPerSecond:** `30`
    - **Workers:** `5`
 7. Marcar **I acknowledge...** > Click **Submit**
 8. Esperar **CREATE_COMPLETE** (~3 minutos)
-9. Ir a **Outputs** y anotar el Instance ID del traffic generator
-
-**Alternativa CLI:**
-
-```bash
-aws cloudformation create-stack \
-  --stack-name cloudcuyo-ha-traffic-gen \
-  --template-body file://cloudformation/ha-lab2-traffic-gen.yaml \
-  --parameters \
-    ParameterKey=VpcId,ParameterValue=$VPC_ID \
-    ParameterKey=PublicSubnetId,ParameterValue=$PUBLIC_SUBNET_A_ID \
-    ParameterKey=SsmInstanceProfile,ParameterValue=$SSM_INSTANCE_PROFILE \
-    ParameterKey=AlbTargetUrl,ParameterValue=http://$ALB_DNS \
-    ParameterKey=RequestsPerSecond,ParameterValue=30 \
-    ParameterKey=Workers,ParameterValue=5 \
-  --capabilities CAPABILITY_NAMED_IAM
-
-aws cloudformation wait stack-create-complete \
-  --stack-name cloudcuyo-ha-traffic-gen
-
-TRAFFIC_GEN_ID=$(aws cloudformation describe-stacks \
-  --stack-name cloudcuyo-ha-traffic-gen \
-  --query 'Stacks[0].Outputs[?OutputKey==`TrafficGenInstanceId`].OutputValue' \
-  --output text)
-
-echo "Traffic Generator Instance ID: $TRAFFIC_GEN_ID"
-```
+9. Ir a la pestana **Outputs** y anotar el Instance ID del traffic generator (columna **Value** de la fila `TrafficGenInstanceId`)
 
 ---
 
@@ -447,19 +372,13 @@ echo "Traffic Generator Instance ID: $TRAFFIC_GEN_ID"
 
 ### 6.1 Conectarse al traffic generator via SSM
 
-**AWS Console:**
-
 1. Ir a **Systems Manager > Session Manager > Start session**
-2. Seleccionar la instancia del traffic generator
+2. Seleccionar la instancia del traffic generator (Instance ID del output del stack `cloudcuyo-ha-traffic-gen`)
 3. Click **Start session**
-
-```bash
-aws ssm start-session --target $TRAFFIC_GEN_ID
-```
 
 ### 6.2 Verificar que el trafico esta siendo generado
 
-Dentro de la sesion SSM:
+Dentro de la sesion SSM, ejecutar:
 
 ```bash
 # Ver logs del generador de carga
@@ -467,10 +386,6 @@ tail -f /var/log/cloudcuyo-load.log
 
 # Ver si el servicio esta activo
 systemctl status cloudcuyo-load --no-pager
-
-# Ver el rate actual de requests
-curl -s http://localhost:9091/metrics 2>/dev/null | grep requests || \
-  echo "Metricas locales no disponibles, ver logs"
 ```
 
 ### 6.3 Observar el scale-out en consola
@@ -496,41 +411,20 @@ Las instancias nuevas apareceran en estado `Pending` → `InService`.
 - Metrica `RequestCountPerTarget` del Target Group: debe superar 100
 - Metrica `HealthyHostCount`: debe aumentar de 2 a 3 o 4
 
-**Bash — monitorear el conteo de instancias cada 30 segundos:**
-
-```bash
-while true; do
-  COUNT=$(aws autoscaling describe-auto-scaling-groups \
-    --auto-scaling-group-names cloudcuyo-api-asg \
-    --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`] | length(@)' \
-    --output text)
-  echo "$(date +%H:%M:%S) InService instances: $COUNT"
-  sleep 30
-done
-```
-
 ### 6.4 Verificar que el trafico se distribuye entre todas las instancias
 
-```bash
-# Desde la terminal local (no desde SSM):
-ALB_DNS=<dns-del-alb>
-
-for i in $(seq 1 20); do
-  curl -s http://$ALB_DNS/health | python3 -c \
-    "import sys,json; d=json.load(sys.stdin); print(f'{d[\"node\"][:12]}... {d[\"az\"]}')"
-done | sort | uniq -c | sort -rn
-```
-
-El conteo deberia mostrar requests distribuidos entre 3 o 4 Instance IDs distintos.
+1. Abrir el navegador en `http://<DNS-del-ALB>/health`
+2. Refrescar varias veces y observar el campo `node` en la respuesta JSON
+3. El campo `node` debe mostrar Instance IDs distintos en cada refresh, rotando entre 3 o 4 instancias diferentes a medida que el ASG escala
 
 ### Troubleshooting de la Fase 6
 
 | Sintoma | Posible causa | Correccion |
 |---|---|---|
 | Scale-out no se dispara en 5+ minutos | Metrica RequestCountPerTarget no supera el umbral | Verificar que el traffic generator este activo y que el ALB reciba trafico |
-| Traffic generator arranca pero el ALB no recibe requests | URL del ALB incorrecta en el parametro del stack | Verificar parametro `AlbTargetUrl` en stack outputs |
+| Traffic generator arranca pero el ALB no recibe requests | URL del ALB incorrecta en el parametro del stack | Verificar parametro `AlbTargetUrl` en CloudFormation > Stacks > cloudcuyo-ha-traffic-gen > Parameters |
 | Instancias nuevas del ASG quedan `Unhealthy` | User-data tarda mas de 120s | Esperar, o revisar `/var/log/user-data.log` via SSM en la instancia nueva |
-| Scale-out supera el maximo de 4 | No deberia pasar — el maximo esta configurado en 4 | Verificar configuracion del ASG |
+| Scale-out supera el maximo de 4 | No deberia pasar — el maximo esta configurado en 4 | Verificar configuracion del ASG en EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Details |
 
 ---
 
@@ -558,7 +452,7 @@ Despues de detener el trafico, la metrica `RequestCountPerTarget` cae por debajo
 
 > **¿Por que el scale-in tarda mas que el scale-out?** Es intencional. El scale-out debe ser rapido para absorber picos (60s de cooldown). El scale-in es mas conservador (120s) para evitar terminar instancias que podrian necesitarse si el trafico vuelve a subir. Terminar y volver a lanzar instancias innecesariamente tiene un costo tanto economico como de tiempo (bootstrap).
 
-**En consola:** EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Activity
+**Monitorear en consola:** Ir a **EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Activity** y refrescar la pagina cada 30 segundos.
 
 Aparecera un evento similar a:
 
@@ -568,32 +462,18 @@ Reason: An instance was taken out of service in response to a difference between
 actual capacity, decreasing the capacity from 4 to 2.
 ```
 
-**Bash — monitorear hasta que vuelva a 2 instancias:**
-
-```bash
-while true; do
-  COUNT=$(aws autoscaling describe-auto-scaling-groups \
-    --auto-scaling-group-names cloudcuyo-api-asg \
-    --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`] | length(@)' \
-    --output text)
-  echo "$(date +%H:%M:%S) InService instances: $COUNT"
-  [ "$COUNT" -le "2" ] && echo "Scale-in completado." && break
-  sleep 30
-done
-```
+Tambien observar la pestana **Instance management** para ver como las instancias extras pasan a estado `Terminating`.
 
 > **Cuanto tiempo tarda el scale-in?** Con cooldown de 120 segundos, la metrica debe estar por debajo del umbral durante todo ese periodo antes de que el ASG actue. Tipicamente el scale-in completo toma 3-5 minutos desde que se detiene el trafico.
 
 ### 7.3 Verificar estado final
 
-```bash
-aws autoscaling describe-auto-scaling-groups \
-  --auto-scaling-group-names cloudcuyo-api-asg \
-  --query 'AutoScalingGroups[0].{Desired:DesiredCapacity,Min:MinSize,Max:MaxSize,InService:Instances[?LifecycleState==`InService`]|length(@)}' \
-  --output table
-```
+1. Ir a **EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Instance management**
+2. Debe mostrar exactamente 2 instancias en estado `InService`
+3. Ir a **EC2 > Target Groups > cloudcuyo-api-tg > Targets**
+4. Debe mostrar exactamente 2 targets en estado `Healthy`
 
-Resultado esperado: `Desired=2, InService=2`.
+Resultado esperado: `Desired=2`, `InService=2`.
 
 ---
 
@@ -603,25 +483,21 @@ Resultado esperado: `Desired=2, InService=2`.
 
 ### Limpieza parcial (conservar ALB, TG y ASG para Lab HA-03)
 
-```bash
-# Solo eliminar el traffic generator si NO se continua con Lab HA-03
-aws cloudformation delete-stack --stack-name cloudcuyo-ha-traffic-gen
-```
+1. Ir a **CloudFormation > Stacks**
+2. Solo eliminar `cloudcuyo-ha-traffic-gen` si NO se continua con Lab HA-03:
+   - Seleccionar el stack > **Delete** > confirmar
+   - Esperar a que desaparezca de la lista
 
 ### Limpieza completa (si no se continua con Lab HA-03)
 
-```bash
-# 1. Eliminar traffic generator
-aws cloudformation delete-stack --stack-name cloudcuyo-ha-traffic-gen
-aws cloudformation wait stack-delete-complete --stack-name cloudcuyo-ha-traffic-gen
+Eliminar en este orden:
 
-# El ASG, Launch Template, ALB y TG se eliminan desde consola:
-# 2. EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Delete
-# 3. EC2 > Launch Templates > cloudcuyo-api-lt > Actions > Delete
-# 4. EC2 > Load Balancers > cloudcuyo-api-alb > Actions > Delete
-# 5. EC2 > Target Groups > cloudcuyo-api-tg > Actions > Delete
-# 6. EC2 > Security Groups > cloudcuyo-alb-sg y cloudcuyo-api-node-sg > Delete
-```
+1. **CloudFormation > Stacks** → eliminar `cloudcuyo-ha-traffic-gen` → esperar eliminacion completa
+2. **EC2 > Auto Scaling Groups** → seleccionar `cloudcuyo-api-asg` → **Actions > Delete** → escribir `delete` para confirmar → esperar que las instancias terminen (~2-3 minutos)
+3. **EC2 > Launch Templates** → seleccionar `cloudcuyo-api-lt` → **Actions > Delete template** → confirmar
+4. **EC2 > Load Balancers** → seleccionar `cloudcuyo-api-alb` → **Actions > Delete load balancer** → confirmar → esperar eliminacion
+5. **EC2 > Target Groups** → seleccionar `cloudcuyo-api-tg` → **Actions > Delete** → confirmar
+6. **EC2 > Security Groups** → eliminar `cloudcuyo-alb-sg` y `cloudcuyo-api-node-sg` → **Actions > Delete security group**
 
 ### NO eliminar (pre-requisitos persistentes)
 

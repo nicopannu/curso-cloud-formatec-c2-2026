@@ -76,22 +76,11 @@ En este lab se reemplaza ese esquema fragil por un **Application Load Balancer a
 - Region: **us-east-1 (N. Virginia)**
 - Permisos para EC2, VPC, CloudFormation e IAM
 
-**Bash (Linux/Mac/WSL):**
-
-```bash
-aws --version       # AWS CLI >= 2.x
-aws sts get-caller-identity
-```
-
-**PowerShell (Windows):**
-
-```powershell
-Get-STSCallerIdentity
-```
-
 ### Recursos de red necesarios
 
 Este lab requiere dos Availability Zones completas (public + private cada una). La VPC del lab ya tiene subnets en AZ-A. La AZ-B se crea como parte de los pre-requisitos de este lab.
+
+> **Antes de comenzar:** Tener a mano los IDs de la VPC y las subnets. Se pueden consultar en **VPC > Your VPCs** y **VPC > Subnets**.
 
 **Recursos requeridos antes de comenzar las Fases:**
 
@@ -110,8 +99,6 @@ Este lab requiere dos Availability Zones completas (public + private cada una). 
 
 > **¿Por que necesitamos una segunda AZ?** Un ALB necesita estar en al menos dos Availability Zones para ser altamente disponible. Una AZ es un datacenter fisicamente separado dentro de la region. Si todo esta en una sola AZ y esa falla, el ALB tambien cae. Distribuir en dos AZs significa que una puede fallar sin afectar el servicio.
 
-**Usando AWS Console:**
-
 1. Ir a **VPC > Subnets**
 2. Click en **Create subnet**
 3. Seleccionar la VPC del laboratorio
@@ -129,38 +116,11 @@ Este lab requiere dos Availability Zones completas (public + private cada una). 
 
 > **¿Por que asociar la subnet a la route table publica?** Una subnet "publica" es simplemente una subnet cuya route table tiene una ruta `0.0.0.0/0 → IGW`. Sin esa ruta, el trafico de internet no llega. Asociar la nueva subnet a la misma route table publica garantiza que el ALB pueda recibir trafico externo desde ambas AZs.
 
-**Alternativa CLI:**
-
-```bash
-# Crear subnet publica AZ-B
-PUBLIC_SUBNET_B_ID=$(aws ec2 create-subnet \
-  --vpc-id $VPC_ID \
-  --cidr-block 10.0.2.0/24 \
-  --availability-zone us-east-1b \
-  --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=cloudcuyo-public-us-east-1b}]' \
-  --query 'Subnet.SubnetId' \
-  --output text)
-
-echo "Public Subnet B: $PUBLIC_SUBNET_B_ID"
-
-# Activar auto-assign public IP
-aws ec2 modify-subnet-attribute \
-  --subnet-id $PUBLIC_SUBNET_B_ID \
-  --map-public-ip-on-launch
-
-# Asociar a la route table publica (reemplazar $PUBLIC_RT_ID con el ID real)
-aws ec2 associate-route-table \
-  --subnet-id $PUBLIC_SUBNET_B_ID \
-  --route-table-id $PUBLIC_RT_ID
-```
-
 ---
 
 ### Pre-req B: Crear Private Subnet AZ-B (`10.0.3.0/24`)
 
 > **¿Por que creamos la subnet privada si los nodos van en publicas?** La subnet privada AZ-B es un pre-requisito para labs futuros (HA-02 y HA-03) y para contar con la estructura de red correcta (cada AZ deberia tener una subnet publica y una privada). No la usamos en este lab pero la creamos ahora para no tener que interrumpir el flujo despues.
-
-**Usando AWS Console:**
 
 1. Ir a **VPC > Subnets > Create subnet**
 2. Seleccionar la misma VPC
@@ -174,43 +134,19 @@ aws ec2 associate-route-table \
 7. Ir a pestana **Subnet associations > Edit subnet associations**
 8. Agregar la nueva subnet `cloudcuyo-private-us-east-1b` > Guardar
 
-**Alternativa CLI:**
-
-```bash
-# Crear subnet privada AZ-B
-PRIVATE_SUBNET_B_ID=$(aws ec2 create-subnet \
-  --vpc-id $VPC_ID \
-  --cidr-block 10.0.3.0/24 \
-  --availability-zone us-east-1b \
-  --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=cloudcuyo-private-us-east-1b}]' \
-  --query 'Subnet.SubnetId' \
-  --output text)
-
-echo "Private Subnet B: $PRIVATE_SUBNET_B_ID"
-
-# Asociar a la route table privada (reemplazar $PRIVATE_RT_ID con el ID real)
-aws ec2 associate-route-table \
-  --subnet-id $PRIVATE_SUBNET_B_ID \
-  --route-table-id $PRIVATE_RT_ID
-```
-
 ---
 
 ### Pre-req C: Verificar o crear IAM Role SSM
 
 > **¿Por que necesitan las EC2 un IAM Role?** Por defecto, una instancia EC2 no tiene permisos para interactuar con otros servicios de AWS. El IAM Role actua como una "identidad" que se asigna a la instancia y le otorga permisos especificos. En este caso, `AmazonSSMManagedInstanceCore` permite al SSM Agent de la instancia comunicarse con el servicio Systems Manager sin necesidad de una clave SSH ni una IP publica accesible. Esto es mas seguro y operativamente mas simple que gestionar claves SSH.
 
-Si ya existe un Instance Profile SSM en la cuenta, obtener su nombre con:
+**Verificar si ya existe:**
 
-```bash
-aws iam list-instance-profiles \
-  --query 'InstanceProfiles[*].InstanceProfileName' \
-  --output table
-```
+1. Ir a **IAM > Roles**
+2. Buscar un rol con permisos `AmazonSSMManagedInstanceCore`
+3. Si existe, anotar su nombre. Si no existe, crearlo:
 
-**Si no existe, crearlo manualmente:**
-
-**Usando AWS Console:**
+**Si no existe, crearlo:**
 
 1. Ir a **IAM > Roles > Create role**
 2. **Trusted entity type:** AWS service
@@ -218,28 +154,14 @@ aws iam list-instance-profiles \
 4. **Permissions:** agregar `AmazonSSMManagedInstanceCore`
 5. **Role name:** `cloudcuyo-ssm-role`
 6. Click **Create role**
-7. Ir a **IAM > Instance profiles** (en la URL: `/iam/home#/instanceProfiles`)
-8. Si el Instance Profile no se creo automaticamente con el rol, usar CLI:
 
-```bash
-aws iam create-instance-profile --instance-profile-name cloudcuyo-ssm-profile
-aws iam add-role-to-instance-profile \
-  --instance-profile-name cloudcuyo-ssm-profile \
-  --role-name cloudcuyo-ssm-role
-```
+**Verificar el Instance Profile:**
 
----
+Al crear un rol con "Use case: EC2" en la consola, AWS crea automaticamente un Instance Profile con el mismo nombre. Para verificarlo:
 
-### Variables de entorno para el lab
-
-Completar y exportar antes de empezar las Fases:
-
-```bash
-export VPC_ID=vpc-xxxxxxxxx
-export PUBLIC_SUBNET_A_ID=subnet-xxxxxxxxx   # AZ-A, ya existe
-export PUBLIC_SUBNET_B_ID=subnet-xxxxxxxxx   # AZ-B, recien creada
-export SSM_INSTANCE_PROFILE=cloudcuyo-ssm-profile   
-```
+1. Ir a **IAM > Roles > cloudcuyo-ssm-role**
+2. En la seccion **Instance profiles**, confirmar que aparece `cloudcuyo-ssm-role`
+3. Si el Instance Profile no aparece automaticamente al crear el rol, ir a **IAM > Roles > cloudcuyo-ssm-role > Instance profiles** y verificar que este asociado. En ese caso excepcional, contactar al instructor.
 
 ---
 
@@ -264,25 +186,6 @@ El Security Group del ALB se crea **primero** porque los nodos API necesitan su 
 4. Click **Create security group**
 5. Anotar el **Security Group ID** (formato `sg-xxxxxxxxx`)
 
-**Alternativa CLI:**
-
-```bash
-ALB_SG_ID=$(aws ec2 create-security-group \
-  --group-name cloudcuyo-alb-sg \
-  --description "CloudCuyo ALB - allow HTTP from Internet" \
-  --vpc-id $VPC_ID \
-  --query 'GroupId' \
-  --output text)
-
-aws ec2 authorize-security-group-ingress \
-  --group-id $ALB_SG_ID \
-  --protocol tcp \
-  --port 80 \
-  --cidr 0.0.0.0/0
-
-echo "ALB SG ID: $ALB_SG_ID"
-```
-
 ---
 
 ## Fase 2: Desplegar nodos API con CloudFormation
@@ -301,11 +204,11 @@ El stack `cloudformation/ha-lab1-nodes.yaml` crea las dos instancias EC2 con la 
 4. Click **Next**
 5. **Stack name:** `cloudcuyo-ha-lab1-nodes`
 6. **Parameters:**
-   - **VpcId:** pegar `$VPC_ID`
-   - **SubnetAId:** pegar `$PUBLIC_SUBNET_A_ID`
-   - **SubnetBId:** pegar `$PUBLIC_SUBNET_B_ID`
-   - **AlbSgId:** pegar `$ALB_SG_ID` (del paso anterior)
-   - **SsmInstanceProfile:** pegar `$SSM_INSTANCE_PROFILE`
+   - **VpcId:** pegar el ID de la VPC (desde VPC > Your VPCs)
+   - **SubnetAId:** pegar el ID de la subnet publica AZ-A
+   - **SubnetBId:** pegar el ID de la subnet publica AZ-B (recien creada)
+   - **AlbSgId:** pegar el Security Group ID del ALB (del paso 1.1)
+   - **SsmInstanceProfile:** pegar `cloudcuyo-ssm-role` (o el nombre del Instance Profile SSM)
 7. Click **Next** dos veces
 8. Marcar **I acknowledge that AWS CloudFormation might create IAM resources with custom names**
 9. Click **Submit**
@@ -317,55 +220,6 @@ El stack `cloudformation/ha-lab1-nodes.yaml` crea las dos instancias EC2 con la 
     - **ApiNode2InstanceId:** Instance ID del nodo 2
     - **ApiNodeSgId:** Security Group ID de los nodos (se reutiliza en Lab HA-02)
 
-**Alternativa CLI:**
-
-```bash
-aws cloudformation create-stack \
-  --stack-name cloudcuyo-ha-lab1-nodes \
-  --template-body file://cloudformation/ha-lab1-nodes.yaml \
-  --parameters \
-    ParameterKey=VpcId,ParameterValue=$VPC_ID \
-    ParameterKey=SubnetAId,ParameterValue=$PUBLIC_SUBNET_A_ID \
-    ParameterKey=SubnetBId,ParameterValue=$PUBLIC_SUBNET_B_ID \
-    ParameterKey=AlbSgId,ParameterValue=$ALB_SG_ID \
-    ParameterKey=SsmInstanceProfile,ParameterValue=$SSM_INSTANCE_PROFILE \
-  --capabilities CAPABILITY_NAMED_IAM
-
-echo "Esperando a que se complete el stack..."
-aws cloudformation wait stack-create-complete \
-  --stack-name cloudcuyo-ha-lab1-nodes
-
-echo "Outputs del stack:"
-aws cloudformation describe-stacks \
-  --stack-name cloudcuyo-ha-lab1-nodes \
-  --query 'Stacks[0].Outputs' \
-  --output table
-```
-
-### 2.2 Verificar que los nodos esten corriendo
-
-```bash
-# Exportar IPs de los outputs
-NODE1_IP=$(aws cloudformation describe-stacks \
-  --stack-name cloudcuyo-ha-lab1-nodes \
-  --query 'Stacks[0].Outputs[?OutputKey==`ApiNode1PrivateIp`].OutputValue' \
-  --output text)
-
-NODE2_IP=$(aws cloudformation describe-stacks \
-  --stack-name cloudcuyo-ha-lab1-nodes \
-  --query 'Stacks[0].Outputs[?OutputKey==`ApiNode2PrivateIp`].OutputValue' \
-  --output text)
-
-API_NODE_SG_ID=$(aws cloudformation describe-stacks \
-  --stack-name cloudcuyo-ha-lab1-nodes \
-  --query 'Stacks[0].Outputs[?OutputKey==`ApiNodeSgId`].OutputValue' \
-  --output text)
-
-echo "Nodo 1: $NODE1_IP"
-echo "Nodo 2: $NODE2_IP"
-echo "API Node SG: $API_NODE_SG_ID"
-```
-
 > **Nota:** Las instancias recien lanzadas pueden tardar 1-2 minutos en inicializar la API via user-data. Si se intenta registrarlas en el Target Group de inmediato, pueden aparecer en estado `Initial`. Eso es normal.
 
 ### Troubleshooting de la Fase 2
@@ -373,7 +227,7 @@ echo "API Node SG: $API_NODE_SG_ID"
 | Sintoma | Posible causa | Correccion |
 |---|---|---|
 | Stack queda en `CREATE_FAILED` | Parametro incorrecto (subnet ID, SG ID) | Revisar eventos del stack en CloudFormation > Events |
-| Stack falla con error IAM | `--capabilities CAPABILITY_NAMED_IAM` no incluido | Agregar el flag en CLI o marcar checkbox en consola |
+| Stack falla con error IAM | Checkbox de capacidades IAM no marcado | Marcar **I acknowledge that AWS CloudFormation might create IAM resources** en la consola |
 | Instancias en estado `running` pero API no responde | User-data aun ejecutando | Esperar 2-3 minutos, luego verificar via SSM |
 
 ---
@@ -407,7 +261,7 @@ El Target Group es el componente que le dice al ALB a que instancias enviar traf
    - Verificar que el puerto sea `5000`
    - Click **Include as pending below**
 7. Click **Create target group**
-8. Anotar el **ARN del Target Group** (se reutiliza en Lab HA-02)
+8. Anotar el **ARN del Target Group** (visible en la pagina de detalle del TG — se reutiliza en Lab HA-02)
 
 > **¿Por que el protocolo HTTP y el puerto 5000?** La API Flask corre detras de Gunicorn en el puerto 5000. El ALB se comunica con los nodos en ese puerto. El trafico externo llega al ALB en el puerto 80 (HTTP), y el ALB lo reenvía internamente a los nodos en el puerto 5000. El Target Group define ese reenvio interno.
 
@@ -454,23 +308,13 @@ El Target Group es el componente que le dice al ALB a que instancias enviar traf
 
 > **¿Por que el ALB necesita estar en AMBAS subnets publicas?** El ALB distribuye el trafico entre AZs. Para hacer eso, necesita un nodo propio en cada AZ. Al seleccionar las dos subnets publicas (AZ-A y AZ-B), AWS despliega el ALB en ambas zonas. Si una AZ falla, el nodo del ALB en la AZ sana sigue operando.
 
-```bash
-# Obtener DNS del ALB una vez creado
-ALB_DNS=$(aws elbv2 describe-load-balancers \
-  --names cloudcuyo-api-alb \
-  --query 'LoadBalancers[0].DNSName' \
-  --output text)
-
-echo "ALB DNS: $ALB_DNS"
-```
-
 ### Troubleshooting de la Fase 4
 
 | Sintoma | Posible causa | Correccion |
 |---|---|---|
 | Error "Subnet must be in two different AZs" | Se selecciono la misma AZ dos veces o una sola subnet | Asegurarse de marcar `us-east-1a` y `us-east-1b` con subnets distintas |
 | ALB queda en estado `Provisioning` por mas de 10 min | Problema de red o cuota | Revisar eventos del ALB en CloudWatch o contactar al instructor |
-| DNS del ALB no resuelve aun | DNS propagation | Esperar 1-2 minutos antes de intentar curl |
+| DNS del ALB no resuelve aun | DNS propagation | Esperar 1-2 minutos antes de intentar acceder |
 
 ---
 
@@ -480,37 +324,15 @@ Una vez que el ALB esta Active y los dos targets estan Healthy, comprobar que el
 
 ### 5.1 Verificar estado de los targets
 
-**AWS Console:**
-
 1. Ir a **EC2 > Target Groups > cloudcuyo-api-tg**
 2. Pestana **Targets**
 3. Ambas instancias deben estar en estado **Healthy**
 
-```bash
-# Verificar estado de los targets
-aws elbv2 describe-target-health \
-  --target-group-arn $(aws elbv2 describe-target-groups \
-    --names cloudcuyo-api-tg \
-    --query 'TargetGroups[0].TargetGroupArn' \
-    --output text) \
-  --query 'TargetHealthDescriptions[*].[Target.Id,TargetHealth.State]' \
-  --output table
-```
-
 ### 5.2 Probar distribucion round-robin
 
-```bash
-export ALB_DNS=<dns-del-alb>
-
-# Repetir 10 veces y observar que el campo "node" alterna entre instancias
-for i in $(seq 1 10); do
-  echo "Request $i:"
-  curl -s http://$ALB_DNS/health | python3 -m json.tool
-  sleep 1
-done
-```
-
-Respuesta esperada (el campo `node` debe alternar entre los dos Instance IDs):
+1. Abrir el navegador en `http://<DNS-del-ALB>/health` (reemplazar `<DNS-del-ALB>` por el DNS name copiado en el paso 4.1.9)
+2. Refrescar la pagina varias veces (F5 o Ctrl+R)
+3. Observar la respuesta JSON en el navegador:
 
 ```json
 {
@@ -520,13 +342,8 @@ Respuesta esperada (el campo `node` debe alternar entre los dos Instance IDs):
 }
 ```
 
-```json
-{
-    "node": "i-0f9e8d7c6b5a43210",
-    "az": "us-east-1b",
-    "status": "ok"
-}
-```
+4. Si el campo `node` cambia entre refreshes (alterna entre dos Instance IDs distintos), el ALB esta distribuyendo el trafico correctamente.
+5. El campo `az` debe mostrar `us-east-1a` y `us-east-1b` en requests alternos.
 
 > **¿Por que el campo `node` alterna?** El ALB usa round-robin por defecto: cada request va a una instancia diferente en orden rotatorio. El campo `node` contiene el Instance ID de la EC2 que respondio (obtenido del IMDS al arrancar). Ver que alterna entre dos Instance IDs distintos confirma que el ALB esta distribuyendo el trafico y que ambos nodos estan procesando requests.
 
@@ -538,8 +355,6 @@ Este experimento ilustra la ventaja clave del ALB sobre un servidor unico: cuand
 
 ### 6.1 Terminar uno de los nodos
 
-**AWS Console:**
-
 1. Ir a **EC2 > Instances**
 2. Seleccionar `cloudcuyo-api-node-1` (o el nodo en AZ-A)
 3. **Instance state > Terminate instance > Terminate**
@@ -548,35 +363,19 @@ Este experimento ilustra la ventaja clave del ALB sobre un servidor unico: cuand
 
 ### 6.2 Observar el comportamiento del ALB
 
-Abrir las siguientes ventanas en paralelo para observar en tiempo real:
+**Monitorear el trafico desde el navegador:**
 
-**Ventana 1 - Curl en loop:**
+1. Abrir `http://<DNS-del-ALB>/health` en el navegador
+2. Refrescar cada 5-10 segundos
+3. Durante los primeros ~30 segundos puede haber algun timeout o error de conexion (normal — el ALB aun no detecto la falla)
+4. Pasados ~30s, todas las respuestas deben venir del nodo sano (campo `node` siempre el mismo Instance ID)
+5. No debe haber interrupciones prolongadas — solo el nodo sano sigue respondiendo
 
-```bash
-while true; do
-  echo -n "$(date +%H:%M:%S) "
-  curl -s --max-time 3 http://$ALB_DNS/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'node={d[\"node\"][:12]}... az={d[\"az\"]}')" 2>/dev/null || echo "TIMEOUT"
-  sleep 2
-done
-```
+**Monitorear el estado del Target Group:**
 
-**Ventana 2 - Estado del Target Group:**
-
-**En AWS Console:** EC2 > Target Groups > cloudcuyo-api-tg > Targets (refrescar manualmente cada 15s)
-
-O via CLI:
-
-```bash
-TG_ARN=$(aws elbv2 describe-target-groups \
-  --names cloudcuyo-api-tg \
-  --query 'TargetGroups[0].TargetGroupArn' \
-  --output text)
-
-watch -n 10 "aws elbv2 describe-target-health \
-  --target-group-arn $TG_ARN \
-  --query 'TargetHealthDescriptions[*].[Target.Id,TargetHealth.State,TargetHealth.Reason]' \
-  --output table"
-```
+1. Abrir **EC2 > Target Groups > cloudcuyo-api-tg > Targets** en otra pestana del navegador
+2. Refrescar la pagina cada 15 segundos para observar el cambio de estado
+3. La instancia terminada debe pasar de `Healthy` a `Unhealthy`
 
 ### 6.3 Secuencia esperada de eventos
 
@@ -586,7 +385,7 @@ watch -n 10 "aws elbv2 describe-target-health \
 | T+15-30s | ALB health check falla (primer check) |
 | T+30-45s | ALB marca el target como `Unhealthy` (umbral=2 checks fallidos) |
 | T+45s+ | ALB solo envia trafico al nodo sano |
-| Loop curl | `node` muestra solo el ID del nodo sano, sin interrupciones |
+| Browser refresh | `node` muestra solo el ID del nodo sano, sin interrupciones |
 
 ### 6.4 Comparacion con el esquema anterior
 
@@ -604,44 +403,17 @@ watch -n 10 "aws elbv2 describe-target-health \
 
 ### Eliminar stack de nodos (siempre)
 
-```bash
-aws cloudformation delete-stack --stack-name cloudcuyo-ha-lab1-nodes
-
-echo "Esperando eliminacion del stack..."
-aws cloudformation wait stack-delete-complete --stack-name cloudcuyo-ha-lab1-nodes
-echo "Stack eliminado."
-```
+1. Ir a **CloudFormation > Stacks**
+2. Seleccionar `cloudcuyo-ha-lab1-nodes`
+3. Click **Delete** > confirmar
+4. Esperar a que el stack desaparezca de la lista (~2-3 minutos)
 
 ### Si NO continuaras con Lab HA-02: eliminar ALB y recursos asociados
 
-**AWS Console:**
-
-1. **EC2 > Load Balancers** → seleccionar `cloudcuyo-api-alb` → Actions > Delete → confirmar
-2. **EC2 > Target Groups** → seleccionar `cloudcuyo-api-tg` → Actions > Delete
-3. **EC2 > Security Groups** → seleccionar `cloudcuyo-alb-sg` → Actions > Delete
-
-```bash
-# Obtener ARN del ALB y TG
-ALB_ARN=$(aws elbv2 describe-load-balancers \
-  --names cloudcuyo-api-alb \
-  --query 'LoadBalancers[0].LoadBalancerArn' \
-  --output text)
-
-TG_ARN=$(aws elbv2 describe-target-groups \
-  --names cloudcuyo-api-tg \
-  --query 'TargetGroups[0].TargetGroupArn' \
-  --output text)
-
-# Eliminar listener, ALB y TG
-aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN
-echo "Esperando eliminacion del ALB..."
-aws elbv2 wait load-balancers-deleted --load-balancer-arns $ALB_ARN
-
-aws elbv2 delete-target-group --target-group-arn $TG_ARN
-
-# Eliminar SG del ALB
-aws ec2 delete-security-group --group-id $ALB_SG_ID
-```
+1. **EC2 > Load Balancers** → seleccionar `cloudcuyo-api-alb` → **Actions > Delete load balancer** → confirmar
+2. Esperar a que el ALB desaparezca de la lista
+3. **EC2 > Target Groups** → seleccionar `cloudcuyo-api-tg` → **Actions > Delete** → confirmar
+4. **EC2 > Security Groups** → seleccionar `cloudcuyo-alb-sg` → **Actions > Delete security group** → confirmar
 
 ### NO eliminar (son pre-requisitos persistentes)
 
@@ -652,8 +424,8 @@ aws ec2 delete-security-group --group-id $ALB_SG_ID
 
 ## Criterios de exito
 
-- `curl http://$ALB_DNS/health` responde con status 200 y JSON `{"node": "...", "az": "...", "status": "ok"}`
-- El campo `node` alterna entre los dos Instance IDs en requests sucesivos
+- Abriendo `http://<DNS-del-ALB>/health` en el navegador, responde con status 200 y JSON `{"node": "...", "az": "...", "status": "ok"}`
+- El campo `node` alterna entre los dos Instance IDs en refreshes sucesivos
 - El campo `az` muestra `us-east-1a` y `us-east-1b` en requests alternos
 - Tras terminar un nodo, el ALB sigue respondiendo sin timeouts con el nodo sano
 - El Target Group muestra el nodo terminado como `Unhealthy` y el sano como `Healthy`
