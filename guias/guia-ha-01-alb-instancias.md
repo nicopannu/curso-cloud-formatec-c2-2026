@@ -95,7 +95,7 @@ Este lab requiere dos Availability Zones completas (public + private cada una). 
 
 ---
 
-### Pre-req A: Crear Public Subnet AZ-B (`10.0.2.0/24`)
+### Pre-req A: Crear Public Subnet AZ-B y asociarla a la route table publica (`10.0.2.0/24`)
 
 > **¿Por que necesitamos una segunda AZ?** Un ALB necesita estar en al menos dos Availability Zones para ser altamente disponible. Una AZ es un datacenter fisicamente separado dentro de la region. Si todo esta en una sola AZ y esa falla, el ALB tambien cae. Distribuir en dos AZs significa que una puede fallar sin afectar el servicio.
 
@@ -110,15 +110,20 @@ Este lab requiere dos Availability Zones completas (public + private cada una). 
 6. Seleccionar la nueva subnet > **Actions > Edit subnet settings**
 7. Marcar **Enable auto-assign public IPv4 address** > Guardar
 8. Ir a **VPC > Route tables**
-9. Seleccionar la **route table publica** (la que tiene ruta `0.0.0.0/0 → igw-xxxxx`)
-10. Ir a pestana **Subnet associations > Edit subnet associations**
-11. Agregar la nueva subnet `cloudcuyo-public-us-east-1b` > Guardar
+9. Identificar y seleccionar la **route table publica**:
+   - Debe tener una ruta `0.0.0.0/0 → igw-xxxxx`
+   - Normalmente ya esta asociada a la subnet publica AZ-A (`10.0.0.0/24`)
+10. Ir a pestana **Subnet associations**
+11. Click **Edit subnet associations**
+12. Marcar la nueva subnet `cloudcuyo-public-us-east-1b`
+13. Click **Save associations**
+14. Volver a la pestana **Subnet associations** y confirmar que la subnet AZ-B aparece asociada a la route table publica
 
 > **¿Por que asociar la subnet a la route table publica?** Una subnet "publica" es simplemente una subnet cuya route table tiene una ruta `0.0.0.0/0 → IGW`. Sin esa ruta, el trafico de internet no llega. Asociar la nueva subnet a la misma route table publica garantiza que el ALB pueda recibir trafico externo desde ambas AZs.
 
 ---
 
-### Pre-req B: Crear Private Subnet AZ-B (`10.0.3.0/24`)
+### Pre-req B: Crear Private Subnet AZ-B y asociarla a la route table privada (`10.0.3.0/24`)
 
 > **¿Por que creamos la subnet privada si los nodos van en publicas?** La subnet privada AZ-B es un pre-requisito para labs futuros (HA-02 y HA-03) y para contar con la estructura de red correcta (cada AZ deberia tener una subnet publica y una privada). No la usamos en este lab pero la creamos ahora para no tener que interrumpir el flujo despues.
 
@@ -130,9 +135,17 @@ Este lab requiere dos Availability Zones completas (public + private cada una). 
    - **IPv4 CIDR block:** `10.0.3.0/24`
 4. Click en **Create subnet**
 5. Ir a **VPC > Route tables**
-6. Seleccionar la **route table privada** del lab (la que no tiene ruta publica al Internet Gateway; si el entorno tuviera NAT o VPC endpoints, tambien podria tener rutas privadas adicionales)
-7. Ir a pestana **Subnet associations > Edit subnet associations**
-8. Agregar la nueva subnet `cloudcuyo-private-us-east-1b` > Guardar
+6. Identificar y seleccionar la **route table privada** del lab:
+   - No debe tener ruta publica `0.0.0.0/0 → igw-xxxxx`
+   - Normalmente ya esta asociada a la subnet privada AZ-A (`10.0.1.0/24`)
+   - Si el entorno tuviera NAT o VPC endpoints, podria tener rutas privadas adicionales; lo importante es que no apunte directo al Internet Gateway
+7. Ir a pestana **Subnet associations**
+8. Click **Edit subnet associations**
+9. Marcar la nueva subnet `cloudcuyo-private-us-east-1b`
+10. Click **Save associations**
+11. Volver a la pestana **Subnet associations** y confirmar que la subnet AZ-B aparece asociada a la route table privada
+
+> **Validacion antes de seguir:** En **VPC > Route tables**, la subnet publica AZ-B debe estar asociada a la route table publica y la subnet privada AZ-B debe estar asociada a la route table privada. Si alguna queda sin asociacion explicita, AWS usara la route table principal de la VPC, que puede no ser la correcta para el lab.
 
 ---
 
@@ -183,8 +196,14 @@ El Security Group del ALB se crea **primero** porque los nodos API necesitan su 
 3. En **Inbound rules > Add rule:**
    - **Type:** HTTP
    - **Source:** `0.0.0.0/0`
-4. Click **Create security group**
-5. Anotar el **Security Group ID** (formato `sg-xxxxxxxxx`)
+4. En **Outbound rules:** verificar que exista una regla de salida:
+   - **Type:** All traffic
+   - **Destination:** `0.0.0.0/0`
+5. Si la regla outbound no aparece, agregarla manualmente con **Add rule**
+6. Click **Create security group**
+7. Anotar el **Security Group ID** (formato `sg-xxxxxxxxx`)
+
+> **¿Por que el SG del ALB necesita outbound?** El ALB recibe trafico en puerto 80 desde Internet, pero despues debe abrir conexiones salientes hacia los nodos API en puerto 5000. Security Groups son stateful, pero igual necesitan una regla outbound que permita iniciar esa conexion hacia los targets. En este lab se deja la regla outbound default `All traffic → 0.0.0.0/0` para simplificar. En produccion se podria restringir a `TCP 5000` hacia el SG de los nodos.
 
 ---
 
@@ -410,12 +429,15 @@ Este experimento ilustra la ventaja clave del ALB sobre un servidor unico: cuand
 3. Click **Delete** > confirmar
 4. Esperar a que el stack desaparezca de la lista (~2-3 minutos)
 
-### Si NO continuaras con Lab HA-02: eliminar ALB y recursos asociados
+### Conservar ALB, Target Group y SG del ALB
 
-1. **EC2 > Load Balancers** → seleccionar `cloudcuyo-api-alb` → **Actions > Delete load balancer** → confirmar
-2. Esperar a que el ALB desaparezca de la lista
-3. **EC2 > Target Groups** → seleccionar `cloudcuyo-api-tg` → **Actions > Delete** → confirmar
-4. **EC2 > Security Groups** → seleccionar `cloudcuyo-alb-sg` → **Actions > Delete security group** → confirmar
+No eliminar en este punto:
+
+- ALB `cloudcuyo-api-alb`
+- Target Group `cloudcuyo-api-tg`
+- Security Group `cloudcuyo-alb-sg`
+
+Estos recursos se reutilizan directamente en HA-02. La limpieza completa queda documentada al final de HA-03, cuando ya no se necesitan para los labs siguientes.
 
 ### NO eliminar (son pre-requisitos persistentes)
 
