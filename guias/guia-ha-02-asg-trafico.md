@@ -80,6 +80,17 @@ Este lab tambien introduce un **generador de trafico** desplegado via CloudForma
 
 > **Antes de comenzar:** Verificar que el ALB `cloudcuyo-api-alb` y el Target Group `cloudcuyo-api-tg` existen en **EC2 > Load Balancers** y **EC2 > Target Groups**. Ambos deben aparecer en la lista. Si alguno no existe, volver al Lab HA-01 para recrearlo.
 
+**Estado esperado al iniciar HA-02:**
+
+| Recurso | Estado esperado |
+|---|---|
+| ALB `cloudcuyo-api-alb` | Existe y esta `Active` |
+| Target Group `cloudcuyo-api-tg` | Existe, pero puede estar **sin targets** |
+| SG del ALB `cloudcuyo-alb-sg` | Existe con inbound HTTP 80 y outbound permitido |
+| Stack `cloudcuyo-ha-lab1-nodes` | Debe eliminarse en la Fase 1 |
+
+> Si el ALB devuelve `503 Service Temporarily Unavailable` al inicio de HA-02, es normal: el Target Group todavia no tiene instancias saludables. Se resuelve cuando el ASG cree instancias y las registre como targets `Healthy`.
+
 Tener a mano:
 - ID de la VPC (VPC > Your VPCs)
 - ID de la subnet publica AZ-A
@@ -97,6 +108,8 @@ Tener a mano:
 Si el stack `cloudcuyo-ha-lab1-nodes` todavia existe (las 2 EC2 fijas siguen corriendo), se debe eliminar antes de crear el ASG. No es posible tener dos conjuntos de targets en el mismo Target Group con diferente ciclo de vida.
 
 > **¿Por que eliminar primero los nodos del Lab HA-01?** El Target Group tiene registrados los dos nodos EC2 del stack anterior. Si creamos el ASG apuntando al mismo Target Group sin eliminar esos nodos primero, tendriamos instancias "viejas" compitiendo con las instancias del ASG. El stack se puede eliminar sin tocar el ALB ni el Target Group: son recursos independientes.
+
+### 1.1 Eliminar stack de nodos fijos
 
 **Verificar si el stack existe:**
 
@@ -323,6 +336,8 @@ systemctl start cloudcuyo-api
 
 ### 3.3 Verificar metricas de grupo del ASG
 
+Si durante la creacion del ASG no apareció la opcion de **Group metrics collection**, se puede habilitar ahora desde la pestana **Monitoring**.
+
 1. Ir a **EC2 > Auto Scaling Groups > cloudcuyo-api-asg**
 2. Abrir la pestana **Monitoring**
 3. Verificar que las metricas de grupo esten habilitadas
@@ -394,6 +409,7 @@ El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet pub
    - **ApiSgId:** pegar el ID de `cloudcuyo-api-node-sg` (el SG creado en la Fase 1.2)
    - **SsmInstanceProfile:** pegar `cloudcuyo-ssm-role`
    - **AlbTargetUrl:** `http://<dns-del-alb>` (sin barra final — copiar el DNS name del ALB desde EC2 > Load Balancers)
+   - **LatestAmiId:** dejar el valor default (`/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64`)
    - **RequestsPerSecond:** `30`
    - **Workers:** `5`
 7. Si la consola muestra algun checkbox de **Capabilities / IAM acknowledgment**, marcarlo. Si no aparece, es normal: este template no crea recursos IAM.
@@ -502,6 +518,8 @@ actual capacity, decreasing the capacity from 4 to 2.
 Tambien observar la pestana **Instance management** para ver como las instancias extras pasan a estado `Terminating`.
 
 > **Cuanto tiempo tarda el scale-in?** En este lab puede tardar **15-20 minutos** desde que se detiene el trafico. Es normal ver `Desired=4` durante varios minutos aunque `RequestCountPerTarget` ya haya caido a 0. Cuando la alarma baja pasa a `ALARM`, el ASG reduce primero de 4 a 3 y luego de 3 a 2.
+
+> **Tip para la clase:** Si el tiempo es limitado, no hace falta esperar el scale-in completo. Alcanza con verificar que el trafico se detuvo, que `RequestCountPerTarget` cae, y explicar que el ASG reducira capacidad cuando se cumpla la ventana conservadora de target tracking.
 
 ### 7.3 Verificar estado final
 

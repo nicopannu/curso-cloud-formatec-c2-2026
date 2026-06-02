@@ -19,6 +19,7 @@ Metadata:
       - Label:
           default: "Configuracion de Instancia"
         Parameters:
+          - LatestAmiId
           - InstanceType
           - SsmInstanceProfile
       - Label:
@@ -40,6 +41,8 @@ Metadata:
         default: "Requests por segundo"
       Workers:
         default: "Conexiones concurrentes"
+      LatestAmiId:
+        default: "AMI Amazon Linux 2023"
 
 Parameters:
   VpcId:
@@ -78,6 +81,11 @@ Parameters:
     MaxValue: 50
     Description: Numero de conexiones concurrentes
 
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: AMI latest de Amazon Linux 2023 obtenida desde AWS Systems Manager Parameter Store
+
   InstanceType:
     Type: String
     Default: t3.micro
@@ -101,20 +109,6 @@ Parameters:
       - ha-lab
       - staging
     Description: Ambiente de despliegue
-
-Mappings:
-  # AMI IDs de Amazon Linux 2023 (SSM Agent preinstalado)
-  RegionMap:
-    us-east-1:
-      AMI: ami-0230bd60aa48260c6
-    us-east-2:
-      AMI: ami-0a606d8395a538502
-    us-west-1:
-      AMI: ami-0d9858aa3c6322f73
-    us-west-2:
-      AMI: ami-098e42ae54c764c35
-    sa-east-1:
-      AMI: ami-0c3b6e2e1c9b8c96d
 
 Resources:
 
@@ -164,7 +158,7 @@ Resources:
   TrafficGeneratorInstance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      ImageId: !Ref LatestAmiId
       InstanceType: !Ref InstanceType
       IamInstanceProfile: !Ref SsmInstanceProfile
       NetworkInterfaces:

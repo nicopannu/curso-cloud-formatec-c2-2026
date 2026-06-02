@@ -57,7 +57,7 @@ Templates de infraestructura para el modulo de Alta Disponibilidad. Crean recurs
 | `SsmInstanceProfile` | Instance Profile SSM |
 | `AlbTargetUrl` | URL completa del ALB, ej: `http://cloudcuyo-api-alb-xxx.us-east-1.elb.amazonaws.com` |
 
-**Parametros opcionales:** `RequestsPerSecond` (default: 30), `Workers` (default: 5)
+**Parametros opcionales:** `RequestsPerSecond` (default: 30), `Workers` (default: 5), `LatestAmiId` (default: latest Amazon Linux 2023 via SSM public parameter)
 
 **Stack name sugerido:** `cloudcuyo-ha-traffic-gen`
 
