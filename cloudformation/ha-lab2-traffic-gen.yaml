@@ -16,6 +16,7 @@ Metadata:
           - AlbTargetUrl
           - RequestsPerSecond
           - Workers
+          - AutoStartTraffic
       - Label:
           default: "Configuracion de Instancia"
         Parameters:
@@ -41,6 +42,8 @@ Metadata:
         default: "Requests por segundo"
       Workers:
         default: "Conexiones concurrentes"
+      AutoStartTraffic:
+        default: "Iniciar carga automaticamente"
       LatestAmiId:
         default: "AMI Amazon Linux 2023"
 
@@ -80,6 +83,14 @@ Parameters:
     MinValue: 1
     MaxValue: 50
     Description: Numero de conexiones concurrentes
+
+  AutoStartTraffic:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: "true para iniciar cloudcuyo-load al crear el stack; false para dejarlo detenido y arrancarlo manualmente via SSM"
 
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -247,14 +258,22 @@ Resources:
           SYSTEMD
 
           systemctl daemon-reload
-          systemctl enable cloudcuyo-load
-          systemctl start cloudcuyo-load
+
+          if [ "${AutoStartTraffic}" = "true" ]; then
+              systemctl enable cloudcuyo-load
+              systemctl start cloudcuyo-load
+              echo "Carga iniciada automaticamente."
+          else
+              systemctl disable cloudcuyo-load || true
+              echo "Carga instalada pero detenida."
+              echo "Para iniciar manualmente: sudo systemctl start cloudcuyo-load"
+          fi
 
           echo "=== Traffic Generator listo ==="
           echo "Ver carga en tiempo real: tail -f /var/log/cloudcuyo-load.log"
           echo "Crashear un nodo: cloudcuyo-crash-node.sh <ip-privada>"
-          echo "Detener carga: systemctl stop cloudcuyo-load"
-          echo "Reiniciar carga: systemctl start cloudcuyo-load"
+          echo "Iniciar carga: sudo systemctl start cloudcuyo-load"
+          echo "Detener carga: sudo systemctl stop cloudcuyo-load"
       Tags:
         - Key: Name
           Value: !Sub '${ProjectName}-traffic-gen-${Environment}'
@@ -283,6 +302,18 @@ Outputs:
   LoadLogCommand:
     Description: Comando SSM para ver el log de carga en tiempo real (ejecutar dentro de la sesion SSM)
     Value: "tail -f /var/log/cloudcuyo-load.log"
+
+  StartLoadCommand:
+    Description: Comando para iniciar la carga manualmente (ejecutar dentro de la sesion SSM)
+    Value: "sudo systemctl start cloudcuyo-load"
+
+  StopLoadCommand:
+    Description: Comando para detener la carga manualmente (ejecutar dentro de la sesion SSM)
+    Value: "sudo systemctl stop cloudcuyo-load"
+
+  LoadStatusCommand:
+    Description: Comando para ver estado del servicio de carga (ejecutar dentro de la sesion SSM)
+    Value: "systemctl status cloudcuyo-load --no-pager"
 
   CrashNodeCommand:
     Description: Comando para crashear un nodo especifico (ejecutar dentro de la sesion SSM)

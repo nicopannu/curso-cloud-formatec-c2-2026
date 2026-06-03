@@ -45,7 +45,7 @@ Templates de infraestructura para el modulo de Alta Disponibilidad. Crean recurs
 - Regla adicional en el SG de los nodos API: permite `:5000` desde el generador (para crash directo en Lab HA-03)
 - Script `cloudcuyo-load.sh`: carga continua con `ab` contra el ALB
 - Script `cloudcuyo-crash-node.sh`: envia `/crash` a una IP privada especifica
-- Servicio systemd `cloudcuyo-load` que arranca automaticamente durante el UserData
+- Servicio systemd `cloudcuyo-load` instalado. Por default queda detenido (`AutoStartTraffic=false`) para iniciar la demo manualmente.
 
 **Parametros requeridos:**
 
@@ -57,13 +57,19 @@ Templates de infraestructura para el modulo de Alta Disponibilidad. Crean recurs
 | `SsmInstanceProfile` | Instance Profile SSM |
 | `AlbTargetUrl` | URL completa del ALB, ej: `http://cloudcuyo-api-alb-xxx.us-east-1.elb.amazonaws.com` |
 
-**Parametros opcionales:** `RequestsPerSecond` (default: 30), `Workers` (default: 5), `LatestAmiId` (default: latest Amazon Linux 2023 via SSM public parameter)
+**Parametros opcionales:** `RequestsPerSecond` (default: 30), `Workers` (default: 5), `AutoStartTraffic` (default: `false`), `LatestAmiId` (default: latest Amazon Linux 2023 via SSM public parameter)
 
 **Stack name sugerido:** `cloudcuyo-ha-traffic-gen`
 
-**Outputs:** `TrafficGeneratorInstanceId`, `TrafficGeneratorPublicIp`, `SsmConnectCommand`, `LoadLogCommand`, `CrashNodeCommand`
+**Outputs:** `TrafficGeneratorInstanceId`, `TrafficGeneratorPublicIp`, `SsmConnectCommand`, `StartLoadCommand`, `StopLoadCommand`, `LoadStatusCommand`, `LoadLogCommand`, `CrashNodeCommand`
 
-**Comportamiento importante:** la carga empieza sola. El servicio `cloudcuyo-load` queda `enabled` y `running` al terminar el bootstrap. Para detenerlo en una sesion SSM:
+**Comportamiento importante:** por default la carga no empieza sola. El servicio `cloudcuyo-load` queda instalado pero detenido. Para iniciar la demo en una sesion SSM:
+
+```bash
+sudo systemctl start cloudcuyo-load
+```
+
+Para detenerla:
 
 ```bash
 sudo systemctl stop cloudcuyo-load

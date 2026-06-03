@@ -390,7 +390,7 @@ Con el ASG corriendo pero sin politica de escalado, la capacidad es fija en 2. L
 
 ## Fase 5: Desplegar Traffic Generator
 
-El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet publica con `ab` (Apache Benchmark) instalado. Genera carga HTTP continua contra el ALB, lo que dispara el scale-out del ASG.
+El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet publica con `ab` (Apache Benchmark) instalado. Por defecto, deja el servicio de carga **instalado pero detenido** para que el instructor o el alumno puedan iniciar el trafico manualmente en el momento de observar el scale-out.
 
 > **¿Por que el traffic generator en una subnet publica?** La EC2 del traffic generator necesita acceso a internet para que el SSM Agent funcione (el agente se comunica con el servicio SSM en internet). Como no tenemos NAT Gateway para subnets privadas, la ponemos en subnet publica con IP publica. El trafico que genera hacia el ALB es interno a la VPC (ALB DNS resuelve a IPs privadas dentro de la red de AWS).
 
@@ -412,12 +412,13 @@ El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet pub
    - **LatestAmiId:** dejar el valor default (`/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64`)
    - **RequestsPerSecond:** `30`
    - **Workers:** `5`
+   - **AutoStartTraffic:** `false`
 7. Si la consola muestra algun checkbox de **Capabilities / IAM acknowledgment**, marcarlo. Si no aparece, es normal: este template no crea recursos IAM.
 8. Click **Submit**
 9. Esperar **CREATE_COMPLETE** (~3 minutos)
 10. Ir a la pestana **Outputs** y anotar el Instance ID del traffic generator (columna **Value** de la fila `TrafficGeneratorInstanceId`)
 
-> **Importante:** El servicio `cloudcuyo-load` arranca automaticamente durante el UserData. El trafico empieza pocos minutos despues de crear el stack; no hace falta iniciar nada manualmente para disparar el scale-out.
+> **Importante:** Con `AutoStartTraffic=false`, el servicio `cloudcuyo-load` queda creado pero detenido. El trafico NO empieza al crear el stack. Se inicia manualmente en la Fase 6 para controlar el momento exacto del scale-out durante la demo.
 
 ---
 
@@ -429,17 +430,22 @@ El stack `cloudformation/ha-lab2-traffic-gen.yaml` crea una EC2 en la subnet pub
 2. Seleccionar la instancia del traffic generator (Instance ID del output del stack `cloudcuyo-ha-traffic-gen`)
 3. Click **Start session**
 
-### 6.2 Verificar que el trafico esta siendo generado
+### 6.2 Iniciar y verificar que el trafico esta siendo generado
 
 Dentro de la sesion SSM, ejecutar:
 
 ```bash
+# Confirmar que el servicio esta instalado y detenido
+systemctl status cloudcuyo-load --no-pager
+
+# Iniciar la carga manualmente
+sudo systemctl start cloudcuyo-load
+
 # Ver logs del generador de carga
 tail -f /var/log/cloudcuyo-load.log
-
-# Ver si el servicio esta activo
-systemctl status cloudcuyo-load --no-pager
 ```
+
+> Si se dejo `AutoStartTraffic=true` al crear el stack, el servicio ya estara activo. Para la demo recomendada del lab, dejarlo en `false` y arrancarlo manualmente con `sudo systemctl start cloudcuyo-load`.
 
 ### 6.3 Observar el scale-out en consola
 
@@ -474,7 +480,7 @@ Las instancias nuevas apareceran en estado `Pending` → `InService`.
 
 | Sintoma | Posible causa | Correccion |
 |---|---|---|
-| Scale-out no se dispara en 5+ minutos | Metrica RequestCountPerTarget no supera el umbral | Verificar que el traffic generator este activo y que el ALB reciba trafico |
+| Scale-out no se dispara en 5+ minutos | Metrica RequestCountPerTarget no supera el umbral | Verificar que el traffic generator este activo (`systemctl status cloudcuyo-load`) y que el ALB reciba trafico |
 | Traffic generator arranca pero el ALB no recibe requests | URL del ALB incorrecta en el parametro del stack | Verificar parametro `AlbTargetUrl` en CloudFormation > Stacks > cloudcuyo-ha-traffic-gen > Parameters |
 | Instancias nuevas del ASG quedan `Unhealthy` | User-data tarda mas de 120s | Esperar, o revisar `/var/log/user-data.log` via SSM en la instancia nueva |
 | Scale-out supera el maximo de 4 | No deberia pasar — el maximo esta configurado en 4 | Verificar configuracion del ASG en EC2 > Auto Scaling Groups > cloudcuyo-api-asg > Details |
