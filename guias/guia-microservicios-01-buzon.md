@@ -4,7 +4,7 @@
 
 **Duración estimada:** 2-3 horas (actividad grupal + presentación)
 
-**Estrategia 6R:** **REFACTOR** (preparación para separar como microservicio)
+**Enfoque de modernización:** separación gradual de una capacidad del monolito para convertirla en un microservicio independiente.
 
 ---
 

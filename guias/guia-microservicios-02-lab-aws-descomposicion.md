@@ -31,11 +31,9 @@ El bootstrap resuelve la plomeria inicial. El alumno debe concentrarse en:
 
 2 a 3 horas.
 
-## Estrategia 6R
+## Enfoque de modernización
 
-**REFACTOR** controlado.
-
-No se busca rehacer todo CloudCuyo. Se busca partir una aplicacion grande en piezas mas pequenas y observar que problemas aparecen.
+No se busca rehacer todo CloudCuyo. Se busca partir una aplicacion grande en piezas mas pequenas de forma controlada y observar que problemas aparecen.
 
 ## Mensaje central
 
