@@ -38,27 +38,21 @@ git checkout m2-c3-lab
 
 ## Que vas a construir en esta branch
 
-Vas a partir de una aplicacion funcional:
+Vas a partir de una aplicacion funcional desplegada en 3 EC2s:
 
 ```text
-frontend -> backend monolitico -> base de datos/estado local del backend
+frontend (EC2-frontend) -> backend monolitico (EC2-monolith) -> estado local
 ```
 
-El frontend muestra seis televisores Sorny. El cliente selecciona uno y el backend monolitico:
+El frontend muestra seis televisores Sorny. El cliente selecciona uno, completa la compra y deja datos de contacto. El backend monolitico lo resuelve todo en un solo proceso.
 
-1. recibe la solicitud de compra;
-2. revisa si hay stock;
-3. genera un enlace de pago;
-4. devuelve ese enlace al frontend;
-5. el frontend muestra una pantalla de pago.
+Luego vas a dividir el backend en servicios independientes con su propia EC2:
 
-Luego vas a dividir el backend en servicios:
+- **EC2-frontend**: frontend (la tienda)
+- **EC2-monolith**: monolith + delivery (el backend original)
+- **EC2-services**: purchase + stock + payment (microservicios separados)
 
-- `purchase-service`: recibe la compra y coordina el flujo;
-- `stock-service`: valida y reserva inventario;
-- `payment-service`: genera el enlace de pago.
-
-El objetivo es ver que al dividir responsabilidades tambien aparecen contratos, rutas, dependencias, logs y fallas parciales.
+El objetivo es ver que al dividir responsabilidades tambien aparecen contratos, rutas, dependencias, logs y fallas parciales entre servicios que viven en servidores distintos.
 
 ## Archivos principales
 
@@ -66,7 +60,7 @@ El objetivo es ver que al dividir responsabilidades tambien aparecen contratos, 
 |---|---|
 | `guias/guia-microservicios-01-sorny-monolito-microservicios.md` | Guia principal para el alumno |
 | `cloudformation/README.md` | Guia del folder de infraestructura |
-| `cloudformation/microservices-sorny-stack.yaml` | Stack unificado que levanta ALB, frontend, monolito y servicios |
+| `cloudformation/microservices-sorny-stack.yaml` | Stack unificado que levanta ALB, 3 EC2s y servicios |
 
 ## Resultado esperado
 
@@ -76,6 +70,7 @@ Al terminar, deberias poder explicar:
 - que cambia en el ALB cuando una ruta deja de ir al monolito;
 - por que un flujo puede fallar aunque todos los servicios parezcan "up";
 - como CloudWatch ayuda a encontrar el punto exacto de falla;
+- que diferencias de networking aparecen cuando los servicios estan en distintas EC2s;
 - que decisiones faltarian antes de llevar esto a produccion.
 
 Proyecto educativo - Formatec Cloud Course 2026.

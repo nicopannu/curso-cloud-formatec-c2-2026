@@ -1,6 +1,6 @@
 # Guia MS-01: Sorny — de monolito a microservicios en AWS
 
-**Objetivo:** Partir de una aplicacion web funcional con un backend monolitico y separar sus responsabilidades en servicios independientes. El alumno observa como cambian las rutas, los contratos, las dependencias y la observabilidad cuando una aplicacion se divide.
+**Objetivo:** Partir de una aplicacion web funcional con un backend monolitico y separar sus responsabilidades en servicios independientes, cada uno en su propia EC2. El alumno observa como cambian las rutas, los contratos, las dependencias y la observabilidad cuando una aplicacion se divide en servicios con infraestructura separada.
 
 **Duracion estimada:** 2-3 horas
 
@@ -10,7 +10,7 @@
 
 ## Contexto
 
-Sorny es una tienda de televisores. El sitio permite ver seis modelos, seleccionar uno y comprarlo.
+Sorny es una tienda de televisores. El sitio permite ver seis modelos, seleccionar uno, comprarlo y dejar datos de contacto para coordinar el envio.
 
 Hoy, todo el backend vive en un unico proceso. Cuando un cliente compra, ese proceso:
 
@@ -18,29 +18,23 @@ Hoy, todo el backend vive en un unico proceso. Cuando un cliente compra, ese pro
 2. revisa si hay stock;
 3. descuenta el inventario;
 4. genera un enlace de pago;
-5. devuelve todo junto al frontend.
+5. registra los datos de envio del cliente.
 
-Eso funciona. Pero tiene un problema: las tres cosas que hace (compras, stock, pagos) estan mezcladas en el mismo codigo. Si el equipo de pagos quiere cambiar algo, toca todo. Si stock tiene un error, no queda claro si es problema de stock, de compras o del enlace de pago.
+Eso funciona, pero tiene un problema: las tres responsabilidades (compras, stock, pagos) estan mezcladas en el mismo codigo. En este laboratorio se divide ese backend en servicios independientes, **cada uno en su propia EC2**.
 
-En este laboratorio se divide ese backend en tres servicios chicos con responsabilidades claras:
-
-| Servicio | Que hace |
-|---|---|
-| `purchase-service` | Recibe la compra y coordina el flujo |
-| `stock-service` | Valida y reserva inventario |
-| `payment-service` | Genera el enlace de pago |
-
-Cada servicio vive como proceso separado en la misma EC2, cada uno con su puerto, su health check y su target group. Mas adelante, cada uno podria estar en servidores distintos.
+| Servicio | EC2 | Que hace |
+|---|---|---|
+| `frontend` | EC2-frontend | Muestra la tienda y gestiona el checkout |
+| `monolithic-backend` | EC2-monolith | Responde catalogo, compras y delivery (monolito inicial) |
+| `delivery-service` | EC2-monolith | Recibe datos de contacto para coordinar envio |
+| `purchase-service` | EC2-services | Recibe la compra y coordina stock + pago |
+| `stock-service` | EC2-services | Valida y reserva inventario |
+| `payment-service` | EC2-services | Genera el enlace de pago |
 
 Al dividir el backend aparecen preguntas nuevas:
-- que servicio recibe la compra;
-- que servicio es dueno del inventario;
-- que servicio genera el enlace de pago;
-- como se comunican entre si;
-- que pasa si uno responde mal o falla;
+- como se comunican servicios que estan en distintas EC2s;
+- que pasa si un servicio responde mal o falla;
 - donde miro logs cuando el flujo completo no funciona.
-
-La idea es ver esa complejidad con las manos, no solo pensarla.
 
 ---
 
@@ -52,9 +46,9 @@ Usuario
   v
 ALB
   |
-  +-- /       -> frontend (puerto 5000)
+  +-- /            -> frontend (EC2-frontend, puerto 5000)
   |
-  +-- /api/*  -> backend monolitico (puerto 5001)
+  +-- /api/*       -> backend monolitico (EC2-monolith, puerto 5001)
 ```
 
 ## Arquitectura final esperada
@@ -65,22 +59,16 @@ Usuario
   v
 ALB
   |
-  +-- /                   -> frontend
+  +-- /                   -> frontend (EC2-frontend, puerto 5000)
   |
-  +-- /api/purchases/*    -> purchase-service (puerto 5002)
+  +-- /api/purchases/*    -> purchase-service (EC2-services, puerto 5002)
   |
-  +-- /api/stock/*        -> stock-service (puerto 5003)
+  +-- /api/stock/*        -> stock-service (EC2-services, puerto 5003)
   |
-  +-- /api/payments/*     -> payment-service (puerto 5004)
+  +-- /api/payments/*     -> payment-service (EC2-services, puerto 5004)
   |
-  +-- /api/*              -> monolith fallback (puerto 5001)
+  +-- /api/*              -> monolith fallback (EC2-monolith, puerto 5001)
        (fallback para rutas no migradas)
-
-purchase-service
-  |
-  +-- consulta stock-service (para validar inventario)
-  |
-  +-- solicita enlace de pago a payment-service
 ```
 
 ---
@@ -91,61 +79,45 @@ purchase-service
 
 - Acceder a [https://console.aws.amazon.com/](https://console.aws.amazon.com/)
 - Region: **us-east-1 (N. Virginia)**
-- Permisos para EC2, CloudFormation, CloudWatch e IAM
+- Permisos para EC2, CloudFormation, CloudWatch, ELB e IAM (solo lectura)
 
 ### Recursos de red necesarios
 
-Este laboratorio necesita una VPC con Internet Gateway, dos subnets publicas en Availability Zones distintas y el rol/profile de SSM ya preparado en la cuenta. El stack del laboratorio crea el ALB, el Security Group del ALB, el listener HTTP, el Security Group de la EC2, la EC2, los target groups y las reglas base.
-
-**Recursos requeridos antes de comenzar:**
-
 | Recurso | Descripcion |
 |---|---|
-| VPC con Internet Gateway | Ya debe existir en la cuenta |
-| Subnet publica A | Ya debe existir; se usa para la EC2 y para el ALB |
-| Subnet publica B | Ya debe existir en otra Availability Zone; se usa para el ALB |
-| IAM Role / Instance Profile SSM | Ya debe existir en la cuenta con `AmazonSSMManagedInstanceCore` + `CloudWatchAgentServerPolicy` |
+| VPC con Internet Gateway | Debe existir en la cuenta |
+| Subnet publica en us-east-1a | Debe existir |
+| Subnet publica en us-east-1b | Debe existir |
+| IAM Role + Instance Profile con `AmazonSSMManagedInstanceCore` y `CloudWatchAgentServerPolicy` | Debe existir |
 
-> **¿Por que necesitamos SSM en la EC2?** SSM (Systems Manager) permite conectarse a la instancia desde la consola de AWS sin clave SSH ni IP publica. Durante el laboratorio se usa para inspeccionar servicios y corregir configuracion. Es mas seguro que tener puertos SSH abiertos.
+> **¿Por que necesitamos dos subnets?** El ALB necesita al menos dos subnets en distintas AZs para ser altamente disponible. La EC2 principal va en una subnet, el ALB ocupa ambas.
 
----
+> **¿Por que SSM en vez de SSH?** Session Manager permite conectarse a la EC2 desde la consola de AWS sin clave SSH ni IP publica. Durante el laboratorio se usa para inspeccionar servicios y corregir configuracion.
 
-### Pre-req A: Verificar VPC, subnets y rol SSM
+### Anotar valores necesarios
 
-Antes de desplegar el laboratorio, confirmar que ya existen estos recursos:
-
-1. **VPC** con salida a internet mediante Internet Gateway.
-2. **Dos subnets publicas** en Availability Zones distintas, por ejemplo `us-east-1a` y `us-east-1b`.
-3. **Rutas de las subnets publicas** con `0.0.0.0/0 -> Internet Gateway`.
-4. **Instance Profile SSM** disponible para la EC2 del laboratorio. En la cuenta del curso el profile esperado es `sorni-microservices-lab-ec2-profile` y debe tener permisos de SSM y CloudWatch Agent.
-
-> El stack unificado no crea roles IAM ni Instance Profiles. Esos recursos son persistentes de la cuenta del curso y se reutilizan entre laboratorios.
-
----
-
-### Pre-req B: Anotar parametros para el stack
-
-Antes de desplegar el sitio, tener a mano:
+Antes de desplegar, tener a mano desde la consola de AWS:
 
 - **VpcId** — desde **VPC > Your VPCs**
-- **SubnetAId** — ID de la subnet publica donde se creara la EC2 y una pata del ALB
-- **SubnetBId** — ID de una segunda subnet publica en otra Availability Zone para el ALB
+- **SubnetAId** — ID de subnet publica en `us-east-1a`
+- **SubnetBId** — ID de subnet publica en `us-east-1b`
+- **SsmInstanceProfileName** — nombre del Instance Profile con SSM + CloudWatch (ej: `sorni-microservices-ec2-profile` o el que exista en la cuenta)
 
 ---
 
-## Fase 1: Desplegar el sitio Sorny
+## Fase 1: Desplegar la infraestructura Sorny
 
-El stack unificado `cloudformation/microservices-sorny-stack.yaml` crea:
+El stack `cloudformation/microservices-sorny-stack.yaml` crea todo lo necesario:
 
-- 1 ALB publico con listener HTTP en puerto 80
-- 1 EC2 con Amazon Linux 2023
-- 5 aplicaciones como procesos systemd separados (cada uno en su puerto)
-- 5 target groups (uno por servicio)
+- 1 ALB publico con listener HTTP :80
+- Security Groups para ALB y cada EC2
+- 3 EC2s con Amazon Linux 2023 (frontend, monolith+delivery, servicios)
+- 6 target groups (frontend, monolith, delivery, purchase, stock, payment)
 - Reglas base del ALB (`/api/*` -> monolith, `/*` -> frontend)
 - CloudWatch Log Group
-- Alarma base de status check EC2
+- Alarmas de status check para cada EC2
 
-> **¿Que aplicaciones levanta?** El template instala Python, Flask y Gunicorn en la EC2. Luego copia cinco aplicaciones en `/opt/sorni/` y las arranca como servicios systemd. Cada app vive en su propio puerto: frontend en 5000, monolith en 5001, purchase en 5002, stock en 5003, payment en 5004.
+> **¿Que aplicaciones levanta cada EC2?** El template instala Python, Flask y Gunicorn. Cada servicio tiene su propio codigo y corre como proceso systemd independiente. La EC2-frontend tiene solo el frontend. La EC2-monolith tiene el monolito (5001) y el servicio de delivery (5005). La EC2-services tiene purchase (5002), stock (5003) y payment (5004).
 
 ### 1.1 Desplegar con CloudFormation (AWS Console)
 
@@ -153,29 +125,27 @@ El stack unificado `cloudformation/microservices-sorny-stack.yaml` crea:
 2. **Template source:** Upload a template file
 3. Seleccionar `cloudformation/microservices-sorny-stack.yaml`
 4. Click **Next**
-5. **Stack name:** `sorny-microservices-sorny-stack`
-6. **Parametros — Grupo "Red":**
-   - **VpcId:** pegar el VpcId
-   - **SubnetAId:** pegar la subnet publica donde se creara la EC2
-   - **SubnetBId:** pegar una segunda subnet publica en otra Availability Zone
-7. **Parametros — Grupo "EC2":**
+5. **Stack name:** `sorny-microservices-stack`
+6. **Parametros:**
+   - **VpcId:** pegar el VpcId del lab
+   - **SubnetAId:** pegar la subnet publica us-east-1a
+   - **SubnetBId:** pegar la subnet publica us-east-1b
    - **InstanceType:** `t3.micro`
-   - **LatestAmiId:** dejar el valor default
-8. **Parametros — Grupo "Aplicacion":**
+   - **SsmInstanceProfileName:** pegar el nombre del Instance Profile
+   - **LatestAmiId:** dejar default
    - **ProjectName:** `sorny`
    - **Environment:** `microservices-site`
-   - **PurchaseStockServiceUrl:** dejar el default (`http://127.0.0.1:5999/api/stock`)
-   - **PurchasePaymentServiceUrl:** dejar el default (`http://127.0.0.1:5004/api/payments`)
+   - **PurchaseStockServiceUrl:** dejar default (`http://127.0.0.1:5999/api/stock`)
+   - **PurchasePaymentServiceUrl:** dejar default (`http://127.0.0.1:5004/api/payments`)
    - **CreateBaseAlbRules:** `true`
    - **CreateMicroserviceAlbRules:** `false`
-9. Click **Next** dos veces
-10. **Capabilities:** como el stack no crea recursos IAM, no es necesario marcar capacidades. Continuar directo.
-11. Click **Submit**
-12. Esperar a estado **CREATE_COMPLETE** (~5-7 minutos)
+7. Click **Next** dos veces
+8. Click **Submit**
+9. Esperar a estado **CREATE_COMPLETE** (~8-10 minutos)
 
-> **¿Por que CreateBaseAlbRules=true y CreateMicroserviceAlbRules=false?** Con CreateBaseAlbRules=true el sitio queda funcionando contra el monolito de entrada. Los alumnos pueden navegar y comprar. CreateMicroserviceAlbRules=false deja que los alumnos creen las reglas del ALB manualmente como parte del ejercicio.
+> **¿Por que CreateBaseAlbRules=true y CreateMicroserviceAlbRules=false?** Con `true`, el sitio arranca funcionando contra el monolito. Con `false`, los alumnos crean las reglas manualmente como parte del ejercicio.
 
-> **¿Por que PurchaseStockServiceUrl apunta al puerto 5999?** Ese puerto no existe en la EC2. Es intencional. `purchase-service` intentara consultar stock en un puerto incorrecto, fallara, y esa falla sera diagnosticada con CloudWatch. Si el alumno anota la URL correcta (puerto 5003 de stock-service), el flujo funciona.
+> **¿Por que PurchaseStockServiceUrl apunta al puerto 5999?** Ese puerto no existe. Es intencional: cuando los alumnos activen las reglas de microservicios, `purchase-service` fallara al consultar stock. Esa falla se diagnostica con CloudWatch.
 
 ### 1.2 Anotar outputs del stack
 
@@ -183,101 +153,95 @@ Cuando el stack llegue a **CREATE_COMPLETE**:
 
 1. Ir a pestana **Outputs**
 2. Anotar:
-   - `SiteNodeId` — ID de la EC2 (para Session Manager)
-   - `FrontendTargetGroupArn` — ARN del TG del frontend
-   - `MonolithTargetGroupArn` — ARN del TG del monolito
-   - `PurchaseTargetGroupArn` — ARN del TG de purchase-service
-   - `StockTargetGroupArn` — ARN del TG de stock-service
-   - `PaymentTargetGroupArn` — ARN del TG de payment-service
+   - `AlbDnsName` — DNS del ALB
+   - `FrontendNodeId` — ID de EC2-frontend
+   - `MonolithNodeId` — ID de EC2-monolith
+   - `ServicesNodeId` — ID de EC2-services
+   - `FrontendTargetGroupArn` — ARN del TG frontend
+   - `MonolithTargetGroupArn` — ARN del TG monolith
+   - `DeliveryTargetGroupArn` — ARN del TG delivery
+   - `PurchaseTargetGroupArn` — ARN del TG purchase
+   - `StockTargetGroupArn` — ARN del TG stock
+   - `PaymentTargetGroupArn` — ARN del TG payment
    - `BrokenPurchaseStockServiceUrl` — confirma la URL rota
-
-Tambien anotar el **DNS del ALB** desde el output `AlbDnsName` del mismo stack, o desde **EC2 > Load Balancers**.
-
-> **¿Por que hay 5 target groups si solo usamos 2 al inicio?** Cada servicio futuro tiene su target group desde el momento cero, aunque nadie le envie trafico todavia. Esto permite que los health checks ya esten activos y que el alumno pueda verificar que los servicios responden antes de conectar las reglas del ALB.
 
 ### Troubleshooting de la Fase 1
 
 | Sintoma | Posible causa | Correccion |
 |---|---|---|
-| Stack queda en `CREATE_FAILED` | Parametro incorrecto (VPC o subnets) | Revisar eventos del stack en CloudFormation > Events |
-| Stack no arranca por timeout de UserData | EC2 sin salida a internet o AMI incorrecto | Verificar que la subnet publica tenga ruta `0.0.0.0/0 -> IGW` |
+| Stack queda en `CREATE_FAILED` | Parametro incorrecto (VPC, subnets) | Revisar eventos del stack en CloudFormation > Events |
+| Stack timeout | Subnet sin salida a internet | Verificar ruta `0.0.0.0/0 -> IGW` en la route table |
+| Error de IAM | Instance Profile no existe | Verificar el nombre del profile en IAM > Instance Profiles |
 
 ---
 
-## Fase 2: Verificar el sitio y el flujo monolitico
-
-Antes de dividir nada, hay que saber que el sitio funciona. Si la compra monolitica no anda, no tiene sentido crear reglas de microservicios.
+## Fase 2: Verificar el sitio y el flujo completo
 
 ### 2.1 Abrir el sitio
 
-1. Abrir el navegador en `http://<DNS-del-ALB>/`
-2. Deberian verse los seis televisores Sorny con sus miniaturas y precios
+1. Abrir el navegador en `http://<AlbDnsName>/`
+2. Deberian verse los seis televisores Sorny con diseño moderno
 
-> **¿Que estamos viendo?** El frontend es una pagina HTML estatica servida por Flask. Cuando carga, pide la lista de productos a `/api/products`. Esa peticion va al ALB, que siguiendo la regla `/api/*` la envia al backend monolitico. El monolito responde con los seis modelos. Todo funciona con una sola aplicacion.
+### 2.2 Probar la compra completa
 
-### 2.2 Probar la compra monolitica
+1. Click en **Comprar ahora** en cualquier televisor
+2. Deberia aparecer un modal con "Procesando compra..."
+3. Luego el modal muestra un formulario con campos: Nombre, Email, Telefono, Direccion de envio
+4. Completar los datos y click en **Confirmar compra**
+5. Deberia verse una pantalla de exito: "¡Compra procesada! Te vamos a contactar para coordinar el envio"
 
-1. En el sitio, hacer click en **Comprar ahora** en cualquier televisor
-2. El sitio deberia mostrar "Compra iniciada" y un enlace **Ir al checkout**
-3. Click en **Ir al checkout** — deberia abrir un formulario de pago
+> **¿Que paso atras?** El frontend envio un POST a `/api/purchases`. El monolito (EC2-monolith, puerto 5001) recibio la solicitud, verifico stock, genero un ID de compra y devolvio un enlace. Luego el frontend mostro el formulario de checkout. Al confirmar, envio un POST a `/api/delivery` que el monolito tambien proceso. Todo paso por el mismo backend monolitico en una sola EC2.
 
-> **¿Que paso atras?** El frontend envio un POST a `/api/purchases` con el SKU del televisor. El monolito recibio la solicitud, encontro el producto, verifico que habia stock (3 unidades de cada modelo), descontó uno, genero un ID de compra y devolvio un enlace de pago. Todo en el mismo proceso, puerto 5001.
+### 2.3 Ver los endpoints del monolito
 
-### 2.3 Ver los productos desde la API
+Probar directamente:
 
-Probar directamente los endpoints del monolito:
+- `http://<AlbDnsName>/api/products` — lista de 6 modelos con `"backend": "monolithic-backend"`
+- `http://<AlbDnsName>/api/health` — `{"service": "monolithic-backend", "status": "ok"}`
 
-1. Abrir `http://<DNS-del-ALB>/api/products`
-2. Deberia verse el JSON con los 6 modelos y `"backend": "monolithic-backend"`
-3. Abrir `http://<DNS-del-ALB>/api/health`
-4. Deberia responder `{"service": "monolithic-backend", "status": "ok"}`
-
-> **¿Por que "monolithic-backend"?** La API responde con un campo `backend` que indica que aplicacion manejo la request. Cuando las reglas del ALB cambien, ese campo mostrara `purchase-service`, `stock-service` o `payment-service`. Es util para confirmar por que servicio paso la peticion.
+> **¿Por que aparece "monolithic-backend"?** Cada servicio responde con un campo `backend` que indica quien proceso la request. Cuando se separen las rutas, ese campo mostrara `purchase-service`, `stock-service` o `payment-service`.
 
 ---
 
 ## Fase 3: Inspeccionar los componentes en AWS
 
-Antes de cambiar reglas, hay que ubicar los recursos. En produccion, no se toca configuracion sin antes saber que existe.
-
 ### 3.1 Ubicar los target groups
 
 1. Ir a **EC2 > Target Groups**
 2. Buscar los target groups que empiezan con `sorni-`
-3. Identificar:
-   - `sorni-Front-*` (frontend, puerto 5000)
-   - `sorni-Monol-*` (monolith, puerto 5001)
-   - `sorni-Purch-*` (purchase-service, puerto 5002)
-   - `sorni-Stock-*` (stock-service, puerto 5003)
-   - `sorni-Payme-*` (payment-service, puerto 5004)
-4. Abrir cada uno y revisar la pestana **Targets**:
-   - `frontend` y `monolithic-backend` deberian estar **healthy**
-   - `purchase-service`, `stock-service`, `payment-service` pueden estar **unused** (sin reglas del ALB que les envien trafico)
+3. Identificar los 6 TGs:
+   - `sorni-Front-*` (frontend, EC2-frontend, puerto 5000)
+   - `sorni-Monol-*` (monolith, EC2-monolith, puerto 5001)
+   - `sorni-Deliv-*` (delivery, EC2-monolith, puerto 5005)
+   - `sorni-Purch-*` (purchase, EC2-services, puerto 5002)
+   - `sorni-Stock-*` (stock, EC2-services, puerto 5003)
+   - `sorni-Payme-*` (payment, EC2-services, puerto 5004)
+4. Verificar estado:
+   - `frontend` y `monolith` deben estar **healthy**
+   - `delivery`, `purchase`, `stock`, `payment` pueden estar **unused** (sin reglas del ALB)
 
-> **¿Que significa "unused"?** Un target group sin reglas del ALB que lo referencien aparece como `unused`. No es un error: los servicios estan vivos en la EC2, sus health checks pasan, pero nadie les envia trafico desde el ALB. Cuando se creen las reglas path-based, pasaran a `healthy`.
+> **¿Que significa "unused"?** Un target group sin reglas del ALB que lo referencien aparece como `unused`. No es un error: los servicios estan vivos en sus EC2s, sus health checks pasan, pero nadie les envia trafico desde el ALB todavia.
 
-### 3.2 Revisar las reglas actuales del ALB
-
-1. Ir a **EC2 > Load Balancers**
-2. Seleccionar el ALB del laboratorio (nombre `sorny-ms-*`)
-3. Ir a pestana **Listeners**
-4. Click en el listener HTTP `:80`
-5. En la pestana **Rules** deberian verse:
-   - **Priority 100:** `IF path is /api/* THEN forward to sorni-Monol-*`
-   - **Priority 200:** `IF path is /* THEN forward to sorni-Front-*`
-   - **Default rule:** fixed-response 404
-
-> **¿Por que el orden de prioridades?** El ALB evalua las reglas de menor numero de prioridad a mayor. Una request a `/api/purchases` coincide con `/api/*` en priority 100, asi que va al monolito. Una request a `/` no coincide con `/api/*`, pasa a priority 200, coincide con `/*` y va al frontend. Si ninguna regla coincide, usa la default (404).
-
-### 3.3 Verificar que los servicios separados responden
-
-Los servicios `purchase`, `stock` y `payment` estan vivos en la EC2 pero sin trafico del ALB. Para verificarlos localmente, entrar a la instancia via Session Manager:
+### 3.2 Ver las EC2s y sus servicios
 
 1. Ir a **EC2 > Instances**
-2. Buscar la instancia del stack (usando el `SiteNodeId` anotado antes)
-3. Seleccionarla > **Connect**
-4. Ir a pestana **Session Manager** > **Connect**
-5. En la terminal que se abre, probar:
+2. Deberian verse 3 instancias: `sorny-frontend-*`, `sorny-monolith-*`, `sorny-services-*`
+3. Entrar a cada una via **Connect > Session Manager**
+
+En la EC2-frontend:
+
+```bash
+curl -s http://127.0.0.1:5000/health
+```
+
+En la EC2-monolith:
+
+```bash
+curl -s http://127.0.0.1:5001/api/health
+curl -s http://127.0.0.1:5005/api/delivery/health
+```
+
+En la EC2-services:
 
 ```bash
 curl -s http://127.0.0.1:5002/api/purchases/health
@@ -285,168 +249,120 @@ curl -s http://127.0.0.1:5003/api/stock/health
 curl -s http://127.0.0.1:5004/api/payments/health
 ```
 
-6. Los tres comandos deberian responder `{"service": "...", "status": "ok"}`
+> **¿Por que entrar por Session Manager?** No requiere puertos abiertos ni claves SSH. La EC2 solo necesita el IAM Role con `AmazonSSMManagedInstanceCore`.
 
-> **¿Por que entrar por Session Manager y no por SSH?** Session Manager no requiere puertos abiertos, claves SSH ni IP publica. La instancia solo necesita el IAM Role con `AmazonSSMManagedInstanceCore`. Es la forma recomendada por AWS para acceso administrativo a EC2.
+### 3.3 Revisar las reglas actuales del ALB
+
+1. Ir a **EC2 > Load Balancers**
+2. Seleccionar el ALB (`sorni-ms-*`)
+3. Pestana **Listeners** > click en `HTTP :80` > **Rules**
+4. Deberian verse:
+   - **Priority 100:** `/api/*` -> monolith TG
+   - **Priority 200:** `/*` -> frontend TG
+   - **Default:** fixed-response 404
 
 ---
 
-## Fase 4: Crear reglas path-based del ALB hacia los servicios separados
+## Fase 4: Crear reglas path-based del ALB
 
-El ALB decide a que target group enviar cada request segun la ruta. Hasta ahora, todo `/api/*` va al monolito. Vamos a crear reglas mas especificas que enrute cada responsabilidad a su servicio.
-
-> **¿Que cambia con las reglas path-based?** Sin reglas especificas, una request a `/api/purchases` va al monolito. Con una regla `/api/purchases/*` de prioridad 10 (menor que 100), la misma request va a `purchase-service`. El ALB evalua primero la regla mas especifica y de menor prioridad.
+El ALB decide a que target group enviar cada request segun la ruta. Vamos a separar el trafico hacia los servicios en EC2-services.
 
 ### 4.1 Crear regla para compras
 
-1. Ir a **EC2 > Load Balancers**
-2. Seleccionar el ALB
-3. Pestana **Listeners** > click en el listener HTTP `:80`
-4. Click en **View/edit rules** (o la pestana **Rules**)
-5. Click en **Add rule**
-6. En **Add rule**, configurar:
-   - **Name:** `purchases-to-purchase-service` (opcional)
+1. Ir a **EC2 > Load Balancers** > ALB > **Listeners** > `HTTP :80` > **View/edit rules**
+2. Click **Add rule**
+3. Configurar:
    - **Priority:** `10`
-   - **Conditions > Add condition:**
-     - **Condition type:** Path
-     - **Path:** `/api/purchases`
-   - Click en **Add another path**:
-     - **Path pattern:** `/api/purchases/*`
-   - **Actions > Add action:**
-     - **Action type:** Forward to target group
-     - **Target group:** seleccionar `sorni-Purch-*` (el que termina en `purchase-service`)
-7. Click en **Save** (o **Add**)
-
-> **¿Por que dos patrones de path?** El ALB evalua coincidencia exacta de patrones. `/api/purchaches` coincide con POST a `/api/purchases`, pero un GET a `/api/purchases/pur-abc123` no coincide. Agregando `/api/purchases/*` se cubren ambas variantes: el endpoint raiz y cualquier subruta.
+   - **Condition > Path:** `/api/purchases`
+   - **Additional path:** `/api/purchases/*`
+   - **Action:** Forward to `sorni-Purch-*` (purchase-service)
+4. Guardar
 
 ### 4.2 Crear regla para stock
 
-Repetir el mismo proceso:
-
-1. Click en **Add rule**
+1. Click **Add rule**
 2. Configurar:
    - **Priority:** `20`
    - **Condition > Path:** `/api/stock`
-   - **Additional path pattern:** `/api/stock/*`
+   - **Additional path:** `/api/stock/*`
    - **Action:** Forward to `sorni-Stock-*`
 3. Guardar
 
 ### 4.3 Crear regla para pagos
 
-1. Click en **Add rule**
+1. Click **Add rule**
 2. Configurar:
    - **Priority:** `30`
    - **Condition > Path:** `/api/payments`
-   - **Additional path pattern:** `/api/payments/*`
+   - **Additional path:** `/api/payments/*`
    - **Action:** Forward to `sorni-Payme-*`
 3. Guardar
 
-### 4.4 Verificar el orden final de reglas
+### 4.4 Verificar el orden final
 
-Despues de agregar las tres reglas, la lista del listener HTTP `:80` deberia verse asi:
+| Prioridad | Path | Target group | EC2 |
+|---|---|---|---|
+| 10 | `/api/purchases`, `/api/purchases/*` | purchase | EC2-services |
+| 20 | `/api/stock`, `/api/stock/*` | stock | EC2-services |
+| 30 | `/api/payments`, `/api/payments/*` | payment | EC2-services |
+| 100 | `/api/*` | monolith | EC2-monolith |
+| 200 | `/*` | frontend | EC2-frontend |
+| default | (ninguna) | fixed-response 404 | — |
 
-| Prioridad | Path | Target group |
-|---|---|---|
-| 10 | `/api/purchases`, `/api/purchases/*` | `sorni-Purch-*` |
-| 20 | `/api/stock`, `/api/stock/*` | `sorni-Stock-*` |
-| 30 | `/api/payments`, `/api/payments/*` | `sorni-Payme-*` |
-| 100 | `/api/*` | `sorni-Monol-*` |
-| 200 | `/*` | `sorni-Front-*` |
-| default | (ninguna) | fixed-response 404 |
-
-> **¿Por que las prioridades 10, 20, 30?** El ALB evalua de menor a mayor prioridad. Una request a `/api/purchases/sorni-luma-32` coincide primero con la regla 10 (path `/api/purchases/*`) antes que con la 100 (path `/api/*`). Si una regla de microservicio tiene prioridad mayor que 100, la regla `/api/*` del monolito ganaria y la separacion no funcionaria.
-
-### 4.5 Verificar que los servicios pasan a healthy
+### 4.5 Verificar health
 
 1. Ir a **EC2 > Target Groups**
-2. Abrir `sorni-Purch-*`, `sorni-Stock-*`, `sorni-Payme-*`
-3. En pestana **Targets**, deberian aparecer como **healthy**
-
-Si alguno sigue `unused`, esperar unos segundos y refrescar.
+2. `purchase`, `stock`, `payment` deben pasar de `unused` a **healthy**
 
 ---
 
 ## Fase 5: Probar el flujo con microservicios
 
-Una vez que los target groups estan healthy, probar la compra desde el sitio.
+1. Ir al sitio `http://<AlbDnsName>/`
+2. Comprar un televisor
 
-### 5.1 Comprar un televisor
+**Resultado esperado:** La compra falla. Muestra "stock_service_unavailable".
 
-1. Ir al sitio `http://<DNS-del-ALB>/`
-2. Click en **Comprar ahora** en cualquier televisor
-3. Observar el resultado
+> **¿Por que falla si los target groups estan healthy?** `purchase-service` en EC2-services intenta consultar stock en `127.0.0.1:5999`, pero stock corre en `127.0.0.1:5003`. El puerto 5999 no existe. El servicio esta "vivo" pero tiene una dependencia mal configurada.
 
-**Resultado esperado:** La compra falla. El sitio muestra un mensaje como "No pudimos completar la compra" o "stock_service_unavailable".
+Probar los endpoints directamente:
 
-> **¿Por que falla si los target groups estan healthy?** Esta es la pregunta clave del laboratorio. Los servicios estan vivos y respondiendo health checks, pero el flujo completo no funciona porque `purchase-service` intenta consultar stock en el puerto incorrecto (5999). Un servicio puede estar "vivo" y su target group "healthy", pero el flujo de negocio puede estar roto por una dependencia mal configurada.
-
-### 5.2 Probar los endpoints directamente
-
-Para confirmar que el enrutamiento del ALB funciona pero el flujo interno falla:
-
-1. Probar stock directamente:
-   - `http://<DNS-del-ALB>/api/stock/sorni-luma-32`
-   - Deberia responder con stock disponible y `"backend": "stock-service"`
-2. Probar payment directamente:
-   - `http://<DNS-del-ALB>/api/payments/health`
-   - Deberia responder `"backend": "payment-service"`
-3. Probar purchase directamente (falla esperada):
-   - Enviar POST a `http://<DNS-del-ALB>/api/purchases`
-   - Deberia fallar con error `"stock_service_unavailable"`
-
-> **¿Que nos dice esto?** stock-service y payment-service responden bien. El problema esta en purchase-service cuando intenta hablar con stock-service. El ALB enruta bien, pero la comunicacion interna entre servicios esta rota.
+- `http://<AlbDnsName>/api/stock/sorni-luma-32` — responde OK con `"backend": "stock-service"`
+- `POST http://<AlbDnsName>/api/purchases` — falla con `stock_service_unavailable`
 
 ---
 
 ## Fase 6: Diagnosticar con CloudWatch
 
-Cuando el flujo falla y no es obvio por que, la primer respuesta no es "reiniciar todo". Es mirar logs y metricas.
-
 ### 6.1 Revisar logs de purchase-service
 
-1. Ir a **CloudWatch > Log groups**
-2. Buscar el log group: `/sorny/microservices-site/site`
-3. Abrirlo
-4. Buscar el log stream `purchase-service`
-5. Leer los mensajes mas recientes
-6. Buscar el error al intentar reservar stock
-
-El log deberia mostrar algo como:
+1. Ir a **CloudWatch > Log groups > `/sorny/microservices-site/site`**
+2. Abrir el log stream `purchase-service`
+3. Buscar el error:
 
 ```
 stock reservation failed sku=sorni-luma-32 stock_service_url=http://127.0.0.1:5999/api/stock
 Connection refused
 ```
 
-> **¿Que muestra este log?** `purchase-service` intento consultar stock en `127.0.0.1:5999` y recibio "Connection refused". Ese puerto no existe en la EC2. El servicio de stock real corre en puerto 5003. El error esta en la URL configurada, no en stock-service.
-
 ### 6.2 Confirmar que stock-service no recibio la llamada
 
-1. En el mismo log group, abrir el log stream `stock-service`
-2. No deberian verse registros de reserva de stock para esa compra
-
-Si `stock-service` nunca recibio la request, es porque `purchase-service` nunca llego a el.
+1. En el mismo log group, abrir `stock-service`
+2. No deberian verse registros de reserva para esa compra
 
 ### 6.3 Revisar metricas del ALB
 
-1. Ir a **EC2 > Target Groups**
-2. Seleccionar `sorni-Purch-*` (purchase-service)
-3. Ir a pestana **Monitoring**
-4. Revisar `HTTPCode_Target_5XX_Count`
-5. Deberia haber picos de 503 (Service Unavailable) en los momentos en que se intento comprar
-
-> **¿Por que 503 y no 500?** `purchase-service` devuelve 503 cuando no puede contactar a stock-service. Es intencional: 503 indica "el servicio esta funcionando pero no puede completar la request porque un recurso del que depende no responde". Es distinto de un 500 (error interno del servicio).
+1. Ir a **EC2 > Target Groups** > `sorni-Purch-*` > **Monitoring**
+2. Revisar `HTTPCode_Target_5XX_Count` — debe haber picos de 503
 
 ---
 
-## Fase 7: Corregir la configuracion y validar
+## Fase 7: Corregir y validar
 
-El diagnostico muestra la causa: `STOCK_SERVICE_URL` apunta al puerto 5999, cuando stock-service corre en puerto 5003.
-
-### 7.1 Entrar a la EC2 por Session Manager
+### 7.1 Entrar a la EC2-services por Session Manager
 
 1. Ir a **EC2 > Instances**
-2. Seleccionar la instancia del stack
+2. Seleccionar `sorny-services-*` (usar `ServicesNodeId`)
 3. **Connect > Session Manager > Connect**
 
 ### 7.2 Inspeccionar la configuracion actual
@@ -455,28 +371,22 @@ El diagnostico muestra la causa: `STOCK_SERVICE_URL` apunta al puerto 5999, cuan
 sudo systemctl cat sorni-purchase
 ```
 
-Esto muestra el archivo de servicio systemd. La variable `Environment` deberia mostrar:
+Debe mostrar `STOCK_SERVICE_URL=http://127.0.0.1:5999/api/stock`.
 
-```
-Environment=STOCK_SERVICE_URL=http://127.0.0.1:5999/api/stock
-```
-
-### 7.3 Corregir la URL del servicio
+### 7.3 Corregir la URL
 
 ```bash
 sudo systemctl edit sorni-purchase
 ```
 
-Esto abre un editor en la terminal. Agregar:
+Agregar en el editor:
 
 ```
 [Service]
 Environment=STOCK_SERVICE_URL=http://127.0.0.1:5003/api/stock
 ```
 
-> **¿Por que usar `systemctl edit` y no modificar el archivo directamente?** `systemctl edit` crea un fragmento de configuracion que sobrescribe la variable del servicio sin tocar el archivo original. Si se actualiza el stack de CloudFormation, el archivo original se reescribe pero el fragmento sobrevive. Ademas, es la forma correcta de hacer overrides en systemd.
-
-Guardar y salir del editor.
+Guardar y salir.
 
 ### 7.4 Recargar y reiniciar
 
@@ -486,81 +396,44 @@ sudo systemctl restart sorni-purchase
 sudo systemctl status sorni-purchase --no-pager
 ```
 
-Verificar que el servicio quedo `active (running)`.
-
-### 7.5 Validar la variable corregida
+### 7.5 Validar la correccion
 
 ```bash
 sudo systemctl show sorni-purchase -p Environment
 ```
 
-Deberia mostrar:
-
-```
-Environment=STOCK_SERVICE_URL=http://127.0.0.1:5003/api/stock PAYMENT_SERVICE_URL=http://127.0.0.1:5004/api/payments
-```
+Debe mostrar `STOCK_SERVICE_URL=http://127.0.0.1:5003/api/stock`.
 
 ### 7.6 Probar la compra nuevamente
 
-1. Volver al sitio `http://<DNS-del-ALB>/`
+1. Volver al sitio
 2. Comprar un televisor
-3. El flujo deberia completarse: mostrar "Compra iniciada" con un enlace a **Ir al checkout**
+3. Completar el formulario de contacto
+4. La compra debe completarse exitosamente
 
-> **¿Por que ahora funciona?** `purchase-service` ahora consulta stock en el puerto correcto (5003). `stock-service` responde con el producto y descuenta inventario. `purchase-service` luego pide un enlace de pago a `payment-service`. `payment-service` lo genera. La compra se completa.
-
-### 7.7 Confirmar que el backend cambio
-
-Hacer una compra y revisar la respuesta:
-
-```
-http://<DNS-del-ALB>/api/purchases
-```
-
-La respuesta JSON ahora muestra `"backend": "purchase-service"`, no `"monolithic-backend"`. La request paso por purchase-service, no por el monolito.
+La respuesta de la API ahora muestra `"backend": "purchase-service"`, confirmando que paso por el servicio separado en EC2-services.
 
 ---
 
 ## Limpieza
 
-> **Atencion:** Si se continua con la siguiente clase, confirmar con el instructor antes de limpiar el entorno.
-
-### Eliminar stack del laboratorio
-
 1. Ir a **CloudFormation > Stacks**
-2. Seleccionar `sorny-microservices-sorny-stack`
+2. Seleccionar `sorny-microservices-stack`
 3. Click **Delete** > confirmar
-4. Esperar a que el stack desaparezca (~3-5 minutos)
+4. Esperar a que desaparezca (~5 minutos)
 
-### NO eliminar (recursos persistentes del curso)
-
-- VPC, subnets, Internet Gateway, route tables
-- IAM Role SSM + Instance Profile (reutilizables en otros laboratorios)
+**NO eliminar** recursos persistentes del curso: VPC, subnets, Internet Gateway, route tables, IAM roles.
 
 ---
 
 ## Criterios de exito
 
-- El sitio Sorny responde con los 6 televisores en `http://<DNS-del-ALB>/`
-- La compra monolitica funciona (Fase 2)
+- El sitio Sorny responde con los 6 televisores en `http://<AlbDnsName>/`
+- La compra monolitica funciona con formulario de contacto y pantalla de exito
 - Los target groups de frontend y monolith estan healthy
 - Los target groups de purchase, stock y payment pasan a healthy al crear reglas del ALB
-- Sin las reglas path-based, la compra falla con error `stock_service_unavailable`
+- Sin las reglas, la compra falla con `stock_service_unavailable`
 - Los logs de CloudWatch muestran el error de conexion a puerto 5999
 - Corrigiendo `STOCK_SERVICE_URL` al puerto 5003, la compra funciona
 - La respuesta de la API muestra `"backend": "purchase-service"` despues de la correccion
 - Se puede explicar por que un servicio puede estar "healthy" pero el flujo completo falla
-
----
-
-## Proximo paso
-
-Una vez completado este laboratorio, aparece una pregunta para el siguiente modulo: "si cada servicio estuviera en su propia EC2 con su propio ALB, que cambiaria en la forma de diagnosticar fallas?".
-
-Tambien quedan temas pendientes para produccion real:
-
-- HTTPS
-- Base de datos persistente (hoy el estado vive en memoria)
-- Transacciones entre servicios (consistencia compra/stock/pago)
-- Timeouts, retries y circuit breakers
-- Despliegue automatizado
-- Trazabilidad con correlation IDs

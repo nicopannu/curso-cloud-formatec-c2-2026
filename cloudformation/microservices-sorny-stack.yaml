@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Sorny commerce microservices stack - ALB, frontend, monolithic backend, purchase, stock and payment services
+Description: "Sorny commerce microservices - multi-EC2: frontend, monolith, purchase+stock+payment"
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -14,6 +14,7 @@ Metadata:
           default: EC2
         Parameters:
           - InstanceType
+          - SsmInstanceProfileName
           - LatestAmiId
       - Label:
           default: Aplicacion
@@ -28,21 +29,25 @@ Metadata:
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
-    Description: VPC de la aplicacion
+    Description: VPC del laboratorio
 
   SubnetAId:
     Type: AWS::EC2::Subnet::Id
-    Description: Subnet publica para la EC2 y el ALB, preferentemente us-east-1a
+    Description: Subnet publica para EC2s (us-east-1a)
 
   SubnetBId:
     Type: AWS::EC2::Subnet::Id
-    Description: Segunda subnet publica para el ALB, en otra Availability Zone
+    Description: Segunda subnet publica para ALB (us-east-1b)
 
   InstanceType:
     Type: String
     Default: t3.micro
     AllowedValues: [t3.micro, t3.small]
-    Description: Tipo de instancia EC2
+    Description: Tipo de instancia
+
+  SsmInstanceProfileName:
+    Type: String
+    Description: Instance Profile existente con SSM y CloudWatch permisos
 
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -61,35 +66,34 @@ Parameters:
   PurchaseStockServiceUrl:
     Type: String
     Default: http://127.0.0.1:5999/api/stock
-    Description: URL base que usa purchase-service para consultar stock.
+    Description: URL rota para purchase-service (5999 no existe)
 
   PurchasePaymentServiceUrl:
     Type: String
     Default: http://127.0.0.1:5004/api/payments
-    Description: URL base que usa purchase-service para generar enlaces de pago.
+    Description: URL correcta de payment-service
 
   CreateBaseAlbRules:
     Type: String
     Default: "true"
     AllowedValues: ["true", "false"]
-    Description: Crea reglas base /api/* -> monolith-backend y /* -> frontend
 
   CreateMicroserviceAlbRules:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
-    Description: Crea reglas /api/purchases/*, /api/stock/* y /api/payments/* hacia servicios chicos.
 
 Conditions:
   ShouldCreateBaseRules: !Equals [!Ref CreateBaseAlbRules, "true"]
   ShouldCreateMicroserviceRules: !Equals [!Ref CreateMicroserviceAlbRules, "true"]
 
 Resources:
+  # ALB
   AlbSg:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: !Sub ${ProjectName}-alb-sg-${Environment}
-      GroupDescription: SG ALB publico para microservicios Sorny
+      GroupDescription: SG ALB Sorny - HTTP publico
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -98,11 +102,8 @@ Resources:
           CidrIp: 0.0.0.0/0
           Description: HTTP publico
       SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 5000
-          ToPort: 5004
+        - IpProtocol: -1
           CidrIp: 0.0.0.0/0
-          Description: Trafico saliente hacia servicios Sorny
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-alb-sg-${Environment}
@@ -116,11 +117,8 @@ Resources:
       Type: application
       Scheme: internet-facing
       IpAddressType: ipv4
-      SecurityGroups:
-        - !Ref AlbSg
-      Subnets:
-        - !Ref SubnetAId
-        - !Ref SubnetBId
+      SecurityGroups: [!Ref AlbSg]
+      Subnets: [!Ref SubnetAId, !Ref SubnetBId]
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-ms-alb-${Environment}
@@ -140,339 +138,405 @@ Resources:
             ContentType: text/plain
             MessageBody: Sorny route not configured
 
+  # Logs
   SiteLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /${ProjectName}/${Environment}/site
       RetentionInDays: 7
 
-  SiteSg:
+  # SG Frontend
+  FrontendSg:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub ${ProjectName}-site-sg-${Environment}
-      GroupDescription: SG sitio Sorny - trafico desde ALB
+      GroupName: !Sub ${ProjectName}-frontend-sg-${Environment}
+      GroupDescription: SG frontend Sorny - trafico desde ALB
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 5000
-          ToPort: 5004
+          ToPort: 5000
           SourceSecurityGroupId: !Ref AlbSg
-          Description: Trafico HTTP desde ALB hacia apps
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-site-sg-${Environment}
+          Value: !Sub ${ProjectName}-frontend-sg-${Environment}
         - Key: Lab
           Value: m2-c3-sorny-microservices
 
-  SiteNode:
+  # SG Monolith
+  MonolithSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-monolith-sg-${Environment}
+      GroupDescription: SG monolith Sorny - ALB + services
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5001
+          ToPort: 5001
+          SourceSecurityGroupId: !Ref AlbSg
+        - IpProtocol: tcp
+          FromPort: 5005
+          ToPort: 5005
+          SourceSecurityGroupId: !Ref AlbSg
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-monolith-sg-${Environment}
+        - Key: Lab
+          Value: m2-c3-sorny-microservices
+
+  # SG Services
+  ServicesSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-services-sg-${Environment}
+      GroupDescription: SG purchase+stock+payment Sorny
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5002
+          ToPort: 5004
+          SourceSecurityGroupId: !Ref AlbSg
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-services-sg-${Environment}
+        - Key: Lab
+          Value: m2-c3-sorny-microservices
+
+  # EC2: FRONTEND
+  FrontendNode:
     Type: AWS::EC2::Instance
     Properties:
       ImageId: !Ref LatestAmiId
       InstanceType: !Ref InstanceType
-      IamInstanceProfile: sorni-microservices-lab-ec2-profile
+      IamInstanceProfile: !Ref SsmInstanceProfileName
       NetworkInterfaces:
         - DeviceIndex: 0
           AssociatePublicIpAddress: true
           SubnetId: !Ref SubnetAId
-          GroupSet:
-            - !Ref SiteSg
+          GroupSet: [!Ref FrontendSg]
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -euo pipefail
           exec > >(tee /var/log/user-data.log) 2>&1
-
-          dnf update -y
-          dnf install -y python3 python3-pip amazon-cloudwatch-agent
-          pip3 install flask requests gunicorn
-
-          mkdir -p /opt/sorni/{frontend,monolith,purchase,stock,payment}
-          mkdir -p /var/log/sorni
-
+          dnf update -y && dnf install -y python3 python3-pip amazon-cloudwatch-agent
+          pip3 install flask gunicorn
+          mkdir -p /opt/sorni/frontend /var/log/sorni
           cat > /opt/sorni/frontend/app.py << 'PYAPP'
           from flask import Flask, Response
-
           app = Flask(__name__)
-
           @app.get("/")
           def index():
-              html = """
-              <!doctype html>
-              <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sorny Argentina</title><style>
-              *{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#202327;font-family:Arial,Helvetica,sans-serif}.w{max-width:1180px;margin:auto;padding:0 24px}header{background:#fff;border-bottom:1px solid #dfe3e8}.top{height:34px;background:#111;color:#fff;font-size:12px}.top .w{height:34px;display:flex;align-items:center;justify-content:flex-end;gap:20px}.nav{height:70px;display:flex;align-items:center;justify-content:space-between}.brand{font-size:28px;font-weight:700;letter-spacing:.01em;color:#111}.links{display:flex;gap:24px;color:#4b5563;font-size:14px}.cart{border:1px solid #cfd6de;border-radius:4px;padding:9px 12px;background:#fff;color:#111}.hero{background:#fff}.hero .w{padding-top:40px;padding-bottom:34px}.hero h1{font-size:clamp(34px,5vw,54px);font-weight:500;line-height:1.05;margin:0 0 14px}.hero p,.muted{color:#5d6570;line-height:1.5}.hero p{max-width:650px;font-size:18px}.btn{border:0;border-radius:3px;background:#2d75c7;color:#fff;padding:11px 16px;font-weight:700;text-decoration:none;cursor:pointer}.intro{padding:30px 24px 18px}.intro h2{font-size:30px;font-weight:500;margin:0 0 8px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;padding:0 24px 22px}.card{background:#fff;border:1px solid #dde3ea;border-radius:4px;overflow:hidden}.vis{height:210px;background:linear-gradient(#fbfcfd,#eef2f6);display:grid;place-items:center;position:relative}.size{position:absolute;top:14px;left:14px;color:#5f6873;font-size:13px}.tv{width:82%;max-width:300px;aspect-ratio:16/9;border:7px solid #15181d;border-radius:3px;background:#243746;box-shadow:0 18px 30px #cfd7df;position:relative}.tv:after{content:"";position:absolute;left:35%;right:35%;bottom:-20px;height:17px;background:#292d33}.tv:before{content:"";position:absolute;left:25%;right:25%;bottom:-26px;height:6px;background:#292d33;border-radius:10px}.t1{background:linear-gradient(135deg,#182638,#2d75c7 55%,#edf4ff)}.t2{background:linear-gradient(135deg,#05070a,#6b7280 52%,#f4f4f5)}.t3{background:linear-gradient(135deg,#1e1b4b,#4c1d95 50%,#f59e0b)}.t4{background:linear-gradient(135deg,#022c22,#14b8a6 55%,#ccfbf1)}.t5{background:linear-gradient(135deg,#111827,#b91c1c 52%,#fde68a)}.t6{background:linear-gradient(135deg,#0c0a09,#57534e 50%,#fafaf9)}.body{padding:18px;display:grid;gap:9px}.model{color:#6b7280;font-size:12px;text-transform:uppercase}.body h3{margin:0;font-weight:500}.price{font-size:22px;font-weight:700}.card button{width:100%}.status{margin:0 auto 38px;padding:16px 24px;background:#fff;border:1px solid #dde3ea;border-radius:4px;display:flex;justify-content:space-between;gap:12px}
-              </style></head><body><header><div class="top"><div class="w"><span>Soporte</span><span>Buscar un distribuidor</span></div></div><nav class="nav w"><div class="brand">Sorny</div><div class="links"><span>Productos</span><span>Televisores</span><span>Audio</span></div><button class="cart" id="cart">Mi compra</button></nav></header><main>
-              <section class="hero"><div class="w"><h1>Televisores Sorny</h1><p>Imagen clara, sonido envolvente y pantallas pensadas para disfrutar películas, deportes y videojuegos en casa.</p><a class="btn" href="#modelos">Ver modelos</a></div></section>
-              <section class="intro w" id="modelos"><h2>Modelos destacados</h2><p class="muted">Elegí por tamaño, resolución y experiencia de uso.</p></section><section class="grid w" id="products"></section><section class="status w" id="result"><span class="muted">Seleccioná un televisor para iniciar la compra.</span></section></main>
+              return Response("""<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sorny Argentina</title><style>
+              *{box-sizing:border-box;margin:0}body{background:#f4f6fa;color:#1a1f2b;font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}
+              .w{max-width:1180px;margin:auto;padding:0 20px}
+              header{background:#fff;border-bottom:1px solid #e4e9f0;position:sticky;top:0;z-index:10}
+              .hdr{height:68px;display:flex;align-items:center;justify-content:space-between}
+              .logo{display:flex;align-items:center;gap:10px}
+              .logo svg{width:90px;height:28px}
+              .nav{display:flex;gap:28px;font-size:14px;color:#4a5568}
+              .hero{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);color:#fff;padding:56px 20px 48px;text-align:center}
+              .hero h1{font-size:clamp(32px,5vw,52px);font-weight:600;letter-spacing:-.02em;margin-bottom:12px}
+              .hero p{font-size:18px;color:#b0c4de;max-width:600px;margin:0 auto 24px;line-height:1.6}
+              .btn{display:inline-block;border:0;border-radius:6px;padding:12px 28px;font-weight:600;cursor:pointer;text-decoration:none;font-size:15px}
+              .btn-p{background:#2563eb;color:#fff}
+              .btn-p:hover{background:#1d4ed8}
+              .sec{padding:32px 20px}
+              .sec h2{font-size:28px;font-weight:600;margin-bottom:6px}
+              .sec p{color:#64748b}
+              .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;padding:20px 0}
+              .card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;transition:box-shadow .2s}
+              .card:hover{box-shadow:0 8px 25px rgba(0,0,0,.08)}
+              .tvvis{height:200px;display:grid;place-items:center;position:relative;background:#f8fafc}
+              .tvvis .sz{position:absolute;top:14px;left:14px;font-size:12px;color:#94a3b8;font-weight:600}
+              .tvs{width:80%;max-width:260px;aspect-ratio:16/9;border:6px solid #1e293b;border-radius:4px;position:relative;box-shadow:0 12px 24px rgba(0,0,0,.12)}
+              .tvs:after{content:"";position:absolute;left:38%;right:38%;bottom:-18px;height:14px;background:#334155;border-radius:0 0 4px 4px}
+              .t1{background:linear-gradient(135deg,#1e3a5f,#60a5fa 55%,#eff6ff)}
+              .t2{background:linear-gradient(135deg,#1e293b,#94a3b8 50%,#f8fafc)}
+              .t3{background:linear-gradient(135deg,#312e81,#a78bfa 50%,#ede9fe)}
+              .t4{background:linear-gradient(135deg,#065f46,#34d399 50%,#d1fae5)}
+              .t5{background:linear-gradient(135deg,#7f1d1d,#f87171 50%,#fee2e2)}
+              .t6{background:linear-gradient(135deg,#292524,#a8a29e 50%,#fafaf9)}
+              .body{padding:18px;display:grid;gap:8px}
+              .sk{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em}
+              .body h3{font-size:17px;font-weight:600}
+              .desc{font-size:13px;color:#64748b;line-height:1.4}
+              .prc{font-size:24px;font-weight:700;color:#0f172a;padding:4px 0}
+              .card .btn-p{width:100%;text-align:center;display:block;padding:11px;font-size:14px}
+              .overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.7);z-index:100;align-items:center;justify-content:center;padding:20px}
+              .overlay.s{display:flex}
+              .modal{background:#fff;border-radius:14px;padding:36px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto}
+              .modal h2{font-size:24px;margin-bottom:16px}
+              .modal .prc{font-size:28px;margin:8px 0}
+              .modal p{color:#475569;margin-bottom:16px;line-height:1.5}
+              .modal label{font-size:13px;font-weight:600;color:#374151;display:block;margin-top:12px}
+              .modal input{width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:15px;margin-top:4px;font-family:inherit}
+              .modal input:focus{outline:2px solid #2563eb;outline-offset:2px;border-color:transparent}
+              .modal .btn-p{width:100%;padding:13px;margin-top:18px;font-size:16px}
+              .modal .btn-s{padding:8px 20px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:14px;margin-top:12px;display:inline-block}
+              .modal .btn-s:hover{background:#f9fafb}
+              .suc{text-align:center;padding:20px 0}
+              .suc .ico{font-size:56px;margin-bottom:12px}
+              .suc h2{color:#065f46}
+              .suc p{font-size:16px;color:#475569;margin-bottom:12px}
+              .sp{display:inline-block;width:16px;height:16px;border:2px solid #e2e8f0;border-top-color:#2563eb;border-radius:50%;animation:sp .6s linear infinite}
+              @keyframes sp{to{transform:rotate(360deg)}}
+              .st{text-align:center;padding:14px;border-radius:8px;margin-bottom:16px;font-size:14px}
+              .st-e{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+              .st-s{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+              </style></head><body>
+              <header><div class="w hdr">
+                <div class="logo">
+                  <svg viewBox="0 0 90 28" xmlns="http://www.w3.org/2000/svg"><text x="0" y="22" font-family="Inter,Arial,Helvetica,sans-serif" font-size="22" font-weight="800" letter-spacing=".01em" fill="#0f172a">Sorny</text><rect x="80" y="0" width="3" height="22" rx="1" fill="#2563eb"/></svg>
+                </div>
+                <div class="nav"><span>Televisores</span><span>Audio</span><span>Soporte</span></div>
+              </div></header>
+              <section class="hero"><div class="w"><h1>Televisores Sorny</h1><p>Imagen clara, sonido envolvente y pantallas para disfrutar películas, deportes y videojuegos en casa.</p><a class="btn btn-p" href="#tienda">Ver modelos</a></div></section>
+              <section class="sec w" id="tienda"><h2>Modelos destacados</h2><p class="muted">Elegí por tamaño, resolución y experiencia de uso.</p><div class="grid" id="gr"></div></section>
+              <div id="res" class="st w" style="display:none"></div>
+              <div id="ov" class="overlay"><div class="modal" id="md"></div></div>
               <script>
-              const sizes={"sorni-luma-32":"32","sorni-braviax-43":"43","sorni-croma-50":"50","sorni-trinitronix-55":"55","sorni-cinepro-65":"65","sorni-mega-75":"75"};
-              async function loadProducts(){const r=await fetch("/api/products"),d=await r.json(),g=document.getElementById("products");g.innerHTML="";d.items.forEach((i,n)=>{const c=document.createElement("article");c.className="card";c.innerHTML="<div class='vis'><span class='size'>"+(sizes[i.sku]||"TV")+"&quot;</span><div class='tv t"+((n%6)+1)+"'></div></div><div class='body'><div class='model'>"+i.sku.replaceAll("sorni-","").replaceAll("-"," ")+"</div><h3>"+i.name+"</h3><p class='muted'>"+i.description+"</p><div class='price'>$"+i.price.toLocaleString("es-AR")+"</div><button class='btn' data-sku='"+i.sku+"'>Comprar ahora</button></div>";g.appendChild(c)});g.querySelectorAll("button").forEach(b=>b.onclick=()=>buy(b.dataset.sku,b))}
-              async function buy(sku,b){const res=document.getElementById("result"),cart=document.getElementById("cart");b.disabled=true;cart.textContent="Procesando";res.innerHTML="<span class='muted'>Consultando disponibilidad y preparando tu checkout...</span>";try{const r=await fetch("/api/purchases",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sku:sku,customer:"cliente@sorny.local"})}),d=await r.json();if(!r.ok){res.innerHTML="<b>No pudimos completar la compra</b><span class='muted'>"+(d.error||"Intentá nuevamente en unos minutos")+"</span>";return}cart.textContent=d.purchase_id;res.innerHTML="<div><b>Compra iniciada: "+d.purchase_id+"</b><br><span class='muted'>Tu enlace de pago está listo.</span></div><a class='btn' href='"+d.payment_url+"'>Ir al checkout</a>"}catch(e){res.innerHTML="<b>No pudimos conectar con la tienda</b><span class='muted'>Intentá nuevamente en unos minutos</span>"}finally{b.disabled=false}}
-              loadProducts();
-              </script></body>
-              </html>
-              """
-              return Response(html, mimetype="text/html")
-
-          @app.get("/checkout")
-          def checkout():
-              html = """
-              <!doctype html>
-              <html lang="es">
-              <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sorny Checkout</title><style>
-              body{font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;background:#f4f7fb;color:#172026;margin:0}main{max-width:720px;margin:auto;padding:32px 20px}.p{background:white;border:1px solid #d9e1ea;border-radius:8px;padding:20px}p{color:#5d6875}input{width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:7px;margin:6px 0 12px}button{width:100%;border:0;border-radius:7px;padding:12px;background:#0f766e;color:white;font-weight:900}a{color:#0f766e;font-weight:900}
-              </style></head><body><main><section class="p"><h1>Checkout Sorny</h1><p>Completá tus datos para finalizar la compra.</p><input placeholder="Nombre y apellido"><input placeholder="Número de tarjeta"><input placeholder="Vencimiento"><button type="button">Pagar ahora</button><p><a href="/">Volver a la tienda</a></p></section></main>
-              </body>
-              </html>
-              """
-              return Response(html, mimetype="text/html")
-
+              const S={"sorni-luma-32":"32 LED","sorni-braviax-43":"43 Smart","sorni-croma-50":"50 4K","sorni-trinitronix-55":"55 4K","sorni-cinepro-65":"65 4K","sorni-mega-75":"75 Cine"};
+              async function load(){const r=await fetch("/api/products"),d=await r.json(),g=document.getElementById("gr");g.innerHTML="";d.items.forEach((i,n)=>{const c=document.createElement("div");c.className="card";c.innerHTML='<div class="tvvis"><span class="sz">'+S[i.sku]+'</span><div class="tvs t'+((n%6)+1)+'"></div></div><div class="body"><div class="sk">'+i.sku.replace("sorni-","").replaceAll("-"," ")+'</div><h3>'+i.name+'</h3><div class="desc">'+i.description+'</div><div class="prc">$'+i.price.toLocaleString("es-AR")+'</div><button class="btn btn-p" data-sk="'+i.sku+'" data-nm="'+i.name+'" data-pr="'+i.price+'">Comprar ahora</button></div>';g.appendChild(c)});g.querySelectorAll("button").forEach(b=>b.onclick=()=>buy(b.dataset.sk,b.dataset.nm,b.dataset.pr))}
+              function show(v){v?document.getElementById("ov").classList.add("s"):document.getElementById("ov").classList.remove("s")}
+              function msg(t,c){const r=document.getElementById("res");r.textContent=t;r.className="st w "+(c||"st-e");r.style.display="block";setTimeout(()=>{r.style.display="none"},8e3)}
+              function fm(p,m){document.getElementById("md").innerHTML='<h2>Completá tu compra</h2><p style="margin-bottom:20px"><strong>'+m+'</strong></p><div class="prc">$'+Number(p).toLocaleString("es-AR")+'</div><label>Nombre completo</label><input id="fn"><label>Email</label><input id="em" type="email"><label>Teléfono</label><input id="ph" type="tel"><label>Dirección de envío</label><input id="ad"><button class="btn btn-p" id="cf">Confirmar compra</button><button class="btn-s" onclick="show(false)">Cancelar</button>';show(true);document.getElementById("cf").onclick=cf}
+              async function cf(){const b=document.getElementById("cf");b.disabled=true;b.textContent="Procesando...";try{const r=await fetch("/api/delivery",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:document.getElementById("fn").value,email:document.getElementById("em").value,phone:document.getElementById("ph").value,address:document.getElementById("ad").value,purchase_id:window._pid,product_name:window._pnm})}),d=await r.json();if(!r.ok){msg("Error al procesar: "+(d.error||"intentá nuevamente"));b.disabled=false;b.textContent="Confirmar compra";return}show(false);document.getElementById("md").innerHTML='<div class="suc"><div class="ico">✅</div><h2>¡Compra procesada!</h2><p>Te vamos a contactar a <strong>'+(document.getElementById("em").value||"tu email")+'</strong> para coordinar el envío de tu <strong>'+window._pnm+'</strong>.</p><p>Referencia: '+window._pid+'</p><button class="btn btn-p" onclick="location.reload()">Volver a la tienda</button></div>';show(true)}catch(e){msg("Error de conexión: intentá nuevamente");b.disabled=false;b.textContent="Confirmar compra"}}
+              async function buy(s,n,p){const r=document.getElementById("res");r.style.display="none";document.getElementById("md").innerHTML='<div style="text-align:center;padding:30px"><div class="sp"></div><p style="margin-top:16px;color:#64748b">Procesando compra...</p></div>';show(true);try{const q=await fetch("/api/purchases",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sku:s,customer:"cliente@sorny.local"})}),d=await q.json();if(!q.ok){show(false);msg("No pudimos completar la compra: "+(d.error||"intentá nuevamente"));return}window._pid=d.purchase_id;window._pnm=n;fm(p,n)}catch(e){show(false);msg("Error de conexión al servidor")}}
+              load();
+              </script></body></html>""", mimetype="text/html")
           @app.get("/health")
-          def health():
-              return {"service": "frontend", "status": "ok"}
+          def h(): return {"service":"frontend","status":"ok"}
           PYAPP
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
+          {"logs":{"logs_collected":{"files":{"collect_list":[{"file_path":"/var/log/sorni/frontend.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"frontend"}]}}}}
+          CWCONFIG
+          cat > /etc/systemd/system/sorni-frontend.service << 'SRV'
+          [Unit] Description=Sorny frontend After=network-online.target Wants=network-online.target
+          [Service] WorkingDirectory=/opt/sorni/frontend
+          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 app:app
+          Restart=always RestartSec=3
+          StandardOutput=append:/var/log/sorni/frontend.log StandardError=append:/var/log/sorni/frontend.log
+          [Install] WantedBy=multi-user.target
+          SRV
+          systemctl daemon-reload && systemctl enable sorni-frontend && systemctl start sorni-frontend
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-frontend-${Environment}
+        - Key: Lab
+          Value: m2-c3-sorny-microservices
 
+  # EC2: MONOLITH + DELIVERY
+  MonolithNode:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfileName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetAId
+          GroupSet: [!Ref MonolithSg]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/user-data.log) 2>&1
+          dnf update -y && dnf install -y python3 python3-pip amazon-cloudwatch-agent
+          pip3 install flask gunicorn
+          mkdir -p /opt/sorni/{monolith,delivery} /var/log/sorni
           cat > /opt/sorni/monolith/app.py << 'PYAPP'
           import uuid
           from flask import Flask, jsonify, request
-
           app = Flask(__name__)
-
-          PRODUCTS = [
-              {"sku": "sorni-luma-32", "name": "Sorny Luma 32", "description": "LED 32 pulgadas para habitacion o cocina", "price": 189999},
-              {"sku": "sorni-braviax-43", "name": "Sorny Braviax 43", "description": "Smart TV 43 pulgadas Full HD", "price": 319999},
-              {"sku": "sorni-croma-50", "name": "Sorny Croma 50", "description": "4K 50 pulgadas con HDR basico", "price": 489999},
-              {"sku": "sorni-trinitronix-55", "name": "Sorny Trinitronix 55", "description": "4K 55 pulgadas, panel rapido para deportes", "price": 629999},
-              {"sku": "sorni-cinepro-65", "name": "Sorny CinePro 65", "description": "4K 65 pulgadas para living grande", "price": 899999},
-              {"sku": "sorni-mega-75", "name": "Sorny Mega 75", "description": "75 pulgadas, experiencia cine en casa", "price": 1299999},
-          ]
-          STOCK = {item["sku"]: 3 for item in PRODUCTS}
-          PURCHASES = {}
-
-          def find_product(sku):
-              return next((item for item in PRODUCTS if item["sku"] == sku), None)
-
+          PRODUCTS=[{"sku":"sorni-luma-32","name":"Sorny Luma 32","description":"LED 32 pulgadas para habitacion o cocina","price":189999},{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","description":"Smart TV 43 pulgadas Full HD","price":319999},{"sku":"sorni-croma-50","name":"Sorny Croma 50","description":"4K 50 pulgadas con HDR basico","price":489999},{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","description":"4K 55 pulgadas, panel rapido para deportes","price":629999},{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","description":"4K 65 pulgadas para living grande","price":899999},{"sku":"sorni-mega-75","name":"Sorny Mega 75","description":"75 pulgadas, experiencia cine en casa","price":1299999}]
+          STOCK={i["sku"]:3 for i in PRODUCTS}
+          PURCHASES={}
+          def fp(s): return next((i for i in PRODUCTS if i["sku"]==s),None)
           @app.get("/api/health")
-          def health():
-              return jsonify({"service": "monolithic-backend", "status": "ok"})
-
+          def h(): return jsonify({"service":"monolithic-backend","status":"ok"})
           @app.get("/api/products")
-          def products():
-              return jsonify({"backend": "monolithic-backend", "items": PRODUCTS})
-
+          def products(): return jsonify({"backend":"monolithic-backend","items":PRODUCTS})
           @app.post("/api/purchases")
-          def create_purchase():
-              payload = request.get_json(silent=True) or {}
-              sku = payload.get("sku")
-              product = find_product(sku)
-              if not product:
-                  return jsonify({"error": "unknown_sku"}), 404
-              if STOCK.get(sku, 0) <= 0:
-                  return jsonify({"error": "out_of_stock"}), 409
-              STOCK[sku] -= 1
-              purchase_id = "pur-" + uuid.uuid4().hex[:8]
-              payment_url = "/checkout?purchase_id=" + purchase_id + "&amount=" + str(product["price"])
-              PURCHASES[purchase_id] = {"purchase_id": purchase_id, "sku": sku, "status": "payment_pending", "payment_url": payment_url}
-              app.logger.info("monolith purchase created purchase_id=%s sku=%s", purchase_id, sku)
-              return jsonify({"backend": "monolithic-backend", "purchase_id": purchase_id, "sku": sku, "status": "payment_pending", "payment_url": payment_url})
-
-          @app.get("/api/purchases/<purchase_id>")
-          def get_purchase(purchase_id):
-              purchase = PURCHASES.get(purchase_id)
-              if not purchase:
-                  return jsonify({"error": "not_found"}), 404
-              return jsonify(purchase)
+          def create():
+              p=request.get_json(silent=True) or {}; s=p.get("sku"); pr=fp(s)
+              if not pr: return jsonify({"error":"unknown_sku"}),404
+              if STOCK.get(s,0)<=0: return jsonify({"error":"out_of_stock"}),409
+              STOCK[s]-=1; pid="pur-"+uuid.uuid4().hex[:8]; purl="/checkout?pid="+pid+"&amount="+str(pr["price"])
+              PURCHASES[pid]={"purchase_id":pid,"sku":s,"status":"payment_pending","payment_url":purl}
+              app.logger.info("monolith purchase created pid=%s sku=%s",pid,s)
+              return jsonify({"backend":"monolithic-backend","purchase_id":pid,"sku":s,"status":"payment_pending","payment_url":purl})
+          @app.get("/api/purchases/<pid>")
+          def get(pid):
+              pu=PURCHASES.get(pid)
+              if not pu: return jsonify({"error":"not_found"}),404
+              return jsonify(pu)
+          @app.post("/api/delivery")
+          def delivery():
+              p=request.get_json(silent=True) or {}
+              app.logger.info("delivery request name=%s email=%s product=%s",p.get("name"),p.get("email"),p.get("product_name"))
+              return jsonify({"status":"delivery_pending","message":"Te contactaremos para coordinar el envio","backend":"monolithic-backend"})
           PYAPP
-
-          cat > /opt/sorni/purchase/app.py << 'PYAPP'
-          import os
-          import uuid
-          import requests
+          cat > /opt/sorni/delivery/app.py << 'PYAPP'
           from flask import Flask, jsonify, request
-
           app = Flask(__name__)
-          STOCK_SERVICE_URL = os.getenv("STOCK_SERVICE_URL", "http://127.0.0.1:5999/api/stock")
-          PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL", "http://127.0.0.1:5004/api/payments")
-          PURCHASES = {}
-
-          @app.get("/api/purchases/health")
-          def health():
-              return jsonify({"service": "purchase-service", "status": "ok", "stock_service_url": STOCK_SERVICE_URL, "payment_service_url": PAYMENT_SERVICE_URL})
-
-          @app.post("/api/purchases")
-          def create_purchase():
-              payload = request.get_json(silent=True) or {}
-              sku = payload.get("sku")
-              customer = payload.get("customer", "cliente@sorny.local")
-              if not sku:
-                  return jsonify({"error": "missing_sku"}), 400
-
-              app.logger.info("purchase request received sku=%s customer=%s", sku, customer)
-              try:
-                  stock_response = requests.post(STOCK_SERVICE_URL.rstrip("/") + "/reserve", json={"sku": sku, "quantity": 1}, timeout=2)
-              except requests.RequestException as exc:
-                  app.logger.exception("stock reservation failed sku=%s stock_service_url=%s", sku, STOCK_SERVICE_URL)
-                  return jsonify({"error": "stock_service_unavailable", "detail": str(exc)}), 503
-
-              if stock_response.status_code != 200:
-                  app.logger.warning("stock reservation rejected sku=%s status=%s body=%s", sku, stock_response.status_code, stock_response.text)
-                  return jsonify({"error": "stock_rejected", "detail": stock_response.json()}), stock_response.status_code
-
-              stock_data = stock_response.json()
-              purchase_id = "pur-" + uuid.uuid4().hex[:8]
-              try:
-                  payment_response = requests.post(PAYMENT_SERVICE_URL.rstrip("/") + "/checkout", json={"purchase_id": purchase_id, "sku": sku, "amount": stock_data["product"]["price"]}, timeout=2)
-              except requests.RequestException as exc:
-                  app.logger.exception("payment link creation failed purchase_id=%s payment_service_url=%s", purchase_id, PAYMENT_SERVICE_URL)
-                  return jsonify({"error": "payment_service_unavailable", "detail": str(exc)}), 503
-
-              if payment_response.status_code != 200:
-                  app.logger.warning("payment service rejected purchase_id=%s status=%s body=%s", purchase_id, payment_response.status_code, payment_response.text)
-                  return jsonify({"error": "payment_rejected", "detail": payment_response.json()}), payment_response.status_code
-
-              payment_data = payment_response.json()
-              purchase = {"purchase_id": purchase_id, "sku": sku, "status": "payment_pending", "payment_url": payment_data["payment_url"], "backend": "purchase-service"}
-              PURCHASES[purchase_id] = purchase
-              app.logger.info("purchase created purchase_id=%s sku=%s", purchase_id, sku)
-              return jsonify(purchase)
-
-          @app.get("/api/purchases/<purchase_id>")
-          def get_purchase(purchase_id):
-              purchase = PURCHASES.get(purchase_id)
-              if not purchase:
-                  return jsonify({"error": "not_found"}), 404
-              return jsonify(purchase)
+          @app.get("/api/delivery/health")
+          def h(): return jsonify({"service":"delivery-service","status":"ok"})
+          @app.post("/api/delivery")
+          def delivery():
+              p=request.get_json(silent=True) or {}
+              app.logger.info("delivery-service request name=%s email=%s product=%s",p.get("name"),p.get("email"),p.get("product_name"))
+              return jsonify({"status":"delivery_pending","message":"Te contactaremos para coordinar el envio","backend":"delivery-service"})
           PYAPP
-
-          cat > /opt/sorni/stock/app.py << 'PYAPP'
-          from flask import Flask, jsonify, request
-
-          app = Flask(__name__)
-
-          PRODUCTS = {
-              "sorni-luma-32": {"sku": "sorni-luma-32", "name": "Sorny Luma 32", "price": 189999},
-              "sorni-braviax-43": {"sku": "sorni-braviax-43", "name": "Sorny Braviax 43", "price": 319999},
-              "sorni-croma-50": {"sku": "sorni-croma-50", "name": "Sorny Croma 50", "price": 489999},
-              "sorni-trinitronix-55": {"sku": "sorni-trinitronix-55", "name": "Sorny Trinitronix 55", "price": 629999},
-              "sorni-cinepro-65": {"sku": "sorni-cinepro-65", "name": "Sorny CinePro 65", "price": 899999},
-              "sorni-mega-75": {"sku": "sorni-mega-75", "name": "Sorny Mega 75", "price": 1299999},
-          }
-          STOCK = {sku: 3 for sku in PRODUCTS}
-
-          @app.get("/api/stock/health")
-          def health():
-              return jsonify({"service": "stock-service", "status": "ok"})
-
-          @app.get("/api/stock/<sku>")
-          def get_stock(sku):
-              product = PRODUCTS.get(sku)
-              if not product:
-                  return jsonify({"error": "unknown_sku"}), 404
-              return jsonify({"backend": "stock-service", "product": product, "available": STOCK.get(sku, 0)})
-
-          @app.post("/api/stock/reserve")
-          def reserve():
-              payload = request.get_json(silent=True) or {}
-              sku = payload.get("sku")
-              quantity = int(payload.get("quantity", 1))
-              product = PRODUCTS.get(sku)
-              if not product:
-                  return jsonify({"error": "unknown_sku"}), 404
-              if STOCK.get(sku, 0) < quantity:
-                  app.logger.warning("stock insufficient sku=%s requested=%s available=%s", sku, quantity, STOCK.get(sku, 0))
-                  return jsonify({"error": "out_of_stock", "available": STOCK.get(sku, 0)}), 409
-              STOCK[sku] -= quantity
-              app.logger.info("stock reserved sku=%s quantity=%s remaining=%s", sku, quantity, STOCK[sku])
-              return jsonify({"backend": "stock-service", "sku": sku, "reserved": quantity, "remaining": STOCK[sku], "product": product})
-          PYAPP
-
-          cat > /opt/sorni/payment/app.py << 'PYAPP'
-          from flask import Flask, jsonify, request
-
-          app = Flask(__name__)
-
-          @app.get("/api/payments/health")
-          def health():
-              return jsonify({"service": "payment-service", "status": "ok"})
-
-          @app.post("/api/payments/checkout")
-          def checkout():
-              payload = request.get_json(silent=True) or {}
-              purchase_id = payload.get("purchase_id")
-              amount = payload.get("amount")
-              if not purchase_id or amount is None:
-                  return jsonify({"error": "missing_purchase_or_amount"}), 400
-              payment_url = "/checkout?purchase_id=" + purchase_id + "&amount=" + str(amount)
-              app.logger.info("payment link created purchase_id=%s amount=%s", purchase_id, amount)
-              return jsonify({"backend": "payment-service", "purchase_id": purchase_id, "payment_url": payment_url, "status": "payment_link_created"})
-          PYAPP
-
           cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
-          {
-            "logs": {
-              "logs_collected": {
-                "files": {
-                  "collect_list": [
-                    {"file_path": "/var/log/sorni/frontend.log", "log_group_name": "/${ProjectName}/${Environment}/site", "log_stream_name": "frontend"},
-                    {"file_path": "/var/log/sorni/monolith.log", "log_group_name": "/${ProjectName}/${Environment}/site", "log_stream_name": "monolithic-backend"},
-                    {"file_path": "/var/log/sorni/purchase.log", "log_group_name": "/${ProjectName}/${Environment}/site", "log_stream_name": "purchase-service"},
-                    {"file_path": "/var/log/sorni/stock.log", "log_group_name": "/${ProjectName}/${Environment}/site", "log_stream_name": "stock-service"},
-                    {"file_path": "/var/log/sorni/payment.log", "log_group_name": "/${ProjectName}/${Environment}/site", "log_stream_name": "payment-service"}
-                  ]
-                }
-              }
-            }
-          }
+          {"logs":{"logs_collected":{"files":{"collect_list":[
+            {"file_path":"/var/log/sorni/monolith.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"monolithic-backend"},
+            {"file_path":"/var/log/sorni/delivery.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"delivery-service"}
+          ]}}}}
           CWCONFIG
-
-          create_service() {
-            local name="$1"
-            local dir="$2"
-            local port="$3"
-            local log="$4"
-            local extra_env="$5"
-            cat > "/etc/systemd/system/sorni-$name.service" << SERVICE
-          [Unit]
-          Description=Sorny $name
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          WorkingDirectory=/opt/sorni/$dir
-          $extra_env
-          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:$port --workers 2 app:app
-          Restart=always
-          RestartSec=3
-          StandardOutput=append:/var/log/sorni/$log.log
-          StandardError=append:/var/log/sorni/$log.log
-
-          [Install]
-          WantedBy=multi-user.target
-          SERVICE
-          }
-
-          EMPTY_ENV=""
-          PURCHASE_ENV="$(printf 'Environment=STOCK_SERVICE_URL=%s\nEnvironment=PAYMENT_SERVICE_URL=%s' '${PurchaseStockServiceUrl}' '${PurchasePaymentServiceUrl}')"
-          create_service frontend frontend 5000 frontend "$EMPTY_ENV"
-          create_service monolith monolith 5001 monolith "$EMPTY_ENV"
-          create_service purchase purchase 5002 purchase "$PURCHASE_ENV"
-          create_service stock stock 5003 stock "$EMPTY_ENV"
-          create_service payment payment 5004 payment "$EMPTY_ENV"
-
-          systemctl daemon-reload
-          systemctl enable sorni-frontend sorni-monolith sorni-purchase sorni-stock sorni-payment
-          systemctl start sorni-frontend sorni-monolith sorni-purchase sorni-stock sorni-payment
-
+          for s in monolith delivery; do
+            p=5001; [ "$s" = "delivery" ] && p=5005
+            cat > "/etc/systemd/system/sorni-$s.service" << SRV
+          [Unit] Description=Sorny $s After=network-online.target Wants=network-online.target
+          [Service] WorkingDirectory=/opt/sorni/$s
+          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:$p --workers 2 app:app
+          Restart=always RestartSec=3
+          StandardOutput=append:/var/log/sorni/$s.log StandardError=append:/var/log/sorni/$s.log
+          [Install] WantedBy=multi-user.target
+          SRV
+          done
+          systemctl daemon-reload && systemctl enable sorni-monolith sorni-delivery && systemctl start sorni-monolith sorni-delivery
           /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
-
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-site-node-${Environment}
+          Value: !Sub ${ProjectName}-monolith-${Environment}
         - Key: Lab
-          Value: m2-c3-sorny-microservices-site
+          Value: m2-c3-sorny-microservices
 
+  # EC2: PURCHASE + STOCK + PAYMENT
+  ServicesNode:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfileName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetAId
+          GroupSet: [!Ref ServicesSg]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/user-data.log) 2>&1
+          dnf update -y && dnf install -y python3 python3-pip amazon-cloudwatch-agent
+          pip3 install flask requests gunicorn
+          mkdir -p /opt/sorni/{purchase,stock,payment} /var/log/sorni
+          cat > /opt/sorni/purchase/app.py << 'PYAPP'
+          import os, uuid, requests
+          from flask import Flask, jsonify, request
+          app = Flask(__name__)
+          SU=os.getenv("STOCK_SERVICE_URL","http://127.0.0.1:5999/api/stock")
+          PU=os.getenv("PAYMENT_SERVICE_URL","http://127.0.0.1:5004/api/payments")
+          PUR={}
+          @app.get("/api/purchases/health")
+          def h(): return jsonify({"service":"purchase-service","status":"ok","stock_service_url":SU,"payment_service_url":PU})
+          @app.post("/api/purchases")
+          def create():
+              p=request.get_json(silent=True) or {}; sk=p.get("sku"); cs=p.get("customer","cliente@sorny.local")
+              if not sk: return jsonify({"error":"missing_sku"}),400
+              app.logger.info("purchase sku=%s customer=%s",sk,cs)
+              try: sr=requests.post(SU.rstrip("/")+"/reserve",json={"sku":sk,"quantity":1},timeout=2)
+              except Exception as e: app.logger.exception("stock fail sku=%s url=%s",sk,SU); return jsonify({"error":"stock_service_unavailable","detail":str(e)}),503
+              if sr.status_code!=200: return jsonify({"error":"stock_rejected","detail":sr.json()}),sr.status_code
+              sd=sr.json(); pid="pur-"+uuid.uuid4().hex[:8]
+              try: pr=requests.post(PU.rstrip("/")+"/checkout",json={"purchase_id":pid,"sku":sk,"amount":sd["product"]["price"]},timeout=2)
+              except Exception as e: app.logger.exception("payment fail pid=%s url=%s",pid,PU); return jsonify({"error":"payment_service_unavailable","detail":str(e)}),503
+              if pr.status_code!=200: return jsonify({"error":"payment_rejected","detail":pr.json()}),pr.status_code
+              pd=pr.json(); pu={"purchase_id":pid,"sku":sk,"status":"payment_pending","payment_url":pd["payment_url"],"backend":"purchase-service"}
+              PUR[pid]=pu; app.logger.info("purchase created pid=%s sku=%s",pid,sk); return jsonify(pu)
+          @app.get("/api/purchases/<pid>")
+          def get(pid):
+              pu=PUR.get(pid)
+              if not pu: return jsonify({"error":"not_found"}),404
+              return jsonify(pu)
+          PYAPP
+          cat > /opt/sorni/stock/app.py << 'PYAPP'
+          from flask import Flask, jsonify, request
+          app = Flask(__name__)
+          PROD={"sorni-luma-32":{"sku":"sorni-luma-32","name":"Sorny Luma 32","price":189999},"sorni-braviax-43":{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","price":319999},"sorni-croma-50":{"sku":"sorni-croma-50","name":"Sorny Croma 50","price":489999},"sorni-trinitronix-55":{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","price":629999},"sorni-cinepro-65":{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","price":899999},"sorni-mega-75":{"sku":"sorni-mega-75","name":"Sorny Mega 75","price":1299999}}
+          STK={s:3 for s in PROD}
+          @app.get("/api/stock/health")
+          def h(): return jsonify({"service":"stock-service","status":"ok"})
+          @app.get("/api/stock/<sk>")
+          def get(sk):
+              pr=PROD.get(sk)
+              if not pr: return jsonify({"error":"unknown_sku"}),404
+              return jsonify({"backend":"stock-service","product":pr,"available":STK.get(sk,0)})
+          @app.post("/api/stock/reserve")
+          def reserve():
+              p=request.get_json(silent=True) or {}; sk=p.get("sku"); q=int(p.get("quantity",1)); pr=PROD.get(sk)
+              if not pr: return jsonify({"error":"unknown_sku"}),404
+              if STK.get(sk,0)<q: return jsonify({"error":"out_of_stock","available":STK.get(sk,0)}),409
+              STK[sk]-=q; app.logger.info("reserved sku=%s qty=%s remaining=%s",sk,q,STK[sk])
+              return jsonify({"backend":"stock-service","sku":sk,"reserved":q,"remaining":STK[sk],"product":pr})
+          PYAPP
+          cat > /opt/sorni/payment/app.py << 'PYAPP'
+          from flask import Flask, jsonify, request
+          app = Flask(__name__)
+          @app.get("/api/payments/health")
+          def h(): return jsonify({"service":"payment-service","status":"ok"})
+          @app.post("/api/payments/checkout")
+          def checkout():
+              p=request.get_json(silent=True) or {}; pid=p.get("purchase_id"); am=p.get("amount")
+              if not pid or am is None: return jsonify({"error":"missing_purchase_or_amount"}),400
+              purl="/checkout?pid="+pid+"&amount="+str(am)
+              app.logger.info("payment link pid=%s amt=%s",pid,am)
+              return jsonify({"backend":"payment-service","purchase_id":pid,"payment_url":purl,"status":"payment_link_created"})
+          PYAPP
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
+          {"logs":{"logs_collected":{"files":{"collect_list":[
+            {"file_path":"/var/log/sorni/purchase.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"purchase-service"},
+            {"file_path":"/var/log/sorni/stock.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"stock-service"},
+            {"file_path":"/var/log/sorni/payment.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"payment-service"}
+          ]}}}}
+          CWCONFIG
+          PURCHASE_ENV="$(printf 'Environment=STOCK_SERVICE_URL=%s\nEnvironment=PAYMENT_SERVICE_URL=%s' '${PurchaseStockServiceUrl}' '${PurchasePaymentServiceUrl}')"
+          for s in purchase stock payment; do
+            p=5002; [ "$s" = "stock" ] && p=5003; [ "$s" = "payment" ] && p=5004
+            envs=""; [ "$s" = "purchase" ] && envs="$PURCHASE_ENV"
+            cat > "/etc/systemd/system/sorni-$s.service" << SRV
+          [Unit] Description=Sorny $s After=network-online.target Wants=network-online.target
+          [Service] WorkingDirectory=/opt/sorni/$s
+          $envs
+          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:$p --workers 2 app:app
+          Restart=always RestartSec=3
+          StandardOutput=append:/var/log/sorni/$s.log StandardError=append:/var/log/sorni/$s.log
+          [Install] WantedBy=multi-user.target
+          SRV
+          done
+          systemctl daemon-reload && systemctl enable sorni-purchase sorni-stock sorni-payment && systemctl start sorni-purchase sorni-stock sorni-payment
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-services-${Environment}
+        - Key: Lab
+          Value: m2-c3-sorny-microservices
+
+  # TARGET GROUPS
   FrontendTg:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -484,7 +548,7 @@ Resources:
       Matcher:
         HttpCode: 200
       Targets:
-        - Id: !Ref SiteNode
+        - Id: !Ref FrontendNode
           Port: 5000
 
   MonolithTg:
@@ -498,8 +562,22 @@ Resources:
       Matcher:
         HttpCode: 200
       Targets:
-        - Id: !Ref SiteNode
+        - Id: !Ref MonolithNode
           Port: 5001
+
+  DeliveryTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 5005
+      TargetType: instance
+      HealthCheckPath: /api/delivery/health
+      Matcher:
+        HttpCode: 200
+      Targets:
+        - Id: !Ref MonolithNode
+          Port: 5005
 
   PurchaseTg:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -512,7 +590,7 @@ Resources:
       Matcher:
         HttpCode: 200
       Targets:
-        - Id: !Ref SiteNode
+        - Id: !Ref ServicesNode
           Port: 5002
 
   StockTg:
@@ -526,7 +604,7 @@ Resources:
       Matcher:
         HttpCode: 200
       Targets:
-        - Id: !Ref SiteNode
+        - Id: !Ref ServicesNode
           Port: 5003
 
   PaymentTg:
@@ -540,12 +618,13 @@ Resources:
       Matcher:
         HttpCode: 200
       Targets:
-        - Id: !Ref SiteNode
+        - Id: !Ref ServicesNode
           Port: 5004
 
+  # ALB RULES
   ApiToMonolithRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: ShouldCreateBaseRules
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref LabAlbListener
       Priority: 100
@@ -557,8 +636,8 @@ Resources:
           TargetGroupArn: !Ref MonolithTg
 
   FrontendRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: ShouldCreateBaseRules
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref LabAlbListener
       Priority: 200
@@ -570,8 +649,8 @@ Resources:
           TargetGroupArn: !Ref FrontendTg
 
   PurchaseRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: ShouldCreateMicroserviceRules
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref LabAlbListener
       Priority: 10
@@ -583,8 +662,8 @@ Resources:
           TargetGroupArn: !Ref PurchaseTg
 
   StockRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: ShouldCreateMicroserviceRules
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref LabAlbListener
       Priority: 20
@@ -596,8 +675,8 @@ Resources:
           TargetGroupArn: !Ref StockTg
 
   PaymentRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: ShouldCreateMicroserviceRules
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref LabAlbListener
       Priority: 30
@@ -608,15 +687,48 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref PaymentTg
 
-  SiteNodeStatusAlarm:
+  # ALARMS
+  FrontendNodeStatusAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub ${ProjectName}-${Environment}-site-node-status-check
+      AlarmName: !Sub ${ProjectName}-${Environment}-frontend-status-check
       Namespace: AWS/EC2
       MetricName: StatusCheckFailed
       Dimensions:
         - Name: InstanceId
-          Value: !Ref SiteNode
+          Value: !Ref FrontendNode
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  MonolithNodeStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-monolith-status-check
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref MonolithNode
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  ServicesNodeStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-services-status-check
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref ServicesNode
       Statistic: Maximum
       Period: 60
       EvaluationPeriods: 2
@@ -626,22 +738,24 @@ Resources:
 
 Outputs:
   AlbDnsName:
-    Description: DNS publico del ALB.
+    Description: DNS del ALB
     Value: !GetAtt LabAlb.DNSName
-  AlbArn:
-    Value: !Ref LabAlb
   AlbSecurityGroupId:
     Value: !Ref AlbSg
   AlbListenerArn:
     Value: !Ref LabAlbListener
-  SiteNodeId:
-    Value: !Ref SiteNode
-  SiteSecurityGroupId:
-    Value: !Ref SiteSg
+  FrontendNodeId:
+    Value: !Ref FrontendNode
+  MonolithNodeId:
+    Value: !Ref MonolithNode
+  ServicesNodeId:
+    Value: !Ref ServicesNode
   FrontendTargetGroupArn:
     Value: !Ref FrontendTg
   MonolithTargetGroupArn:
     Value: !Ref MonolithTg
+  DeliveryTargetGroupArn:
+    Value: !Ref DeliveryTg
   PurchaseTargetGroupArn:
     Value: !Ref PurchaseTg
   StockTargetGroupArn:
@@ -649,5 +763,5 @@ Outputs:
   PaymentTargetGroupArn:
     Value: !Ref PaymentTg
   BrokenPurchaseStockServiceUrl:
-    Description: URL inicial que usa purchase-service. Default roto para investigar con CloudWatch.
+    Description: URL rota de stock (5999) para diagnostico
     Value: !Ref PurchaseStockServiceUrl
