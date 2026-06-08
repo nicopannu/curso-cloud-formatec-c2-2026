@@ -1,49 +1,72 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Sorny commerce site - Frontend, monolithic backend, purchase, stock and payment services
+Description: Sorny commerce microservices stack - ALB, frontend, monolithic backend, purchase, stock and payment services
 
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: Red y ALB existente
+          default: Red
         Parameters:
           - VpcId
-          - SubnetId
-          - AlbSgId
-          - AlbListenerArn
-          - CreateBaseAlbRules
-          - CreateMicroserviceAlbRules
+          - SubnetAId
+          - SubnetBId
       - Label:
           default: EC2
         Parameters:
           - InstanceType
-          - SsmInstanceProfile
           - LatestAmiId
       - Label:
           default: Aplicacion
         Parameters:
-          - PurchaseStockServiceUrl
-          - PurchasePaymentServiceUrl
           - ProjectName
           - Environment
+          - PurchaseStockServiceUrl
+          - PurchasePaymentServiceUrl
+          - CreateBaseAlbRules
+          - CreateMicroserviceAlbRules
 
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: VPC de la aplicacion
 
-  SubnetId:
+  SubnetAId:
     Type: AWS::EC2::Subnet::Id
-    Description: Subnet publica para la EC2
+    Description: Subnet publica para la EC2 y el ALB, preferentemente us-east-1a
 
-  AlbSgId:
-    Type: String
-    Description: Security Group del ALB existente
-    AllowedPattern: "^sg-[a-z0-9]+$"
+  SubnetBId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Segunda subnet publica para el ALB, en otra Availability Zone
 
-  AlbListenerArn:
+  InstanceType:
     Type: String
-    Description: ARN del listener HTTP :80 del ALB existente
+    Default: t3.micro
+    AllowedValues: [t3.micro, t3.small]
+    Description: Tipo de instancia EC2
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+  ProjectName:
+    Type: String
+    Default: sorny
+    AllowedPattern: "^[a-z0-9-]+$"
+
+  Environment:
+    Type: String
+    Default: microservices-site
+    AllowedPattern: "^[a-z0-9-]+$"
+
+  PurchaseStockServiceUrl:
+    Type: String
+    Default: http://127.0.0.1:5999/api/stock
+    Description: URL base que usa purchase-service para consultar stock.
+
+  PurchasePaymentServiceUrl:
+    Type: String
+    Default: http://127.0.0.1:5004/api/payments
+    Description: URL base que usa purchase-service para generar enlaces de pago.
 
   CreateBaseAlbRules:
     Type: String
@@ -57,45 +80,66 @@ Parameters:
     AllowedValues: ["true", "false"]
     Description: Crea reglas /api/purchases/*, /api/stock/* y /api/payments/* hacia servicios chicos.
 
-  InstanceType:
-    Type: String
-    Default: t3.micro
-    AllowedValues: [t3.micro, t3.small]
-    Description: Tipo de instancia EC2
-
-  SsmInstanceProfile:
-    Type: String
-    Description: Instance Profile con SSM y permisos CloudWatch Agent
-
-  LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
-
-  PurchaseStockServiceUrl:
-    Type: String
-    Default: http://127.0.0.1:5999/api/stock
-    Description: URL base que usa purchase-service para consultar stock.
-
-  PurchasePaymentServiceUrl:
-    Type: String
-    Default: http://127.0.0.1:5004/api/payments
-    Description: URL base que usa purchase-service para generar enlaces de pago.
-
-  ProjectName:
-    Type: String
-    Default: sorny
-    AllowedPattern: "^[a-z0-9-]+$"
-
-  Environment:
-    Type: String
-    Default: microservices-site
-    AllowedPattern: "^[a-z0-9-]+$"
-
 Conditions:
   ShouldCreateBaseRules: !Equals [!Ref CreateBaseAlbRules, "true"]
   ShouldCreateMicroserviceRules: !Equals [!Ref CreateMicroserviceAlbRules, "true"]
 
 Resources:
+  AlbSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-alb-sg-${Environment}
+      GroupDescription: SG ALB publico para microservicios Sorny
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP publico
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5004
+          CidrIp: 0.0.0.0/0
+          Description: Trafico saliente hacia servicios Sorny
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-alb-sg-${Environment}
+        - Key: Lab
+          Value: m2-c3-sorny-microservices
+
+  LabAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-ms-${Environment}
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      SecurityGroups:
+        - !Ref AlbSg
+      Subnets:
+        - !Ref SubnetAId
+        - !Ref SubnetBId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-ms-alb-${Environment}
+        - Key: Lab
+          Value: m2-c3-sorny-microservices
+
+  LabAlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LabAlb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: "404"
+            ContentType: text/plain
+            MessageBody: Sorny route not configured
+
   SiteLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -112,7 +156,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 5000
           ToPort: 5004
-          SourceSecurityGroupId: !Ref AlbSgId
+          SourceSecurityGroupId: !Ref AlbSg
           Description: Trafico HTTP desde ALB hacia apps
       SecurityGroupEgress:
         - IpProtocol: -1
@@ -128,11 +172,11 @@ Resources:
     Properties:
       ImageId: !Ref LatestAmiId
       InstanceType: !Ref InstanceType
-      IamInstanceProfile: !Ref SsmInstanceProfile
+      IamInstanceProfile: sorni-microservices-lab-ec2-profile
       NetworkInterfaces:
         - DeviceIndex: 0
           AssociatePublicIpAddress: true
-          SubnetId: !Ref SubnetId
+          SubnetId: !Ref SubnetAId
           GroupSet:
             - !Ref SiteSg
       UserData:
@@ -503,7 +547,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: ShouldCreateBaseRules
     Properties:
-      ListenerArn: !Ref AlbListenerArn
+      ListenerArn: !Ref LabAlbListener
       Priority: 100
       Conditions:
         - Field: path-pattern
@@ -516,7 +560,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: ShouldCreateBaseRules
     Properties:
-      ListenerArn: !Ref AlbListenerArn
+      ListenerArn: !Ref LabAlbListener
       Priority: 200
       Conditions:
         - Field: path-pattern
@@ -529,7 +573,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: ShouldCreateMicroserviceRules
     Properties:
-      ListenerArn: !Ref AlbListenerArn
+      ListenerArn: !Ref LabAlbListener
       Priority: 10
       Conditions:
         - Field: path-pattern
@@ -542,7 +586,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: ShouldCreateMicroserviceRules
     Properties:
-      ListenerArn: !Ref AlbListenerArn
+      ListenerArn: !Ref LabAlbListener
       Priority: 20
       Conditions:
         - Field: path-pattern
@@ -555,7 +599,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: ShouldCreateMicroserviceRules
     Properties:
-      ListenerArn: !Ref AlbListenerArn
+      ListenerArn: !Ref LabAlbListener
       Priority: 30
       Conditions:
         - Field: path-pattern
@@ -581,6 +625,15 @@ Resources:
       TreatMissingData: notBreaching
 
 Outputs:
+  AlbDnsName:
+    Description: DNS publico del ALB.
+    Value: !GetAtt LabAlb.DNSName
+  AlbArn:
+    Value: !Ref LabAlb
+  AlbSecurityGroupId:
+    Value: !Ref AlbSg
+  AlbListenerArn:
+    Value: !Ref LabAlbListener
   SiteNodeId:
     Value: !Ref SiteNode
   SiteSecurityGroupId:

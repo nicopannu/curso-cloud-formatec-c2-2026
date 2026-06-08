@@ -64,10 +64,9 @@ El objetivo es ver que al dividir responsabilidades tambien aparecen contratos, 
 
 | Ruta | Uso |
 |---|---|
-| `guias/guia-microservicios-02-lab-aws-descomposicion.md` | Guia principal para el alumno |
+| `guias/guia-microservicios-01-sorny-monolito-microservicios.md` | Guia principal para el alumno |
 | `cloudformation/README.md` | Guia del folder de infraestructura |
-| `cloudformation/microservices-site-bootstrap.yaml` | Stack que levanta frontend, monolito y servicios |
-| `cloudformation/microservices-lab-prereqs.yaml` | Stack auxiliar docente para ALB/roles si la cuenta no los tiene |
+| `cloudformation/microservices-sorny-stack.yaml` | Stack unificado que levanta ALB, frontend, monolito y servicios |
 
 ## Resultado esperado
 

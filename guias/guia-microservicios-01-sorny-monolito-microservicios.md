@@ -1,4 +1,4 @@
-# Guia MS-02: Sorny — de monolito a microservicios en AWS
+# Guia MS-01: Sorny — de monolito a microservicios en AWS
 
 **Objetivo:** Partir de una aplicacion web funcional con un backend monolitico y separar sus responsabilidades en servicios independientes. El alumno observa como cambian las rutas, los contratos, las dependencias y la observabilidad cuando una aplicacion se divide.
 
@@ -95,67 +95,49 @@ purchase-service
 
 ### Recursos de red necesarios
 
-Este laboratorio necesita una VPC con al menos una subnet publica, un ALB existente y un Instance Profile con SSM. Si la cuenta ya tiene estos recursos creados de laboratorios anteriores, usarlos.
+Este laboratorio necesita una VPC con Internet Gateway, dos subnets publicas en Availability Zones distintas y el rol/profile de SSM ya preparado en la cuenta. El stack del laboratorio crea el ALB, el Security Group del ALB, el listener HTTP, el Security Group de la EC2, la EC2, los target groups y las reglas base.
 
 **Recursos requeridos antes de comenzar:**
 
 | Recurso | Descripcion |
 |---|---|
 | VPC con Internet Gateway | Ya debe existir en la cuenta |
-| Subnet publica en us-east-1a | Ya debe existir |
-| IAM Role con `AmazonSSMManagedInstanceCore` + `CloudWatchAgentServerPolicy` | Ya debe existir o se crea en el pre-requisito |
+| Subnet publica A | Ya debe existir; se usa para la EC2 y para el ALB |
+| Subnet publica B | Ya debe existir en otra Availability Zone; se usa para el ALB |
+| IAM Role / Instance Profile SSM | Ya debe existir en la cuenta con `AmazonSSMManagedInstanceCore` + `CloudWatchAgentServerPolicy` |
 
 > **¿Por que necesitamos SSM en la EC2?** SSM (Systems Manager) permite conectarse a la instancia desde la consola de AWS sin clave SSH ni IP publica. Durante el laboratorio se usa para inspeccionar servicios y corregir configuracion. Es mas seguro que tener puertos SSH abiertos.
 
 ---
 
-### Pre-req A: Verificar o crear ALB, Security Group e Instance Profile
+### Pre-req A: Verificar VPC, subnets y rol SSM
 
-Para este laboratorio se necesita un ALB publico con un listener HTTP en puerto 80, y un Instance Profile que permita SSM + CloudWatch en la EC2.
+Antes de desplegar el laboratorio, confirmar que ya existen estos recursos:
 
-**Si no existen, desplegar el template auxiliar:**
+1. **VPC** con salida a internet mediante Internet Gateway.
+2. **Dos subnets publicas** en Availability Zones distintas, por ejemplo `us-east-1a` y `us-east-1b`.
+3. **Rutas de las subnets publicas** con `0.0.0.0/0 -> Internet Gateway`.
+4. **Instance Profile SSM** disponible para la EC2 del laboratorio. En la cuenta del curso el profile esperado es `sorni-microservices-lab-ec2-profile` y debe tener permisos de SSM y CloudWatch Agent.
 
-1. Ir a **CloudFormation > Create stack > With new resources (standard)**
-2. **Template source:** Upload a template file
-3. Seleccionar `cloudformation/microservices-lab-prereqs.yaml` del repositorio
-4. Click **Next**
-5. **Stack name:** `sorny-microservices-prereqs`
-6. **Parametros:**
-   - **VpcId:** pegar el ID de la VPC del laboratorio
-   - **PublicSubnetAId:** pegar el ID de la subnet publica en us-east-1a
-   - **PublicSubnetBId:** pegar el ID de una subnet publica en us-east-1b
-   - **ProjectName:** dejar `sorny`
-   - **Environment:** dejar `microservices`
-7. Click **Next** dos veces
-8. En **Capabilities**, marcar **I acknowledge that AWS CloudFormation might create IAM resources**
-9. Click **Submit**
-10. Esperar a estado **CREATE_COMPLETE** (~2 minutos)
-11. Ir a pestana **Outputs** y anotar:
-    - `AlbDnsName` (DNS del ALB)
-    - `AlbSecurityGroupId` (SG del ALB)
-    - `AlbListenerArn` (ARN del listener HTTP :80)
-    - `SsmInstanceProfileName` (nombre del Instance Profile)
-
-> **¿Por que este template separado?** El stack principal (site-bootstrap) necesita un ALB, un listener y un Instance Profile que ya existan. Separar los prerequisitos permite que estos recursos se creen una vez y se reutilicen si se destruye y recrea el sitio. Tambien evita crear roles IAM cada vez que se prueba el laboratorio.
+> El stack unificado no crea roles IAM ni Instance Profiles. Esos recursos son persistentes de la cuenta del curso y se reutilizan entre laboratorios.
 
 ---
 
-### Pre-req B: Anotar parametros para el stack principal
+### Pre-req B: Anotar parametros para el stack
 
 Antes de desplegar el sitio, tener a mano:
 
 - **VpcId** — desde **VPC > Your VPCs**
-- **SubnetId** — ID de la subnet publica en us-east-1a
-- **AlbSgId** — desde Outputs del prereqs (o el SG existente del ALB)
-- **AlbListenerArn** — desde Outputs del prereqs (o ARN del listener HTTP :80 existente)
-- **SsmInstanceProfile** — desde Outputs del prereqs (o nombre del Instance Profile existente)
+- **SubnetAId** — ID de la subnet publica donde se creara la EC2 y una pata del ALB
+- **SubnetBId** — ID de una segunda subnet publica en otra Availability Zone para el ALB
 
 ---
 
 ## Fase 1: Desplegar el sitio Sorny
 
-El stack `cloudformation/microservices-site-bootstrap.yaml` crea:
+El stack unificado `cloudformation/microservices-sorny-stack.yaml` crea:
 
+- 1 ALB publico con listener HTTP en puerto 80
 - 1 EC2 con Amazon Linux 2023
 - 5 aplicaciones como procesos systemd separados (cada uno en su puerto)
 - 5 target groups (uno por servicio)
@@ -169,25 +151,23 @@ El stack `cloudformation/microservices-site-bootstrap.yaml` crea:
 
 1. Ir a **CloudFormation > Create stack > With new resources (standard)**
 2. **Template source:** Upload a template file
-3. Seleccionar `cloudformation/microservices-site-bootstrap.yaml`
+3. Seleccionar `cloudformation/microservices-sorny-stack.yaml`
 4. Click **Next**
-5. **Stack name:** `sorny-microservices-site-bootstrap`
-6. **Parametros — Grupo "Red y ALB existente":**
+5. **Stack name:** `sorny-microservices-sorny-stack`
+6. **Parametros — Grupo "Red":**
    - **VpcId:** pegar el VpcId
-   - **SubnetId:** pegar la subnet publica us-east-1a
-   - **AlbSgId:** pegar el SG ID del ALB
-   - **AlbListenerArn:** pegar el ARN del listener HTTP :80
-   - **CreateBaseAlbRules:** `true`
-   - **CreateMicroserviceAlbRules:** `false`
+   - **SubnetAId:** pegar la subnet publica donde se creara la EC2
+   - **SubnetBId:** pegar una segunda subnet publica en otra Availability Zone
 7. **Parametros — Grupo "EC2":**
    - **InstanceType:** `t3.micro`
-   - **SsmInstanceProfile:** pegar el nombre del Instance Profile
    - **LatestAmiId:** dejar el valor default
 8. **Parametros — Grupo "Aplicacion":**
-   - **PurchaseStockServiceUrl:** dejar el default (`http://127.0.0.1:5999/api/stock`)
-   - **PurchasePaymentServiceUrl:** dejar el default (`http://127.0.0.1:5004/api/payments`)
    - **ProjectName:** `sorny`
    - **Environment:** `microservices-site`
+   - **PurchaseStockServiceUrl:** dejar el default (`http://127.0.0.1:5999/api/stock`)
+   - **PurchasePaymentServiceUrl:** dejar el default (`http://127.0.0.1:5004/api/payments`)
+   - **CreateBaseAlbRules:** `true`
+   - **CreateMicroserviceAlbRules:** `false`
 9. Click **Next** dos veces
 10. **Capabilities:** como el stack no crea recursos IAM, no es necesario marcar capacidades. Continuar directo.
 11. Click **Submit**
@@ -211,7 +191,7 @@ Cuando el stack llegue a **CREATE_COMPLETE**:
    - `PaymentTargetGroupArn` — ARN del TG de payment-service
    - `BrokenPurchaseStockServiceUrl` — confirma la URL rota
 
-Tambien anotar el **DNS del ALB** desde los outputs del prereqs (o desde **EC2 > Load Balancers** si se uso uno existente).
+Tambien anotar el **DNS del ALB** desde el output `AlbDnsName` del mismo stack, o desde **EC2 > Load Balancers**.
 
 > **¿Por que hay 5 target groups si solo usamos 2 al inicio?** Cada servicio futuro tiene su target group desde el momento cero, aunque nadie le envie trafico todavia. Esto permite que los health checks ya esten activos y que el alumno pueda verificar que los servicios responden antes de conectar las reglas del ALB.
 
@@ -219,9 +199,8 @@ Tambien anotar el **DNS del ALB** desde los outputs del prereqs (o desde **EC2 >
 
 | Sintoma | Posible causa | Correccion |
 |---|---|---|
-| Stack queda en `CREATE_FAILED` | Parametro incorrecto (VPC, subnet, SG ID) | Revisar eventos del stack en CloudFormation > Events |
+| Stack queda en `CREATE_FAILED` | Parametro incorrecto (VPC o subnets) | Revisar eventos del stack en CloudFormation > Events |
 | Stack no arranca por timeout de UserData | EC2 sin salida a internet o AMI incorrecto | Verificar que la subnet publica tenga ruta `0.0.0.0/0 -> IGW` |
-| Error `ALBListenerArn` invalido | El ARN no corresponde a un listener HTTP :80 | Verificar que sea el ARN del listener, no del ALB |
 
 ---
 
@@ -280,7 +259,7 @@ Antes de cambiar reglas, hay que ubicar los recursos. En produccion, no se toca 
 ### 3.2 Revisar las reglas actuales del ALB
 
 1. Ir a **EC2 > Load Balancers**
-2. Seleccionar el ALB del laboratorio (nombre `sorni-ms-*`)
+2. Seleccionar el ALB del laboratorio (nombre `sorny-ms-*`)
 3. Ir a pestana **Listeners**
 4. Click en el listener HTTP `:80`
 5. En la pestana **Rules** deberian verse:
@@ -543,23 +522,14 @@ La respuesta JSON ahora muestra `"backend": "purchase-service"`, no `"monolithic
 
 ## Limpieza
 
-> **Atencion:** Si se continua con la siguiente clase, mantener el ALB, los target groups y el SG. Solo eliminar el stack del sitio.
+> **Atencion:** Si se continua con la siguiente clase, confirmar con el instructor antes de limpiar el entorno.
 
-### Eliminar stack del sitio
+### Eliminar stack del laboratorio
 
 1. Ir a **CloudFormation > Stacks**
-2. Seleccionar `sorny-microservices-site-bootstrap`
+2. Seleccionar `sorny-microservices-sorny-stack`
 3. Click **Delete** > confirmar
 4. Esperar a que el stack desaparezca (~3-5 minutos)
-
-### Eliminar stack de prerequisitos (opcional)
-
-Si se creo el stack auxiliar y ya no se necesita:
-
-1. Ir a **CloudFormation > Stacks**
-2. Seleccionar `sorny-microservices-prereqs`
-3. Click **Delete** > confirmar
-4. Esperar (~2 minutos)
 
 ### NO eliminar (recursos persistentes del curso)
 

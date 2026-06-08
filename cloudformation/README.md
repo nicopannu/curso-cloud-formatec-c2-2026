@@ -1,21 +1,18 @@
 # CloudFormation - Sorny Microservicios
 
-Este folder contiene los templates que levantan la infraestructura base.
+Este folder contiene el template que levanta la infraestructura base del laboratorio.
 
 La idea no es que memorices CloudFormation. La idea es que puedas levantar un entorno repetible y despues concentrarte en lo importante de la clase: como una aplicacion monolitica empieza a dividir responsabilidades.
 
 ## Como leer este folder
 
-Usa este orden:
+Usa `microservices-sorny-stack.yaml` como template unificado del laboratorio.
 
-1. `microservices-site-bootstrap.yaml`: template principal.
-2. `microservices-lab-prereqs.yaml`: helper temporal si la cuenta todavia no tiene ALB, listener o instance profile.
+El template crea la aplicacion Sorny completa: ALB publico, listener HTTP, Security Groups, EC2, frontend, backend monolitico, servicios pequenos, target groups, reglas base, logs y alarma.
 
-El template principal crea la aplicacion Sorny: frontend, backend monolitico y servicios pequenos. El helper solo existe para no trabar una practica cuando faltan prerequisitos de infraestructura.
+## `microservices-sorny-stack.yaml` - template unificado
 
-## `microservices-site-bootstrap.yaml` - template principal
-
-**Usado en:** Guia Microservicios 02.
+**Usado en:** Guia Microservicios 01.
 
 **Modelo:**
 
@@ -32,13 +29,15 @@ Esta falla es intencional. En microservicios reales, muchas fallas no ocurren po
 
 **Crea:**
 
+- 1 ALB publico con listener HTTP `:80`;
+- Security Group del ALB con HTTP publico y egress a puertos `5000-5004`;
 - 1 EC2 Amazon Linux 2023 con cinco apps:
   - `frontend` en puerto `5000`;
   - `monolithic-backend` en puerto `5001`;
   - `purchase-service` en puerto `5002`;
   - `stock-service` en puerto `5003`;
   - `payment-service` en puerto `5004`;
-- Security Group para la EC2;
+- Security Group para la EC2 que permite trafico desde el ALB a puertos `5000-5004`;
 - target groups por app;
 - reglas base opcionales:
   - `/*` -> frontend;
@@ -50,10 +49,23 @@ Esta falla es intencional. En microservicios reales, muchas fallas no ocurren po
 - CloudWatch Log Group;
 - alarma base de status check EC2.
 
+**No crea:**
+
+- VPC;
+- subnets publicas/privadas;
+- Internet Gateway;
+- route tables;
+- IAM Role ni Instance Profile.
+
+El rol/profile SSM de la EC2 debe existir previamente en la cuenta del curso.
+
 **Parametros clave:**
 
 | Parametro | Uso recomendado |
 |---|---|
+| `VpcId` | VPC existente del laboratorio |
+| `SubnetAId` | subnet publica para EC2 y ALB |
+| `SubnetBId` | segunda subnet publica para ALB |
 | `CreateBaseAlbRules` | `true` para levantar sitio + monolito inicial |
 | `CreateMicroserviceAlbRules` | `false` para que el alumno cree las reglas |
 | `PurchaseStockServiceUrl` | default roto para que `purchase-service` falle al consultar stock |
@@ -63,49 +75,15 @@ Esta falla es intencional. En microservicios reales, muchas fallas no ocurren po
 **Stack name sugerido:**
 
 ```text
-sorny-microservices-site-bootstrap
+sorny-microservices-sorny-stack
 ```
-
-## `microservices-lab-prereqs.yaml` - helper docente temporal
-
-**Uso recomendado:** solo para pruebas del docente cuando la cuenta todavia no tiene ALB ni instance profile listos.
-
-No es parte del recorrido principal del alumno. Para clase, la VPC, subnets, ALB, listener e instance profile deberian quedar preparados como prerequisitos persistentes.
-
-**Crea:**
-
-- ALB publico;
-- listener HTTP `:80`;
-- Security Group del ALB;
-- IAM Role + Instance Profile para EC2 con SSM y CloudWatch Agent.
-
-**No crea:**
-
-- VPC;
-- subnets publicas/privadas;
-- Internet Gateway;
-- route tables.
-
-**Stack name sugerido:**
-
-```text
-sorny-microservices-prereqs
-```
-
-Si se usa para validar el entorno, tomar los outputs `AlbSecurityGroupId`, `AlbListenerArn` y `SsmInstanceProfileName` como parametros del stack principal.
 
 ## Limpieza
 
-Al finalizar, elimina primero:
+Al finalizar, elimina el stack:
 
 ```text
-sorny-microservices-site-bootstrap
+sorny-microservices-sorny-stack
 ```
 
-Si tambien usaste el helper docente, elimina despues:
-
-```text
-sorny-microservices-prereqs
-```
-
-No elimines VPC, Internet Gateway, subnets ni route tables persistentes del curso si fueron creados para varias clases.
+No elimines VPC, Internet Gateway, subnets, route tables ni roles persistentes del curso si fueron creados para varias clases.
