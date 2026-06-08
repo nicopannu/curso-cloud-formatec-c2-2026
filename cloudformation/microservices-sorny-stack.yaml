@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: "Sorny commerce microservices - multi-EC2: frontend, monolith, purchase+payment"
+Description: "Sorny commerce microservices - 5 EC2s: frontend, monolith, delivery, purchase, payment"
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -64,12 +64,12 @@ Parameters:
 
   PurchasePaymentServiceUrl:
     Type: String
-    Default: http://127.0.0.1:5004/api/payments
-    Description: URL correcta de payment-service
+    Default: http://REPLACE-WITH-ALB-DNS/api/payments
+    Description: "URL del payment-service. Reemplazar REPLACE-WITH-ALB-DNS con el DNS del ALB (output AlbDnsName) despues del deploy."
 
   CreateBaseAlbRules:
     Type: String
-    Default: "true"
+    Default: "false"
     AllowedValues: ["true", "false"]
 
   CreateMicroserviceAlbRules:
@@ -82,7 +82,7 @@ Conditions:
   ShouldCreateMicroserviceRules: !Equals [!Ref CreateMicroserviceAlbRules, "true"]
 
 Resources:
-  # ALB
+  # ── ALB ──────────────────────────────────────────────────────────────────────
   AlbSg:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -132,14 +132,14 @@ Resources:
             ContentType: text/plain
             MessageBody: Sorny route not configured
 
-  # Logs
+  # ── Logs ─────────────────────────────────────────────────────────────────────
   SiteLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /${ProjectName}/${Environment}/site
       RetentionInDays: 7
 
-  # SG Frontend
+  # ── Security Groups ───────────────────────────────────────────────────────────
   FrontendSg:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -160,21 +160,16 @@ Resources:
         - Key: Lab
           Value: m2-c3-sorny-microservices
 
-  # SG Monolith
   MonolithSg:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: !Sub ${ProjectName}-monolith-sg-${Environment}
-      GroupDescription: SG monolith Sorny - ALB + services
+      GroupDescription: SG monolith Sorny - trafico desde ALB
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 5001
           ToPort: 5001
-          SourceSecurityGroupId: !Ref AlbSg
-        - IpProtocol: tcp
-          FromPort: 5005
-          ToPort: 5005
           SourceSecurityGroupId: !Ref AlbSg
       SecurityGroupEgress:
         - IpProtocol: -1
@@ -185,16 +180,55 @@ Resources:
         - Key: Lab
           Value: m2-c3-sorny-microservices
 
-  # SG Services
-  ServicesSg:
+  DeliverySg:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub ${ProjectName}-purchase-payment-sg-${Environment}
-      GroupDescription: SG purchase+payment Sorny
+      GroupName: !Sub ${ProjectName}-delivery-sg-${Environment}
+      GroupDescription: SG delivery Sorny - trafico desde ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5005
+          ToPort: 5005
+          SourceSecurityGroupId: !Ref AlbSg
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-delivery-sg-${Environment}
+        - Key: Lab
+          Value: m2-c3-sorny-microservices
+
+  PurchaseSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-purchase-sg-${Environment}
+      GroupDescription: SG purchase Sorny - trafico desde ALB
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 5002
+          ToPort: 5002
+          SourceSecurityGroupId: !Ref AlbSg
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-purchase-sg-${Environment}
+        - Key: Lab
+          Value: m2-c3-sorny-microservices
+
+  PaymentSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-payment-sg-${Environment}
+      GroupDescription: SG payment Sorny - trafico desde ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5004
           ToPort: 5004
           SourceSecurityGroupId: !Ref AlbSg
       SecurityGroupEgress:
@@ -202,11 +236,11 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-purchase-payment-sg-${Environment}
+          Value: !Sub ${ProjectName}-payment-sg-${Environment}
         - Key: Lab
           Value: m2-c3-sorny-microservices
 
-  # EC2: FRONTEND
+  # ── EC2: FRONTEND ─────────────────────────────────────────────────────────────
   FrontendNode:
     Type: AWS::EC2::Instance
     Properties:
@@ -346,7 +380,7 @@ Resources:
         - Key: Lab
           Value: m2-c3-sorny-microservices
 
-  # EC2: MONOLITH + DELIVERY
+  # ── EC2: MONOLITH ─────────────────────────────────────────────────────────────
   MonolithNode:
     Type: AWS::EC2::Instance
     Properties:
@@ -365,7 +399,7 @@ Resources:
           exec > >(tee /var/log/user-data.log) 2>&1
           dnf update -y && dnf install -y python3 python3-pip amazon-cloudwatch-agent
           pip3 install flask gunicorn
-          mkdir -p /opt/sorni/{monolith,delivery} /var/log/sorni
+          mkdir -p /opt/sorni/monolith /var/log/sorni
           cat > /opt/sorni/monolith/app.py << 'PYAPP'
           import uuid
           from flask import Flask, jsonify, request
@@ -398,6 +432,56 @@ Resources:
               app.logger.info("delivery request name=%s email=%s product=%s",p.get("name"),p.get("email"),p.get("product_name"))
               return jsonify({"status":"delivery_pending","message":"Te contactaremos para coordinar el envio","backend":"monolithic-backend"})
           PYAPP
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
+          {"logs":{"logs_collected":{"files":{"collect_list":[
+            {"file_path":"/var/log/sorni/monolith.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"monolithic-backend"}
+          ]}}}}
+          CWCONFIG
+          cat > /etc/systemd/system/sorni-monolith.service << 'SRV'
+          [Unit]
+          Description=Sorny monolith
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          WorkingDirectory=/opt/sorni/monolith
+          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5001 --workers 2 app:app
+          Restart=always
+          RestartSec=3
+          StandardOutput=append:/var/log/sorni/monolith.log
+          StandardError=append:/var/log/sorni/monolith.log
+
+          [Install]
+          WantedBy=multi-user.target
+          SRV
+          systemctl daemon-reload && systemctl enable sorni-monolith && systemctl start sorni-monolith
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-monolith-${Environment}
+        - Key: Lab
+          Value: m2-c3-sorny-microservices
+
+  # ── EC2: DELIVERY ─────────────────────────────────────────────────────────────
+  DeliveryNode:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfileName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetAId
+          GroupSet: [!Ref DeliverySg]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/user-data.log) 2>&1
+          dnf update -y && dnf install -y python3 python3-pip amazon-cloudwatch-agent
+          pip3 install flask gunicorn
+          mkdir -p /opt/sorni/delivery /var/log/sorni
           cat > /opt/sorni/delivery/app.py << 'PYAPP'
           from flask import Flask, jsonify, request
           app = Flask(__name__)
@@ -411,40 +495,36 @@ Resources:
           PYAPP
           cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
           {"logs":{"logs_collected":{"files":{"collect_list":[
-            {"file_path":"/var/log/sorni/monolith.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"monolithic-backend"},
             {"file_path":"/var/log/sorni/delivery.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"delivery-service"}
           ]}}}}
           CWCONFIG
-          for s in monolith delivery; do
-            p=5001; [ "$s" = "delivery" ] && p=5005
-            cat > "/etc/systemd/system/sorni-$s.service" << SRV
+          cat > /etc/systemd/system/sorni-delivery.service << 'SRV'
           [Unit]
-          Description=Sorny $s
+          Description=Sorny delivery
           After=network-online.target
           Wants=network-online.target
 
           [Service]
-          WorkingDirectory=/opt/sorni/$s
-          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:$p --workers 2 app:app
+          WorkingDirectory=/opt/sorni/delivery
+          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5005 --workers 2 app:app
           Restart=always
           RestartSec=3
-          StandardOutput=append:/var/log/sorni/$s.log
-          StandardError=append:/var/log/sorni/$s.log
+          StandardOutput=append:/var/log/sorni/delivery.log
+          StandardError=append:/var/log/sorni/delivery.log
 
           [Install]
           WantedBy=multi-user.target
           SRV
-          done
-          systemctl daemon-reload && systemctl enable sorni-monolith sorni-delivery && systemctl start sorni-monolith sorni-delivery
+          systemctl daemon-reload && systemctl enable sorni-delivery && systemctl start sorni-delivery
           /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-monolith-${Environment}
+          Value: !Sub ${ProjectName}-delivery-${Environment}
         - Key: Lab
           Value: m2-c3-sorny-microservices
 
-  # EC2: PURCHASE + PAYMENT
-  ServicesNode:
+  # ── EC2: PURCHASE ─────────────────────────────────────────────────────────────
+  PurchaseNode:
     Type: AWS::EC2::Instance
     Properties:
       ImageId: !Ref LatestAmiId
@@ -454,7 +534,7 @@ Resources:
         - DeviceIndex: 0
           AssociatePublicIpAddress: true
           SubnetId: !Ref SubnetAId
-          GroupSet: [!Ref ServicesSg]
+          GroupSet: [!Ref PurchaseSg]
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -462,7 +542,7 @@ Resources:
           exec > >(tee /var/log/user-data.log) 2>&1
           dnf update -y && dnf install -y python3 python3-pip amazon-cloudwatch-agent
           pip3 install flask requests gunicorn
-          mkdir -p /opt/sorni/{purchase,payment} /var/log/sorni
+          mkdir -p /opt/sorni/purchase /var/log/sorni
           cat > /opt/sorni/purchase/app.py << 'PYAPP'
           import os, uuid, requests
           from flask import Flask, jsonify, request
@@ -491,6 +571,57 @@ Resources:
               if not pu: return jsonify({"error":"not_found"}),404
               return jsonify(pu)
           PYAPP
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
+          {"logs":{"logs_collected":{"files":{"collect_list":[
+            {"file_path":"/var/log/sorni/purchase.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"purchase-service"}
+          ]}}}}
+          CWCONFIG
+          cat > /etc/systemd/system/sorni-purchase.service << SRV
+          [Unit]
+          Description=Sorny purchase
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          WorkingDirectory=/opt/sorni/purchase
+          Environment=PAYMENT_SERVICE_URL=${PurchasePaymentServiceUrl}
+          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5002 --workers 2 app:app
+          Restart=always
+          RestartSec=3
+          StandardOutput=append:/var/log/sorni/purchase.log
+          StandardError=append:/var/log/sorni/purchase.log
+
+          [Install]
+          WantedBy=multi-user.target
+          SRV
+          systemctl daemon-reload && systemctl enable sorni-purchase && systemctl start sorni-purchase
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-purchase-${Environment}
+        - Key: Lab
+          Value: m2-c3-sorny-microservices
+
+  # ── EC2: PAYMENT ──────────────────────────────────────────────────────────────
+  PaymentNode:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfileName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetAId
+          GroupSet: [!Ref PaymentSg]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/user-data.log) 2>&1
+          dnf update -y && dnf install -y python3 python3-pip amazon-cloudwatch-agent
+          pip3 install flask gunicorn
+          mkdir -p /opt/sorni/payment /var/log/sorni
           cat > /opt/sorni/payment/app.py << 'PYAPP'
           from flask import Flask, jsonify, request
           app = Flask(__name__)
@@ -506,42 +637,35 @@ Resources:
           PYAPP
           cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
           {"logs":{"logs_collected":{"files":{"collect_list":[
-            {"file_path":"/var/log/sorni/purchase.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"purchase-service"},
             {"file_path":"/var/log/sorni/payment.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"payment-service"}
           ]}}}}
           CWCONFIG
-          PURCHASE_ENV="$(printf 'Environment=PAYMENT_SERVICE_URL=%s' '${PurchasePaymentServiceUrl}')"
-          for s in purchase payment; do
-            p=5002; [ "$s" = "payment" ] && p=5004
-            envs=""; [ "$s" = "purchase" ] && envs="$PURCHASE_ENV"
-            cat > "/etc/systemd/system/sorni-$s.service" << SRV
+          cat > /etc/systemd/system/sorni-payment.service << 'SRV'
           [Unit]
-          Description=Sorny $s
+          Description=Sorny payment
           After=network-online.target
           Wants=network-online.target
 
           [Service]
-          WorkingDirectory=/opt/sorni/$s
-          $envs
-          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:$p --workers 2 app:app
+          WorkingDirectory=/opt/sorni/payment
+          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5004 --workers 2 app:app
           Restart=always
           RestartSec=3
-          StandardOutput=append:/var/log/sorni/$s.log
-          StandardError=append:/var/log/sorni/$s.log
+          StandardOutput=append:/var/log/sorni/payment.log
+          StandardError=append:/var/log/sorni/payment.log
 
           [Install]
           WantedBy=multi-user.target
           SRV
-          done
-          systemctl daemon-reload && systemctl enable sorni-purchase sorni-payment && systemctl start sorni-purchase sorni-payment
+          systemctl daemon-reload && systemctl enable sorni-payment && systemctl start sorni-payment
           /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-services-${Environment}
+          Value: !Sub ${ProjectName}-payment-${Environment}
         - Key: Lab
           Value: m2-c3-sorny-microservices
 
-  # TARGET GROUPS
+  # ── Target Groups ─────────────────────────────────────────────────────────────
   FrontendTg:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -581,7 +705,7 @@ Resources:
       Matcher:
         HttpCode: 200
       Targets:
-        - Id: !Ref MonolithNode
+        - Id: !Ref DeliveryNode
           Port: 5005
 
   PurchaseTg:
@@ -595,7 +719,7 @@ Resources:
       Matcher:
         HttpCode: 200
       Targets:
-        - Id: !Ref ServicesNode
+        - Id: !Ref PurchaseNode
           Port: 5002
 
   PaymentTg:
@@ -609,10 +733,10 @@ Resources:
       Matcher:
         HttpCode: 200
       Targets:
-        - Id: !Ref ServicesNode
+        - Id: !Ref PaymentNode
           Port: 5004
 
-  # ALB RULES
+  # ── ALB Rules ─────────────────────────────────────────────────────────────────
   ApiToMonolithRule:
     Condition: ShouldCreateBaseRules
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
@@ -652,6 +776,19 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref PurchaseTg
 
+  DeliveryRule:
+    Condition: ShouldCreateMicroserviceRules
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref LabAlbListener
+      Priority: 20
+      Conditions:
+        - Field: path-pattern
+          Values: [/api/delivery, /api/delivery/*]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref DeliveryTg
+
   PaymentRule:
     Condition: ShouldCreateMicroserviceRules
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
@@ -665,7 +802,7 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref PaymentTg
 
-  # ALARMS
+  # ── CloudWatch Alarms ─────────────────────────────────────────────────────────
   FrontendNodeStatusAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -698,15 +835,47 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
 
-  ServicesNodeStatusAlarm:
+  DeliveryNodeStatusAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub ${ProjectName}-${Environment}-services-status-check
+      AlarmName: !Sub ${ProjectName}-${Environment}-delivery-status-check
       Namespace: AWS/EC2
       MetricName: StatusCheckFailed
       Dimensions:
         - Name: InstanceId
-          Value: !Ref ServicesNode
+          Value: !Ref DeliveryNode
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  PurchaseNodeStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-purchase-status-check
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref PurchaseNode
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  PaymentNodeStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-payment-status-check
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref PaymentNode
       Statistic: Maximum
       Period: 60
       EvaluationPeriods: 2
@@ -726,8 +895,12 @@ Outputs:
     Value: !Ref FrontendNode
   MonolithNodeId:
     Value: !Ref MonolithNode
-  ServicesNodeId:
-    Value: !Ref ServicesNode
+  DeliveryNodeId:
+    Value: !Ref DeliveryNode
+  PurchaseNodeId:
+    Value: !Ref PurchaseNode
+  PaymentNodeId:
+    Value: !Ref PaymentNode
   FrontendTargetGroupArn:
     Value: !Ref FrontendTg
   MonolithTargetGroupArn:
