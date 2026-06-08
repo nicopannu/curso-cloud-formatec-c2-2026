@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: "Sorny commerce microservices - multi-EC2: frontend, monolith, purchase+stock+payment"
+Description: "Sorny commerce microservices - multi-EC2: frontend, monolith, purchase+payment"
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -21,7 +21,6 @@ Metadata:
         Parameters:
           - ProjectName
           - Environment
-          - PurchaseStockServiceUrl
           - PurchasePaymentServiceUrl
           - CreateBaseAlbRules
           - CreateMicroserviceAlbRules
@@ -62,11 +61,6 @@ Parameters:
     Type: String
     Default: microservices-site
     AllowedPattern: "^[a-z0-9-]+$"
-
-  PurchaseStockServiceUrl:
-    Type: String
-    Default: http://127.0.0.1:5999/api/stock
-    Description: URL rota para purchase-service (5999 no existe)
 
   PurchasePaymentServiceUrl:
     Type: String
@@ -195,8 +189,8 @@ Resources:
   ServicesSg:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub ${ProjectName}-services-sg-${Environment}
-      GroupDescription: SG purchase+stock+payment Sorny
+      GroupName: !Sub ${ProjectName}-purchase-payment-sg-${Environment}
+      GroupDescription: SG purchase+payment Sorny
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -208,7 +202,7 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-services-sg-${Environment}
+          Value: !Sub ${ProjectName}-purchase-payment-sg-${Environment}
         - Key: Lab
           Value: m2-c3-sorny-microservices
 
@@ -377,7 +371,7 @@ Resources:
           from flask import Flask, jsonify, request
           app = Flask(__name__)
           PRODUCTS=[{"sku":"sorni-luma-32","name":"Sorny Luma 32","description":"LED 32 pulgadas para habitacion o cocina","price":189999},{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","description":"Smart TV 43 pulgadas Full HD","price":319999},{"sku":"sorni-croma-50","name":"Sorny Croma 50","description":"4K 50 pulgadas con HDR basico","price":489999},{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","description":"4K 55 pulgadas, panel rapido para deportes","price":629999},{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","description":"4K 65 pulgadas para living grande","price":899999},{"sku":"sorni-mega-75","name":"Sorny Mega 75","description":"75 pulgadas, experiencia cine en casa","price":1299999}]
-          STOCK={i["sku"]:3 for i in PRODUCTS}
+          INVENTORY={i["sku"]:3 for i in PRODUCTS}
           PURCHASES={}
           def fp(s): return next((i for i in PRODUCTS if i["sku"]==s),None)
           @app.get("/api/health")
@@ -388,8 +382,8 @@ Resources:
           def create():
               p=request.get_json(silent=True) or {}; s=p.get("sku"); pr=fp(s)
               if not pr: return jsonify({"error":"unknown_sku"}),404
-              if STOCK.get(s,0)<=0: return jsonify({"error":"out_of_stock"}),409
-              STOCK[s]-=1; pid="pur-"+uuid.uuid4().hex[:8]; purl="/checkout?pid="+pid+"&amount="+str(pr["price"])
+              if INVENTORY.get(s,0)<=0: return jsonify({"error":"out_of_inventory"}),409
+              INVENTORY[s]-=1; pid="pur-"+uuid.uuid4().hex[:8]; purl="/checkout?pid="+pid+"&amount="+str(pr["price"])
               PURCHASES[pid]={"purchase_id":pid,"sku":s,"status":"payment_pending","payment_url":purl}
               app.logger.info("monolith purchase created pid=%s sku=%s",pid,s)
               return jsonify({"backend":"monolithic-backend","purchase_id":pid,"sku":s,"status":"payment_pending","payment_url":purl})
@@ -449,7 +443,7 @@ Resources:
         - Key: Lab
           Value: m2-c3-sorny-microservices
 
-  # EC2: PURCHASE + STOCK + PAYMENT
+  # EC2: PURCHASE + PAYMENT
   ServicesNode:
     Type: AWS::EC2::Instance
     Properties:
@@ -468,26 +462,25 @@ Resources:
           exec > >(tee /var/log/user-data.log) 2>&1
           dnf update -y && dnf install -y python3 python3-pip amazon-cloudwatch-agent
           pip3 install flask requests gunicorn
-          mkdir -p /opt/sorni/{purchase,stock,payment} /var/log/sorni
+          mkdir -p /opt/sorni/{purchase,payment} /var/log/sorni
           cat > /opt/sorni/purchase/app.py << 'PYAPP'
           import os, uuid, requests
           from flask import Flask, jsonify, request
           app = Flask(__name__)
-          SU=os.getenv("STOCK_SERVICE_URL","http://127.0.0.1:5999/api/stock")
           PU=os.getenv("PAYMENT_SERVICE_URL","http://127.0.0.1:5004/api/payments")
+          PRODUCTS={"sorni-luma-32":{"sku":"sorni-luma-32","name":"Sorny Luma 32","price":189999},"sorni-braviax-43":{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","price":319999},"sorni-croma-50":{"sku":"sorni-croma-50","name":"Sorny Croma 50","price":489999},"sorni-trinitronix-55":{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","price":629999},"sorni-cinepro-65":{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","price":899999},"sorni-mega-75":{"sku":"sorni-mega-75","name":"Sorny Mega 75","price":1299999}}
           PUR={}
           @app.get("/api/purchases/health")
-          def h(): return jsonify({"service":"purchase-service","status":"ok","stock_service_url":SU,"payment_service_url":PU})
+          def h(): return jsonify({"service":"purchase-service","status":"ok","payment_service_url":PU})
           @app.post("/api/purchases")
           def create():
               p=request.get_json(silent=True) or {}; sk=p.get("sku"); cs=p.get("customer","cliente@sorny.local")
               if not sk: return jsonify({"error":"missing_sku"}),400
+              product=PRODUCTS.get(sk)
+              if not product: return jsonify({"error":"unknown_sku"}),404
               app.logger.info("purchase sku=%s customer=%s",sk,cs)
-              try: sr=requests.post(SU.rstrip("/")+"/reserve",json={"sku":sk,"quantity":1},timeout=2)
-              except Exception as e: app.logger.exception("stock fail sku=%s url=%s",sk,SU); return jsonify({"error":"stock_service_unavailable","detail":str(e)}),503
-              if sr.status_code!=200: return jsonify({"error":"stock_rejected","detail":sr.json()}),sr.status_code
-              sd=sr.json(); pid="pur-"+uuid.uuid4().hex[:8]
-              try: pr=requests.post(PU.rstrip("/")+"/checkout",json={"purchase_id":pid,"sku":sk,"amount":sd["product"]["price"]},timeout=2)
+              pid="pur-"+uuid.uuid4().hex[:8]
+              try: pr=requests.post(PU.rstrip("/")+"/checkout",json={"purchase_id":pid,"sku":sk,"amount":product["price"]},timeout=2)
               except Exception as e: app.logger.exception("payment fail pid=%s url=%s",pid,PU); return jsonify({"error":"payment_service_unavailable","detail":str(e)}),503
               if pr.status_code!=200: return jsonify({"error":"payment_rejected","detail":pr.json()}),pr.status_code
               pd=pr.json(); pu={"purchase_id":pid,"sku":sk,"status":"payment_pending","payment_url":pd["payment_url"],"backend":"purchase-service"}
@@ -497,26 +490,6 @@ Resources:
               pu=PUR.get(pid)
               if not pu: return jsonify({"error":"not_found"}),404
               return jsonify(pu)
-          PYAPP
-          cat > /opt/sorni/stock/app.py << 'PYAPP'
-          from flask import Flask, jsonify, request
-          app = Flask(__name__)
-          PROD={"sorni-luma-32":{"sku":"sorni-luma-32","name":"Sorny Luma 32","price":189999},"sorni-braviax-43":{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","price":319999},"sorni-croma-50":{"sku":"sorni-croma-50","name":"Sorny Croma 50","price":489999},"sorni-trinitronix-55":{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","price":629999},"sorni-cinepro-65":{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","price":899999},"sorni-mega-75":{"sku":"sorni-mega-75","name":"Sorny Mega 75","price":1299999}}
-          STK={s:3 for s in PROD}
-          @app.get("/api/stock/health")
-          def h(): return jsonify({"service":"stock-service","status":"ok"})
-          @app.get("/api/stock/<sk>")
-          def get(sk):
-              pr=PROD.get(sk)
-              if not pr: return jsonify({"error":"unknown_sku"}),404
-              return jsonify({"backend":"stock-service","product":pr,"available":STK.get(sk,0)})
-          @app.post("/api/stock/reserve")
-          def reserve():
-              p=request.get_json(silent=True) or {}; sk=p.get("sku"); q=int(p.get("quantity",1)); pr=PROD.get(sk)
-              if not pr: return jsonify({"error":"unknown_sku"}),404
-              if STK.get(sk,0)<q: return jsonify({"error":"out_of_stock","available":STK.get(sk,0)}),409
-              STK[sk]-=q; app.logger.info("reserved sku=%s qty=%s remaining=%s",sk,q,STK[sk])
-              return jsonify({"backend":"stock-service","sku":sk,"reserved":q,"remaining":STK[sk],"product":pr})
           PYAPP
           cat > /opt/sorni/payment/app.py << 'PYAPP'
           from flask import Flask, jsonify, request
@@ -534,13 +507,12 @@ Resources:
           cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
           {"logs":{"logs_collected":{"files":{"collect_list":[
             {"file_path":"/var/log/sorni/purchase.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"purchase-service"},
-            {"file_path":"/var/log/sorni/stock.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"stock-service"},
             {"file_path":"/var/log/sorni/payment.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"payment-service"}
           ]}}}}
           CWCONFIG
-          PURCHASE_ENV="$(printf 'Environment=STOCK_SERVICE_URL=%s\nEnvironment=PAYMENT_SERVICE_URL=%s' '${PurchaseStockServiceUrl}' '${PurchasePaymentServiceUrl}')"
-          for s in purchase stock payment; do
-            p=5002; [ "$s" = "stock" ] && p=5003; [ "$s" = "payment" ] && p=5004
+          PURCHASE_ENV="$(printf 'Environment=PAYMENT_SERVICE_URL=%s' '${PurchasePaymentServiceUrl}')"
+          for s in purchase payment; do
+            p=5002; [ "$s" = "payment" ] && p=5004
             envs=""; [ "$s" = "purchase" ] && envs="$PURCHASE_ENV"
             cat > "/etc/systemd/system/sorni-$s.service" << SRV
           [Unit]
@@ -561,7 +533,7 @@ Resources:
           WantedBy=multi-user.target
           SRV
           done
-          systemctl daemon-reload && systemctl enable sorni-purchase sorni-stock sorni-payment && systemctl start sorni-purchase sorni-stock sorni-payment
+          systemctl daemon-reload && systemctl enable sorni-purchase sorni-payment && systemctl start sorni-purchase sorni-payment
           /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
       Tags:
         - Key: Name
@@ -626,20 +598,6 @@ Resources:
         - Id: !Ref ServicesNode
           Port: 5002
 
-  StockTg:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      VpcId: !Ref VpcId
-      Protocol: HTTP
-      Port: 5003
-      TargetType: instance
-      HealthCheckPath: /api/stock/health
-      Matcher:
-        HttpCode: 200
-      Targets:
-        - Id: !Ref ServicesNode
-          Port: 5003
-
   PaymentTg:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -693,19 +651,6 @@ Resources:
       Actions:
         - Type: forward
           TargetGroupArn: !Ref PurchaseTg
-
-  StockRule:
-    Condition: ShouldCreateMicroserviceRules
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      ListenerArn: !Ref LabAlbListener
-      Priority: 20
-      Conditions:
-        - Field: path-pattern
-          Values: [/api/stock, /api/stock/*]
-      Actions:
-        - Type: forward
-          TargetGroupArn: !Ref StockTg
 
   PaymentRule:
     Condition: ShouldCreateMicroserviceRules
@@ -791,10 +736,5 @@ Outputs:
     Value: !Ref DeliveryTg
   PurchaseTargetGroupArn:
     Value: !Ref PurchaseTg
-  StockTargetGroupArn:
-    Value: !Ref StockTg
   PaymentTargetGroupArn:
     Value: !Ref PaymentTg
-  BrokenPurchaseStockServiceUrl:
-    Description: URL rota de stock (5999) para diagnostico
-    Value: !Ref PurchaseStockServiceUrl
