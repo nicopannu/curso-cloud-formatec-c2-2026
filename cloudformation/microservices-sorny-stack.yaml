@@ -322,12 +322,21 @@ Resources:
           {"logs":{"logs_collected":{"files":{"collect_list":[{"file_path":"/var/log/sorni/frontend.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"frontend"}]}}}}
           CWCONFIG
           cat > /etc/systemd/system/sorni-frontend.service << 'SRV'
-          [Unit] Description=Sorny frontend After=network-online.target Wants=network-online.target
-          [Service] WorkingDirectory=/opt/sorni/frontend
+          [Unit]
+          Description=Sorny frontend
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          WorkingDirectory=/opt/sorni/frontend
           ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 app:app
-          Restart=always RestartSec=3
-          StandardOutput=append:/var/log/sorni/frontend.log StandardError=append:/var/log/sorni/frontend.log
-          [Install] WantedBy=multi-user.target
+          Restart=always
+          RestartSec=3
+          StandardOutput=append:/var/log/sorni/frontend.log
+          StandardError=append:/var/log/sorni/frontend.log
+
+          [Install]
+          WantedBy=multi-user.target
           SRV
           systemctl daemon-reload && systemctl enable sorni-frontend && systemctl start sorni-frontend
           /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
@@ -409,12 +418,21 @@ Resources:
           for s in monolith delivery; do
             p=5001; [ "$s" = "delivery" ] && p=5005
             cat > "/etc/systemd/system/sorni-$s.service" << SRV
-          [Unit] Description=Sorny $s After=network-online.target Wants=network-online.target
-          [Service] WorkingDirectory=/opt/sorni/$s
+          [Unit]
+          Description=Sorny $s
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          WorkingDirectory=/opt/sorni/$s
           ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:$p --workers 2 app:app
-          Restart=always RestartSec=3
-          StandardOutput=append:/var/log/sorni/$s.log StandardError=append:/var/log/sorni/$s.log
-          [Install] WantedBy=multi-user.target
+          Restart=always
+          RestartSec=3
+          StandardOutput=append:/var/log/sorni/$s.log
+          StandardError=append:/var/log/sorni/$s.log
+
+          [Install]
+          WantedBy=multi-user.target
           SRV
           done
           systemctl daemon-reload && systemctl enable sorni-monolith sorni-delivery && systemctl start sorni-monolith sorni-delivery
@@ -519,13 +537,22 @@ Resources:
             p=5002; [ "$s" = "stock" ] && p=5003; [ "$s" = "payment" ] && p=5004
             envs=""; [ "$s" = "purchase" ] && envs="$PURCHASE_ENV"
             cat > "/etc/systemd/system/sorni-$s.service" << SRV
-          [Unit] Description=Sorny $s After=network-online.target Wants=network-online.target
-          [Service] WorkingDirectory=/opt/sorni/$s
+          [Unit]
+          Description=Sorny $s
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          WorkingDirectory=/opt/sorni/$s
           $envs
           ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:$p --workers 2 app:app
-          Restart=always RestartSec=3
-          StandardOutput=append:/var/log/sorni/$s.log StandardError=append:/var/log/sorni/$s.log
-          [Install] WantedBy=multi-user.target
+          Restart=always
+          RestartSec=3
+          StandardOutput=append:/var/log/sorni/$s.log
+          StandardError=append:/var/log/sorni/$s.log
+
+          [Install]
+          WantedBy=multi-user.target
           SRV
           done
           systemctl daemon-reload && systemctl enable sorni-purchase sorni-stock sorni-payment && systemctl start sorni-purchase sorni-stock sorni-payment
