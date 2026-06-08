@@ -15,26 +15,23 @@ Sorny es una tienda de televisores. El sitio permite ver seis modelos, seleccion
 Hoy, todo el backend vive en un unico proceso. Cuando un cliente compra, ese proceso:
 
 1. recibe la solicitud;
-2. revisa si hay stock;
-3. descuenta el inventario;
-4. genera un enlace de pago;
-5. registra los datos de envio del cliente.
+2. genera un enlace de pago;
+3. registra los datos de envio del cliente.
 
-Eso funciona, pero tiene un problema: las tres responsabilidades (compras, stock, pagos) estan mezcladas en el mismo codigo. En este laboratorio se divide ese backend en servicios independientes, **cada uno en su propia EC2**.
+Eso funciona, pero tiene un problema: las responsabilidades (compras, pagos, delivery) estan mezcladas en el mismo codigo. En este laboratorio se divide ese backend en servicios independientes, **cada uno en su propia EC2**.
 
-| Servicio | EC2 | Que hace |
-|---|---|---|
-| `frontend` | EC2-frontend | Muestra la tienda y gestiona el checkout |
-| `monolithic-backend` | EC2-monolith | Responde catalogo, compras y delivery (monolito inicial) |
-| `delivery-service` | EC2-monolith | Recibe datos de contacto para coordinar envio |
-| `purchase-service` | EC2-services | Recibe la compra y coordina stock + pago |
-| `stock-service` | EC2-services | Valida y reserva inventario |
-| `payment-service` | EC2-services | Genera el enlace de pago |
+| Servicio | EC2 | Puerto | Que hace |
+|---|---|---|---|
+| `frontend` | EC2-frontend | 5000 | Muestra la tienda y gestiona el checkout |
+| `monolithic-backend` | EC2-monolith | 5001 | Catalogo, compras y delivery (monolito inicial) |
+| `delivery-service` | EC2-monolith | 5005 | Recibe datos de contacto para coordinar envio |
+| `purchase-service` | EC2-services | 5002 | Recibe la compra y coordina el pago |
+| `payment-service` | EC2-services | 5004 | Genera el enlace de pago |
 
 Al dividir el backend aparecen preguntas nuevas:
+- como decide el ALB a que servicio mandar cada request;
 - como se comunican servicios que estan en distintas EC2s;
-- que pasa si un servicio responde mal o falla;
-- donde miro logs cuando el flujo completo no funciona.
+- donde miro logs cuando quiero entender que paso en el flujo completo.
 
 ---
 
@@ -63,12 +60,10 @@ ALB
   |
   +-- /api/purchases/*    -> purchase-service (EC2-services, puerto 5002)
   |
-  +-- /api/stock/*        -> stock-service (EC2-services, puerto 5003)
-  |
   +-- /api/payments/*     -> payment-service (EC2-services, puerto 5004)
   |
   +-- /api/*              -> monolith fallback (EC2-monolith, puerto 5001)
-       (fallback para rutas no migradas)
+       (fallback para rutas no migradas: /api/delivery, /api/products, /api/health)
 ```
 
 ---
@@ -92,7 +87,7 @@ ALB
 
 > **¿Por que necesitamos dos subnets?** El ALB necesita al menos dos subnets en distintas AZs para ser altamente disponible. La EC2 principal va en una subnet, el ALB ocupa ambas.
 
-> **¿Por que SSM en vez de SSH?** Session Manager permite conectarse a la EC2 desde la consola de AWS sin clave SSH ni IP publica. Durante el laboratorio se usa para inspeccionar servicios y corregir configuracion.
+> **¿Por que SSM en vez de SSH?** Session Manager permite conectarse a la EC2 desde la consola de AWS sin clave SSH ni IP publica. Durante el laboratorio se usa para inspeccionar servicios y verificar configuracion.
 
 ### Anotar valores necesarios
 
@@ -112,12 +107,12 @@ El stack `cloudformation/microservices-sorny-stack.yaml` crea todo lo necesario:
 - 1 ALB publico con listener HTTP :80
 - Security Groups para ALB y cada EC2
 - 3 EC2s con Amazon Linux 2023 (frontend, monolith+delivery, servicios)
-- 6 target groups (frontend, monolith, delivery, purchase, stock, payment)
+- 5 target groups (frontend, monolith, delivery, purchase, payment)
 - Reglas base del ALB (`/api/*` -> monolith, `/*` -> frontend)
 - CloudWatch Log Group
 - Alarmas de status check para cada EC2
 
-> **¿Que aplicaciones levanta cada EC2?** El template instala Python, Flask y Gunicorn. Cada servicio tiene su propio codigo y corre como proceso systemd independiente. La EC2-frontend tiene solo el frontend. La EC2-monolith tiene el monolito (5001) y el servicio de delivery (5005). La EC2-services tiene purchase (5002), stock (5003) y payment (5004).
+> **¿Que aplicaciones levanta cada EC2?** El template instala Python, Flask y Gunicorn. Cada servicio tiene su propio codigo y corre como proceso systemd independiente. La EC2-frontend tiene solo el frontend. La EC2-monolith tiene el monolito (5001) y el servicio de delivery (5005). La EC2-services tiene purchase (5002) y payment (5004).
 
 ### 1.1 Desplegar con CloudFormation (AWS Console)
 
@@ -135,7 +130,6 @@ El stack `cloudformation/microservices-sorny-stack.yaml` crea todo lo necesario:
    - **LatestAmiId:** dejar default
    - **ProjectName:** `sorny`
    - **Environment:** `microservices-site`
-   - **PurchaseStockServiceUrl:** dejar default (`http://127.0.0.1:5999/api/stock`)
    - **PurchasePaymentServiceUrl:** dejar default (`http://127.0.0.1:5004/api/payments`)
    - **CreateBaseAlbRules:** `true`
    - **CreateMicroserviceAlbRules:** `false`
@@ -143,9 +137,7 @@ El stack `cloudformation/microservices-sorny-stack.yaml` crea todo lo necesario:
 8. Click **Submit**
 9. Esperar a estado **CREATE_COMPLETE** (~8-10 minutos)
 
-> **¿Por que CreateBaseAlbRules=true y CreateMicroserviceAlbRules=false?** Con `true`, el sitio arranca funcionando contra el monolito. Con `false`, los alumnos crean las reglas manualmente como parte del ejercicio.
-
-> **¿Por que PurchaseStockServiceUrl apunta al puerto 5999?** Ese puerto no existe. Es intencional: cuando los alumnos activen las reglas de microservicios, `purchase-service` fallara al consultar stock. Esa falla se diagnostica con CloudWatch.
+> **¿Por que CreateBaseAlbRules=true y CreateMicroserviceAlbRules=false?** Con `CreateBaseAlbRules=true`, el sitio arranca funcionando contra el monolito. Con `CreateMicroserviceAlbRules=false`, los alumnos crean las reglas de microservicios manualmente como parte del ejercicio.
 
 ### 1.2 Anotar outputs del stack
 
@@ -161,9 +153,7 @@ Cuando el stack llegue a **CREATE_COMPLETE**:
    - `MonolithTargetGroupArn` — ARN del TG monolith
    - `DeliveryTargetGroupArn` — ARN del TG delivery
    - `PurchaseTargetGroupArn` — ARN del TG purchase
-   - `StockTargetGroupArn` — ARN del TG stock
    - `PaymentTargetGroupArn` — ARN del TG payment
-   - `BrokenPurchaseStockServiceUrl` — confirma la URL rota
 
 ### Troubleshooting de la Fase 1
 
@@ -185,12 +175,12 @@ Cuando el stack llegue a **CREATE_COMPLETE**:
 ### 2.2 Probar la compra completa
 
 1. Click en **Comprar ahora** en cualquier televisor
-2. Deberia aparecer un modal con "Procesando compra..."
-3. Luego el modal muestra un formulario con campos: Nombre, Email, Telefono, Direccion de envio
-4. Completar los datos y click en **Confirmar compra**
-5. Deberia verse una pantalla de exito: "¡Compra procesada! Te vamos a contactar para coordinar el envio"
+2. Deberia aparecer un modal con "Preparando pago..."
+3. Luego el modal muestra el formulario de pago con campos de tarjeta, nombre, email, telefono y direccion de envio
+4. Completar los datos y click en **Pagar y coordinar envio**
+5. Deberia verse una pantalla de exito: "¡Pago aprobado! Te vamos a contactar para coordinar el envio"
 
-> **¿Que paso atras?** El frontend envio un POST a `/api/purchases`. El monolito (EC2-monolith, puerto 5001) recibio la solicitud, verifico stock, genero un ID de compra y devolvio un enlace. Luego el frontend mostro el formulario de checkout. Al confirmar, envio un POST a `/api/delivery` que el monolito tambien proceso. Todo paso por el mismo backend monolitico en una sola EC2.
+> **¿Que paso atras?** El frontend envio un POST a `/api/purchases`. El monolito (EC2-monolith, puerto 5001) recibio la solicitud, genero un ID de compra y un enlace de pago. Luego el frontend mostro el formulario de checkout. Al confirmar, envio un POST a `/api/delivery` que el monolito tambien proceso. Todo paso por el mismo backend monolitico en una sola EC2.
 
 ### 2.3 Ver los endpoints del monolito
 
@@ -199,7 +189,7 @@ Probar directamente:
 - `http://<AlbDnsName>/api/products` — lista de 6 modelos con `"backend": "monolithic-backend"`
 - `http://<AlbDnsName>/api/health` — `{"service": "monolithic-backend", "status": "ok"}`
 
-> **¿Por que aparece "monolithic-backend"?** Cada servicio responde con un campo `backend` que indica quien proceso la request. Cuando se separen las rutas, ese campo mostrara `purchase-service`, `stock-service` o `payment-service`.
+> **¿Por que aparece "monolithic-backend"?** Cada servicio responde con un campo `backend` que indica quien proceso la request. Cuando se separen las rutas, ese campo mostrara `purchase-service` o `payment-service` en vez de `monolithic-backend`.
 
 ---
 
@@ -209,16 +199,15 @@ Probar directamente:
 
 1. Ir a **EC2 > Target Groups**
 2. Buscar los target groups que empiezan con `sorni-`
-3. Identificar los 6 TGs:
+3. Identificar los 5 TGs:
    - `sorni-Front-*` (frontend, EC2-frontend, puerto 5000)
    - `sorni-Monol-*` (monolith, EC2-monolith, puerto 5001)
    - `sorni-Deliv-*` (delivery, EC2-monolith, puerto 5005)
    - `sorni-Purch-*` (purchase, EC2-services, puerto 5002)
-   - `sorni-Stock-*` (stock, EC2-services, puerto 5003)
    - `sorni-Payme-*` (payment, EC2-services, puerto 5004)
 4. Verificar estado:
    - `frontend` y `monolith` deben estar **healthy**
-   - `delivery`, `purchase`, `stock`, `payment` pueden estar **unused** (sin reglas del ALB)
+   - `delivery`, `purchase`, `payment` pueden estar **unused** (sin reglas del ALB)
 
 > **¿Que significa "unused"?** Un target group sin reglas del ALB que lo referencien aparece como `unused`. No es un error: los servicios estan vivos en sus EC2s, sus health checks pasan, pero nadie les envia trafico desde el ALB todavia.
 
@@ -245,7 +234,6 @@ En la EC2-services:
 
 ```bash
 curl -s http://127.0.0.1:5002/api/purchases/health
-curl -s http://127.0.0.1:5003/api/stock/health
 curl -s http://127.0.0.1:5004/api/payments/health
 ```
 
@@ -255,163 +243,209 @@ curl -s http://127.0.0.1:5004/api/payments/health
 
 1. Ir a **EC2 > Load Balancers**
 2. Seleccionar el ALB (`sorni-ms-*`)
-3. Pestana **Listeners** > click en `HTTP :80` > **Rules**
+3. Pestana **Listeners and rules** > click en el enlace `HTTP:80`
 4. Deberian verse:
    - **Priority 100:** `/api/*` -> monolith TG
    - **Priority 200:** `/*` -> frontend TG
    - **Default:** fixed-response 404
 
+> **¿Por que el default es 404?** Es una buena practica: el ALB no envia trafico a ningun lugar que no este explicitamente configurado. Si llega una ruta desconocida, responde 404 en vez de redirigir a algun servicio por error.
+
 ---
 
-## Fase 4: Crear reglas path-based del ALB
+## Fase 4: Crear las reglas path-based del ALB
 
-El ALB decide a que target group enviar cada request segun la ruta. Vamos a separar el trafico hacia los servicios en EC2-services.
+El ALB decide a que target group enviar cada request segun la ruta. En esta fase se crean las reglas que desvian el trafico de compras y pagos hacia los servicios en EC2-services.
 
-### 4.1 Crear regla para compras
+> **¿Por que crear las reglas manualmente si ya existen target groups?** Un target group solo define un destino posible. Las reglas del listener son las que conectan las rutas con los destinos. Sin reglas, el TG existe pero nadie le envia trafico.
 
-1. Ir a **EC2 > Load Balancers** > ALB > **Listeners** > `HTTP :80` > **View/edit rules**
-2. Click **Add rule**
-3. Configurar:
-   - **Priority:** `10`
-   - **Condition > Path:** `/api/purchases`
-   - **Additional path:** `/api/purchases/*`
-   - **Action:** Forward to `sorni-Purch-*` (purchase-service)
-4. Guardar
+### 4.0 Navegar al listener del ALB
 
-### 4.2 Crear regla para stock
+1. Ir a **EC2** (menu lateral izquierdo)
+2. En la seccion **Load Balancing**, click en **Load Balancers**
+3. Click en el nombre del ALB (`sorni-ms-microservices-site` o similar)
+4. Click en la pestana **Listeners and rules**
+5. Click en el enlace **HTTP:80** — se abre la pantalla de reglas del listener
 
-1. Click **Add rule**
-2. Configurar:
-   - **Priority:** `20`
-   - **Condition > Path:** `/api/stock`
-   - **Additional path:** `/api/stock/*`
-   - **Action:** Forward to `sorni-Stock-*`
-3. Guardar
+Queda abierta la lista de reglas. Se ven las dos reglas base (priority 100 y 200) y la default action.
 
-### 4.3 Crear regla para pagos
+---
 
-1. Click **Add rule**
-2. Configurar:
-   - **Priority:** `30`
-   - **Condition > Path:** `/api/payments`
-   - **Additional path:** `/api/payments/*`
-   - **Action:** Forward to `sorni-Payme-*`
-3. Guardar
+### 4.1 Crear regla para purchase-service
 
-### 4.4 Verificar el orden final
+Esta regla envia las solicitudes de compra a `purchase-service` en EC2-services.
 
-| Prioridad | Path | Target group | EC2 |
+1. Click en el boton **Add rule** (arriba a la derecha)
+
+**Step 1 — Rule details:**
+- **Name:** `purchase-service-rule`
+- Tags: opcional
+- Click **Next**
+
+**Step 2 — Add conditions:**
+- Click **Add condition**
+- **Condition type:** Path
+- En el campo de valores ingresar: `/api/purchases`
+- Click **Add new value** (el `+` o "Add another value")
+- Ingresar: `/api/purchases/*`
+- Click **Confirm**
+- Click **Next**
+
+**Step 3 — Define actions:**
+- **Routing action:** Forward to target groups
+- En **Target group**, seleccionar `sorni-Purch-*` (purchase-service, puerto 5002)
+- Dejar weight en 1
+- Click **Next**
+
+**Step 4 — Set rule priority:**
+- **Priority:** `10`
+- Click **Next**
+
+**Review:** verificar que aparece:
+- Name: `purchase-service-rule`
+- Condition: Path is `/api/purchases` OR `/api/purchases/*`
+- Action: Forward to `sorni-Purch-*`
+- Priority: 10
+
+Click **Create**.
+
+---
+
+### 4.2 Crear regla para payment-service
+
+Esta regla envia las solicitudes de pago a `payment-service` en EC2-services.
+
+1. Click en **Add rule** nuevamente
+
+**Step 1 — Rule details:**
+- **Name:** `payment-service-rule`
+- Click **Next**
+
+**Step 2 — Add conditions:**
+- Click **Add condition**
+- **Condition type:** Path
+- Ingresar: `/api/payments`
+- Click **Add new value**
+- Ingresar: `/api/payments/*`
+- Click **Confirm**
+- Click **Next**
+
+**Step 3 — Define actions:**
+- **Routing action:** Forward to target groups
+- **Target group:** `sorni-Payme-*` (payment-service, puerto 5004)
+- Click **Next**
+
+**Step 4 — Set rule priority:**
+- **Priority:** `30`
+- Click **Next**
+
+Click **Create**.
+
+---
+
+### 4.3 Verificar el orden final de reglas
+
+Despues de crear ambas reglas, la lista debe quedar asi:
+
+| Prioridad | Condicion de path | Target group | EC2 |
 |---|---|---|---|
-| 10 | `/api/purchases`, `/api/purchases/*` | purchase | EC2-services |
-| 20 | `/api/stock`, `/api/stock/*` | stock | EC2-services |
-| 30 | `/api/payments`, `/api/payments/*` | payment | EC2-services |
-| 100 | `/api/*` | monolith | EC2-monolith |
-| 200 | `/*` | frontend | EC2-frontend |
-| default | (ninguna) | fixed-response 404 | — |
+| 10 | `/api/purchases` o `/api/purchases/*` | sorni-Purch-* | EC2-services (5002) |
+| 30 | `/api/payments` o `/api/payments/*` | sorni-Payme-* | EC2-services (5004) |
+| 100 | `/api/*` | sorni-Monol-* | EC2-monolith (5001) |
+| 200 | `/*` | sorni-Front-* | EC2-frontend (5000) |
+| default | — | fixed-response 404 | — |
 
-### 4.5 Verificar health
+> **¿Por que importa el orden de prioridad?** El ALB evalua las reglas de menor a mayor numero. La regla de prioridad 10 se evalua primero. Si una request llega a `/api/purchases/nueva`, la regla 10 la captura antes de que llegue a la regla 100 (`/api/*`). Sin la prioridad correcta, el monolito seguiria recibiendo todo el trafico de `/api/*` incluyendo compras.
+
+### 4.4 Verificar health de los nuevos target groups
 
 1. Ir a **EC2 > Target Groups**
-2. `purchase`, `stock`, `payment` deben pasar de `unused` a **healthy**
+2. `purchase` y `payment` deben pasar de `unused` a **healthy** en los proximos 1-2 minutos
+
+> **¿Por que tarda en pasar a healthy?** El ALB hace health checks periodicos (cada 30 segundos por default). Cuando agrega una regla que apunta a un TG, el ALB comienza a verificar el health del target. Hasta que no pase el primer check, el estado es `initial`.
 
 ---
 
 ## Fase 5: Probar el flujo con microservicios
 
+Ahora que las reglas estan en lugar, las compras deben ser procesadas por `purchase-service` en EC2-services en vez del monolito.
+
+### 5.1 Probar la compra
+
 1. Ir al sitio `http://<AlbDnsName>/`
-2. Comprar un televisor
+2. Click en **Comprar ahora** en cualquier televisor
+3. Completar el formulario de pago y confirmar
 
-**Resultado esperado:** La compra falla. Muestra "stock_service_unavailable".
+**Resultado esperado:** La compra se completa exitosamente, igual que antes.
 
-> **¿Por que falla si los target groups estan healthy?** `purchase-service` en EC2-services intenta consultar stock en `127.0.0.1:5999`, pero stock corre en `127.0.0.1:5003`. El puerto 5999 no existe. El servicio esta "vivo" pero tiene una dependencia mal configurada.
+### 5.2 Confirmar que paso por purchase-service
 
-Probar los endpoints directamente:
+Probar el endpoint directamente:
 
-- `http://<AlbDnsName>/api/stock/sorni-luma-32` — responde OK con `"backend": "stock-service"`
-- `POST http://<AlbDnsName>/api/purchases` — falla con `stock_service_unavailable`
+```
+POST http://<AlbDnsName>/api/purchases
+Content-Type: application/json
+
+{"sku": "sorni-luma-32", "customer": "test@sorny.local"}
+```
+
+La respuesta debe incluir `"backend": "purchase-service"` — confirma que el request fue procesado por el servicio separado en EC2-services, no por el monolito.
+
+Antes de crear las reglas, esa misma request devolveria `"backend": "monolithic-backend"`.
+
+### 5.3 Verificar que el monolito sigue activo como fallback
+
+- `http://<AlbDnsName>/api/products` — sigue devolviendo `"backend": "monolithic-backend"` (la ruta `/api/products` no tiene regla propia, cae en priority 100 `/api/*` → monolith)
+- `http://<AlbDnsName>/api/health` — sigue devolviendo el health del monolito
+
+> **¿Por que /api/products sigue en el monolito?** La migracion es parcial e intencional. Solo `/api/purchases/*` y `/api/payments/*` fueron migrados. El resto de `/api/*` sigue yendo al monolito como fallback. Asi se puede migrar servicio por servicio sin necesidad de cambiar todo al mismo tiempo.
 
 ---
 
-## Fase 6: Diagnosticar con CloudWatch
+## Fase 6: Observar con CloudWatch
 
-### 6.1 Revisar logs de purchase-service
+Con los microservicios activos, cada servicio escribe sus propios logs en streams separados dentro del mismo log group.
 
-1. Ir a **CloudWatch > Log groups > `/sorny/microservices-site/site`**
-2. Abrir el log stream `purchase-service`
-3. Buscar el error:
+### 6.1 Ubicar el log group
 
-```
-stock reservation failed sku=sorni-luma-32 stock_service_url=http://127.0.0.1:5999/api/stock
-Connection refused
-```
+1. Ir a **CloudWatch > Log groups**
+2. Buscar `/sorny/microservices-site/site`
+3. Abrir el log group — se ven los streams por servicio:
+   - `frontend`
+   - `monolithic-backend`
+   - `delivery-service`
+   - `purchase-service`
+   - `payment-service`
 
-### 6.2 Confirmar que stock-service no recibio la llamada
+### 6.2 Ver los logs de una compra
 
-1. En el mismo log group, abrir `stock-service`
-2. No deberian verse registros de reserva para esa compra
+1. Abrir el stream `purchase-service`
+2. Buscar una entrada reciente — debe mostrar algo como:
+   ```
+   purchase sku=sorni-luma-32 customer=test@sorny.local
+   purchase created pid=pur-abc12345 sku=sorni-luma-32
+   payment link pid=pur-abc12345 amt=189999
+   ```
 
-### 6.3 Revisar metricas del ALB
+3. Abrir el stream `monolithic-backend`
+4. Notar que NO hay registro de la compra que hiciste via microservicio — esa request fue a purchase-service, no al monolito
 
-1. Ir a **EC2 > Target Groups** > `sorni-Purch-*` > **Monitoring**
-2. Revisar `HTTPCode_Target_5XX_Count` — debe haber picos de 503
+### 6.3 Comparar con logs del monolito
 
----
+1. Realizar una compra nueva directamente al monolito (necesita eliminar temporalmente la regla de purchase del ALB o hacerlo via curl):
+   ```bash
+   curl -s -X POST http://<AlbDnsName>/api/health
+   ```
+2. Los logs de health checks y requests a `/api/products` siguen apareciendo en `monolithic-backend`
 
-## Fase 7: Corregir y validar
+> **¿Por que es importante tener logs separados por servicio?** En un monolito, todos los logs van a un solo lugar. En microservicios, cada servicio tiene su propio stream. Esto permite filtrar rapidamente: si una compra falla, se abre `purchase-service`. Si el catalogo no carga, se abre `monolithic-backend`. No hay que buscar en un log gigante mezclado.
 
-### 7.1 Entrar a la EC2-services por Session Manager
+### 6.4 Revisar metricas del ALB por target group
 
-1. Ir a **EC2 > Instances**
-2. Seleccionar `sorny-services-*` (usar `ServicesNodeId`)
-3. **Connect > Session Manager > Connect**
-
-### 7.2 Inspeccionar la configuracion actual
-
-```bash
-sudo systemctl cat sorni-purchase
-```
-
-Debe mostrar `STOCK_SERVICE_URL=http://127.0.0.1:5999/api/stock`.
-
-### 7.3 Corregir la URL
-
-```bash
-sudo systemctl edit sorni-purchase
-```
-
-Agregar en el editor:
-
-```
-[Service]
-Environment=STOCK_SERVICE_URL=http://127.0.0.1:5003/api/stock
-```
-
-Guardar y salir.
-
-### 7.4 Recargar y reiniciar
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart sorni-purchase
-sudo systemctl status sorni-purchase --no-pager
-```
-
-### 7.5 Validar la correccion
-
-```bash
-sudo systemctl show sorni-purchase -p Environment
-```
-
-Debe mostrar `STOCK_SERVICE_URL=http://127.0.0.1:5003/api/stock`.
-
-### 7.6 Probar la compra nuevamente
-
-1. Volver al sitio
-2. Comprar un televisor
-3. Completar el formulario de contacto
-4. La compra debe completarse exitosamente
-
-La respuesta de la API ahora muestra `"backend": "purchase-service"`, confirmando que paso por el servicio separado en EC2-services.
+1. Ir a **EC2 > Target Groups** > `sorni-Purch-*` > pestana **Monitoring**
+2. Revisar `RequestCount` — debe mostrar picos correspondientes a las compras realizadas
+3. Comparar con `sorni-Monol-*` > **Monitoring**
+4. Notar que `RequestCount` del monolith disminuyo para las rutas migradas
 
 ---
 
@@ -429,11 +463,12 @@ La respuesta de la API ahora muestra `"backend": "purchase-service"`, confirmand
 ## Criterios de exito
 
 - El sitio Sorny responde con los 6 televisores en `http://<AlbDnsName>/`
-- La compra monolitica funciona con formulario de contacto y pantalla de exito
-- Los target groups de frontend y monolith estan healthy
-- Los target groups de purchase, stock y payment pasan a healthy al crear reglas del ALB
-- Sin las reglas, la compra falla con `stock_service_unavailable`
-- Los logs de CloudWatch muestran el error de conexion a puerto 5999
-- Corrigiendo `STOCK_SERVICE_URL` al puerto 5003, la compra funciona
-- La respuesta de la API muestra `"backend": "purchase-service"` despues de la correccion
-- Se puede explicar por que un servicio puede estar "healthy" pero el flujo completo falla
+- La compra funciona con el monolito antes de crear las reglas de microservicios
+- Los target groups de frontend y monolith estan healthy desde el inicio
+- Los target groups de purchase y payment pasan a healthy al crear las reglas del ALB
+- Despues de crear las reglas, `POST /api/purchases` devuelve `"backend": "purchase-service"`
+- `GET /api/products` sigue devolviendo `"backend": "monolithic-backend"` (no fue migrado)
+- Los logs de CloudWatch muestran streams separados por servicio
+- Las compras aparecen en el stream `purchase-service`, no en `monolithic-backend`
+- Se puede explicar por que el orden de prioridad de las reglas del ALB importa
+- Se puede explicar que es una migracion parcial y por que tiene sentido hacerlo por etapas
