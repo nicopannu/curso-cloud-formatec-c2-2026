@@ -1,0 +1,501 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudCuyo Microservices Site Lab - Frontend, monolithic backend and small backends
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Red y ALB existente
+        Parameters:
+          - VpcId
+          - SubnetId
+          - AlbSgId
+          - AlbListenerArn
+          - CreateBaseAlbRules
+          - CreateMicroserviceAlbRules
+      - Label:
+          default: EC2
+        Parameters:
+          - InstanceType
+          - SsmInstanceProfile
+          - LatestAmiId
+      - Label:
+          default: Laboratorio
+        Parameters:
+          - ProfileAuthValidateUrl
+          - ProjectName
+          - Environment
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC del laboratorio
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet publica para la EC2 demo
+
+  AlbSgId:
+    Type: String
+    Description: Security Group del ALB existente
+    AllowedPattern: "^sg-[a-z0-9]+$"
+
+  AlbListenerArn:
+    Type: String
+    Description: ARN del listener HTTP :80 del ALB existente
+
+  CreateBaseAlbRules:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Crea reglas base /api/* -> monolith-backend y /* -> frontend
+
+  CreateMicroserviceAlbRules:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Crea reglas /api/catalog/*, /api/auth/* y /api/profile/* hacia servicios chicos. Para clase usar false y que el alumno las cree.
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t3.small]
+    Description: Tipo de instancia EC2
+
+  SsmInstanceProfile:
+    Type: String
+    Description: Instance Profile con SSM y permisos CloudWatch Agent
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+  ProfileAuthValidateUrl:
+    Type: String
+    Default: http://127.0.0.1:5999/api/auth/validate
+    Description: URL que usa profile-service para validar token. Default intencionalmente roto para investigar con CloudWatch.
+
+  ProjectName:
+    Type: String
+    Default: cloudcuyo
+    AllowedPattern: "^[a-z0-9-]+$"
+
+  Environment:
+    Type: String
+    Default: microservices-site-lab
+    AllowedPattern: "^[a-z0-9-]+$"
+
+Conditions:
+  ShouldCreateBaseRules: !Equals [!Ref CreateBaseAlbRules, "true"]
+  ShouldCreateMicroserviceRules: !Equals [!Ref CreateMicroserviceAlbRules, "true"]
+
+Resources:
+  SiteLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /${ProjectName}/${Environment}/site
+      RetentionInDays: 7
+
+  SiteSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-site-sg-${Environment}
+      GroupDescription: SG sitio CloudCuyo demo - trafico desde ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5004
+          SourceSecurityGroupId: !Ref AlbSgId
+          Description: Trafico HTTP desde ALB hacia apps demo
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-site-sg-${Environment}
+        - Key: Lab
+          Value: m2-c3-microservices
+
+  SiteNode:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetId
+          GroupSet:
+            - !Ref SiteSg
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/user-data.log) 2>&1
+
+          dnf update -y
+          dnf install -y python3 python3-pip amazon-cloudwatch-agent
+          pip3 install flask requests gunicorn
+
+          mkdir -p /opt/cloudcuyo/{frontend,monolith,catalog,auth,profile}
+          mkdir -p /var/log/cloudcuyo
+
+          cat > /opt/cloudcuyo/frontend/app.py << 'PYAPP'
+          from flask import Flask, Response
+          app = Flask(__name__)
+
+          @app.get("/")
+          def index():
+              html = """
+              <!doctype html>
+              <html>
+              <head><title>CloudCuyo</title></head>
+              <body>
+                <h1>CloudCuyo Portal</h1>
+                <p>Frontend demo. Inicialmente consume /api/* desde backend monolitico.</p>
+                <ul>
+                  <li><a href="/api/catalog/products">Catalogo</a></li>
+                  <li>Login: POST /api/auth/login</li>
+                  <li>Perfil: GET /api/profile/me</li>
+                </ul>
+              </body>
+              </html>
+              """
+              return Response(html, mimetype="text/html")
+
+          @app.get("/health")
+          def health():
+              return {"service": "frontend", "status": "ok"}
+          PYAPP
+
+          cat > /opt/cloudcuyo/monolith/app.py << 'PYAPP'
+          from flask import Flask, jsonify, request
+          app = Flask(__name__)
+          VALID_TOKEN = "demo-token-nico"
+
+          @app.get("/api/health")
+          def health():
+              return jsonify({"service": "monolithic-backend", "status": "ok"})
+
+          @app.get("/api/catalog/products")
+          def products():
+              return jsonify({"backend": "monolithic-backend", "items": ["Migracion Cloud", "Alta Disponibilidad", "Microservicios"]})
+
+          @app.post("/api/auth/login")
+          def login():
+              payload = request.get_json(silent=True) or {}
+              if payload.get("username") == "nico" and payload.get("password") == "cloud123":
+                  return jsonify({"backend": "monolithic-backend", "access_token": VALID_TOKEN, "token_type": "Bearer"})
+              return jsonify({"error": "invalid_credentials"}), 401
+
+          @app.post("/api/auth/validate")
+          def validate():
+              payload = request.get_json(silent=True) or {}
+              if payload.get("token") == VALID_TOKEN:
+                  return jsonify({"active": True, "user": {"id": "usr-001", "username": "nico"}})
+              return jsonify({"active": False}), 401
+
+          @app.get("/api/profile/me")
+          def profile():
+              return jsonify({"backend": "monolithic-backend", "user_id": "usr-001", "username": "nico", "validated_by": "monolith"})
+          PYAPP
+
+          cat > /opt/cloudcuyo/catalog/app.py << 'PYAPP'
+          from flask import Flask, jsonify
+          app = Flask(__name__)
+
+          @app.get("/api/catalog/health")
+          def health():
+              return jsonify({"service": "catalog-service", "status": "ok"})
+
+          @app.get("/api/catalog/products")
+          def products():
+              return jsonify({"backend": "catalog-service", "items": ["Migracion Cloud", "Alta Disponibilidad", "Microservicios"]})
+          PYAPP
+
+          cat > /opt/cloudcuyo/auth/app.py << 'PYAPP'
+          from flask import Flask, jsonify, request
+          app = Flask(__name__)
+          VALID_TOKEN = "demo-token-nico"
+
+          @app.get("/api/auth/health")
+          def health():
+              return jsonify({"service": "auth-service", "status": "ok"})
+
+          @app.post("/api/auth/login")
+          def login():
+              payload = request.get_json(silent=True) or {}
+              if payload.get("username") == "nico" and payload.get("password") == "cloud123":
+                  return jsonify({"backend": "auth-service", "access_token": VALID_TOKEN, "token_type": "Bearer", "expires_in": 3600})
+              return jsonify({"error": "invalid_credentials"}), 401
+
+          @app.post("/api/auth/validate")
+          def validate():
+              payload = request.get_json(silent=True) or {}
+              if payload.get("token") == VALID_TOKEN:
+                  return jsonify({"active": True, "user": {"id": "usr-001", "username": "nico", "role": "student"}})
+              return jsonify({"active": False}), 401
+          PYAPP
+
+          cat > /opt/cloudcuyo/profile/app.py << 'PYAPP'
+          import os
+          import requests
+          from flask import Flask, jsonify, request
+          app = Flask(__name__)
+          AUTH_VALIDATE_URL = os.getenv("AUTH_VALIDATE_URL", "http://127.0.0.1:5999/api/auth/validate")
+
+          @app.get("/api/profile/health")
+          def health():
+              return jsonify({"service": "profile-service", "status": "ok", "auth_validate_url": AUTH_VALIDATE_URL})
+
+          @app.get("/api/profile/me")
+          def me():
+              token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+              if not token:
+                  return jsonify({"error": "missing_token"}), 401
+              try:
+                  response = requests.post(AUTH_VALIDATE_URL, json={"token": token}, timeout=2)
+              except requests.RequestException as exc:
+                  app.logger.exception("auth validation failed")
+                  return jsonify({"error": "auth_service_unavailable", "detail": str(exc)}), 503
+              if response.status_code != 200:
+                  return jsonify({"error": "invalid_token"}), 401
+              user = response.json().get("user", {})
+              return jsonify({"backend": "profile-service", "user_id": user.get("id"), "username": user.get("username"), "validated_by": "auth-service"})
+          PYAPP
+
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
+          {
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {"file_path": "/var/log/cloudcuyo/frontend.log", "log_group_name": "/${ProjectName}/${Environment}/site", "log_stream_name": "frontend"},
+                    {"file_path": "/var/log/cloudcuyo/monolith.log", "log_group_name": "/${ProjectName}/${Environment}/site", "log_stream_name": "monolithic-backend"},
+                    {"file_path": "/var/log/cloudcuyo/catalog.log", "log_group_name": "/${ProjectName}/${Environment}/site", "log_stream_name": "catalog-service"},
+                    {"file_path": "/var/log/cloudcuyo/auth.log", "log_group_name": "/${ProjectName}/${Environment}/site", "log_stream_name": "auth-service"},
+                    {"file_path": "/var/log/cloudcuyo/profile.log", "log_group_name": "/${ProjectName}/${Environment}/site", "log_stream_name": "profile-service"}
+                  ]
+                }
+              }
+            }
+          }
+          CWCONFIG
+
+          create_service() {
+            local name="$1"
+            local dir="$2"
+            local port="$3"
+            local log="$4"
+            local extra_env="$5"
+            cat > "/etc/systemd/system/cloudcuyo-$name.service" << SERVICE
+          [Unit]
+          Description=CloudCuyo $name
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          WorkingDirectory=/opt/cloudcuyo/$dir
+          $extra_env
+          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:$port --workers 2 app:app
+          Restart=always
+          RestartSec=3
+          StandardOutput=append:/var/log/cloudcuyo/$log.log
+          StandardError=append:/var/log/cloudcuyo/$log.log
+
+          [Install]
+          WantedBy=multi-user.target
+          SERVICE
+          }
+
+          EMPTY_ENV=""
+          PROFILE_ENV="Environment=AUTH_VALIDATE_URL=${ProfileAuthValidateUrl}"
+          create_service frontend frontend 5000 frontend "$EMPTY_ENV"
+          create_service monolith monolith 5001 monolith "$EMPTY_ENV"
+          create_service catalog catalog 5002 catalog "$EMPTY_ENV"
+          create_service auth auth 5003 auth "$EMPTY_ENV"
+          create_service profile profile 5004 profile "$PROFILE_ENV"
+
+          systemctl daemon-reload
+          systemctl enable cloudcuyo-frontend cloudcuyo-monolith cloudcuyo-catalog cloudcuyo-auth cloudcuyo-profile
+          systemctl start cloudcuyo-frontend cloudcuyo-monolith cloudcuyo-catalog cloudcuyo-auth cloudcuyo-profile
+
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-site-node-${Environment}
+        - Key: Lab
+          Value: m2-c3-microservices-site
+
+  FrontendTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 5000
+      TargetType: instance
+      HealthCheckPath: /health
+      Matcher:
+        HttpCode: 200
+      Targets:
+        - Id: !Ref SiteNode
+          Port: 5000
+
+  MonolithTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 5001
+      TargetType: instance
+      HealthCheckPath: /api/health
+      Matcher:
+        HttpCode: 200
+      Targets:
+        - Id: !Ref SiteNode
+          Port: 5001
+
+  CatalogTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 5002
+      TargetType: instance
+      HealthCheckPath: /api/catalog/health
+      Matcher:
+        HttpCode: 200
+      Targets:
+        - Id: !Ref SiteNode
+          Port: 5002
+
+  AuthTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 5003
+      TargetType: instance
+      HealthCheckPath: /api/auth/health
+      Matcher:
+        HttpCode: 200
+      Targets:
+        - Id: !Ref SiteNode
+          Port: 5003
+
+  ProfileTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 5004
+      TargetType: instance
+      HealthCheckPath: /api/profile/health
+      Matcher:
+        HttpCode: 200
+      Targets:
+        - Id: !Ref SiteNode
+          Port: 5004
+
+  ApiToMonolithRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Condition: ShouldCreateBaseRules
+    Properties:
+      ListenerArn: !Ref AlbListenerArn
+      Priority: 100
+      Conditions:
+        - Field: path-pattern
+          Values: [/api/*]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref MonolithTg
+
+  FrontendRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Condition: ShouldCreateBaseRules
+    Properties:
+      ListenerArn: !Ref AlbListenerArn
+      Priority: 200
+      Conditions:
+        - Field: path-pattern
+          Values: [/*]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref FrontendTg
+
+  CatalogRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Condition: ShouldCreateMicroserviceRules
+    Properties:
+      ListenerArn: !Ref AlbListenerArn
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          Values: [/api/catalog/*]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref CatalogTg
+
+  AuthRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Condition: ShouldCreateMicroserviceRules
+    Properties:
+      ListenerArn: !Ref AlbListenerArn
+      Priority: 20
+      Conditions:
+        - Field: path-pattern
+          Values: [/api/auth/*]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref AuthTg
+
+  ProfileRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Condition: ShouldCreateMicroserviceRules
+    Properties:
+      ListenerArn: !Ref AlbListenerArn
+      Priority: 30
+      Conditions:
+        - Field: path-pattern
+          Values: [/api/profile/*]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ProfileTg
+
+  SiteNodeStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-site-node-status-check
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref SiteNode
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  SiteNodeId:
+    Value: !Ref SiteNode
+  SiteSecurityGroupId:
+    Value: !Ref SiteSg
+  FrontendTargetGroupArn:
+    Value: !Ref FrontendTg
+  MonolithTargetGroupArn:
+    Value: !Ref MonolithTg
+  CatalogTargetGroupArn:
+    Value: !Ref CatalogTg
+  AuthTargetGroupArn:
+    Value: !Ref AuthTg
+  ProfileTargetGroupArn:
+    Value: !Ref ProfileTg
+  BrokenProfileAuthValidateUrl:
+    Description: URL inicial que usa profile-service. Default roto para investigar con CloudWatch.
+    Value: !Ref ProfileAuthValidateUrl
