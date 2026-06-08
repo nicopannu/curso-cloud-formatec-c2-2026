@@ -131,11 +131,14 @@ El stack `cloudformation/microservices-sorny-stack.yaml` crea:
    - **PurchasePaymentServiceUrl:** dejar default (`http://REPLACE-WITH-ALB-DNS/api/payments`)
    - **CreateBaseAlbRules:** `false`
    - **CreateMicroserviceAlbRules:** `false`
+   - **DeployComplete:** `false`
 7. Click **Next** dos veces
 8. Click **Submit**
 9. Esperar a estado **CREATE_COMPLETE** (~10-12 minutos)
 
-> **¿Por que PurchasePaymentServiceUrl tiene un placeholder?** purchase-service necesita llamar a payment-service por red (estan en EC2s separadas). El DNS del ALB no se conoce antes del deploy. El alumno lo corregira en la Fase 6 una vez que tenga el DNS del stack.
+> **¿Por que PurchasePaymentServiceUrl tiene un placeholder?** purchase-service necesita llamar a payment-service por red (estan en EC2s separadas). El DNS del ALB no se conoce antes del deploy. El alumno lo corregira en la Fase 7 una vez que tenga el DNS del stack.
+
+> **DeployComplete=true (modo demo/instructor):** Setear este parametro en `true` crea automaticamente todas las reglas del ALB y configura `PAYMENT_SERVICE_URL` con el DNS real del ALB. Util para demostrar el resultado final sin hacer el ejercicio paso a paso, o para deployar rapido y enfocarse directamente en la Fase 5 (diagnostico y fix).
 
 ### 1.2 Anotar outputs del stack
 

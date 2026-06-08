@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: "Sorny commerce microservices - 5 EC2s: frontend, monolith, delivery, purchase, payment"
+Description: "Sorny commerce microservices - 5 EC2s: frontend, monolith, delivery, purchase, payment. DeployComplete=true despliega todo listo para demo."
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -24,6 +24,10 @@ Metadata:
           - PurchasePaymentServiceUrl
           - CreateBaseAlbRules
           - CreateMicroserviceAlbRules
+      - Label:
+          default: Modo de despliegue
+        Parameters:
+          - DeployComplete
 
 Parameters:
   VpcId:
@@ -77,9 +81,20 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
 
+  DeployComplete:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: "true = crea todas las reglas del ALB y configura PAYMENT_SERVICE_URL con el DNS del ALB automaticamente. Util para demo o para saltear al ejercicio de diagnostico."
+
 Conditions:
-  ShouldCreateBaseRules: !Equals [!Ref CreateBaseAlbRules, "true"]
-  ShouldCreateMicroserviceRules: !Equals [!Ref CreateMicroserviceAlbRules, "true"]
+  ShouldDeployComplete: !Equals [!Ref DeployComplete, "true"]
+  ShouldCreateBaseRules: !Or
+    - !Equals [!Ref CreateBaseAlbRules, "true"]
+    - !Condition ShouldDeployComplete
+  ShouldCreateMicroserviceRules: !Or
+    - !Equals [!Ref CreateMicroserviceAlbRules, "true"]
+    - !Condition ShouldDeployComplete
 
 Resources:
   # ── ALB ──────────────────────────────────────────────────────────────────────
@@ -536,66 +551,72 @@ Resources:
           SubnetId: !Ref SubnetAId
           GroupSet: [!Ref PurchaseSg]
       UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          set -euo pipefail
-          exec > >(tee /var/log/user-data.log) 2>&1
-          dnf update -y && dnf install -y python3 python3-pip amazon-cloudwatch-agent
-          pip3 install flask requests gunicorn
-          mkdir -p /opt/sorni/purchase /var/log/sorni
-          cat > /opt/sorni/purchase/app.py << 'PYAPP'
-          import os, uuid, requests
-          from flask import Flask, jsonify, request
-          app = Flask(__name__)
-          PU=os.getenv("PAYMENT_SERVICE_URL","http://127.0.0.1:5004/api/payments")
-          PRODUCTS={"sorni-luma-32":{"sku":"sorni-luma-32","name":"Sorny Luma 32","price":189999},"sorni-braviax-43":{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","price":319999},"sorni-croma-50":{"sku":"sorni-croma-50","name":"Sorny Croma 50","price":489999},"sorni-trinitronix-55":{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","price":629999},"sorni-cinepro-65":{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","price":899999},"sorni-mega-75":{"sku":"sorni-mega-75","name":"Sorny Mega 75","price":1299999}}
-          PUR={}
-          @app.get("/api/purchases/health")
-          def h(): return jsonify({"service":"purchase-service","status":"ok","payment_service_url":PU})
-          @app.post("/api/purchases")
-          def create():
-              p=request.get_json(silent=True) or {}; sk=p.get("sku"); cs=p.get("customer","cliente@sorny.local")
-              if not sk: return jsonify({"error":"missing_sku"}),400
-              product=PRODUCTS.get(sk)
-              if not product: return jsonify({"error":"unknown_sku"}),404
-              app.logger.info("purchase sku=%s customer=%s",sk,cs)
-              pid="pur-"+uuid.uuid4().hex[:8]
-              try: pr=requests.post(PU.rstrip("/")+"/checkout",json={"purchase_id":pid,"sku":sk,"amount":product["price"]},timeout=2)
-              except Exception as e: app.logger.exception("payment fail pid=%s url=%s",pid,PU); return jsonify({"error":"payment_service_unavailable","detail":str(e)}),503
-              if pr.status_code!=200: return jsonify({"error":"payment_rejected","detail":pr.json()}),pr.status_code
-              pd=pr.json(); pu={"purchase_id":pid,"sku":sk,"status":"payment_pending","payment_url":pd["payment_url"],"backend":"purchase-service"}
-              PUR[pid]=pu; app.logger.info("purchase created pid=%s sku=%s",pid,sk); return jsonify(pu)
-          @app.get("/api/purchases/<pid>")
-          def get(pid):
-              pu=PUR.get(pid)
-              if not pu: return jsonify({"error":"not_found"}),404
-              return jsonify(pu)
-          PYAPP
-          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
-          {"logs":{"logs_collected":{"files":{"collect_list":[
-            {"file_path":"/var/log/sorni/purchase.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"purchase-service"}
-          ]}}}}
-          CWCONFIG
-          cat > /etc/systemd/system/sorni-purchase.service << SRV
-          [Unit]
-          Description=Sorny purchase
-          After=network-online.target
-          Wants=network-online.target
+        Fn::Base64:
+          Fn::Sub:
+            - |
+              #!/bin/bash
+              set -euo pipefail
+              exec > >(tee /var/log/user-data.log) 2>&1
+              dnf update -y && dnf install -y python3 python3-pip amazon-cloudwatch-agent
+              pip3 install flask requests gunicorn
+              mkdir -p /opt/sorni/purchase /var/log/sorni
+              cat > /opt/sorni/purchase/app.py << 'PYAPP'
+              import os, uuid, requests
+              from flask import Flask, jsonify, request
+              app = Flask(__name__)
+              PU=os.getenv("PAYMENT_SERVICE_URL","http://127.0.0.1:5004/api/payments")
+              PRODUCTS={"sorni-luma-32":{"sku":"sorni-luma-32","name":"Sorny Luma 32","price":189999},"sorni-braviax-43":{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","price":319999},"sorni-croma-50":{"sku":"sorni-croma-50","name":"Sorny Croma 50","price":489999},"sorni-trinitronix-55":{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","price":629999},"sorni-cinepro-65":{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","price":899999},"sorni-mega-75":{"sku":"sorni-mega-75","name":"Sorny Mega 75","price":1299999}}
+              PUR={}
+              @app.get("/api/purchases/health")
+              def h(): return jsonify({"service":"purchase-service","status":"ok","payment_service_url":PU})
+              @app.post("/api/purchases")
+              def create():
+                  p=request.get_json(silent=True) or {}; sk=p.get("sku"); cs=p.get("customer","cliente@sorny.local")
+                  if not sk: return jsonify({"error":"missing_sku"}),400
+                  product=PRODUCTS.get(sk)
+                  if not product: return jsonify({"error":"unknown_sku"}),404
+                  app.logger.info("purchase sku=%s customer=%s",sk,cs)
+                  pid="pur-"+uuid.uuid4().hex[:8]
+                  try: pr=requests.post(PU.rstrip("/")+"/checkout",json={"purchase_id":pid,"sku":sk,"amount":product["price"]},timeout=2)
+                  except Exception as e: app.logger.exception("payment fail pid=%s url=%s",pid,PU); return jsonify({"error":"payment_service_unavailable","detail":str(e)}),503
+                  if pr.status_code!=200: return jsonify({"error":"payment_rejected","detail":pr.json()}),pr.status_code
+                  pd=pr.json(); pu={"purchase_id":pid,"sku":sk,"status":"payment_pending","payment_url":pd["payment_url"],"backend":"purchase-service"}
+                  PUR[pid]=pu; app.logger.info("purchase created pid=%s sku=%s",pid,sk); return jsonify(pu)
+              @app.get("/api/purchases/<pid>")
+              def get(pid):
+                  pu=PUR.get(pid)
+                  if not pu: return jsonify({"error":"not_found"}),404
+                  return jsonify(pu)
+              PYAPP
+              cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
+              {"logs":{"logs_collected":{"files":{"collect_list":[
+                {"file_path":"/var/log/sorni/purchase.log","log_group_name":"/${ProjectName}/${Environment}/site","log_stream_name":"purchase-service"}
+              ]}}}}
+              CWCONFIG
+              cat > /etc/systemd/system/sorni-purchase.service << SRV
+              [Unit]
+              Description=Sorny purchase
+              After=network-online.target
+              Wants=network-online.target
 
-          [Service]
-          WorkingDirectory=/opt/sorni/purchase
-          Environment=PAYMENT_SERVICE_URL=${PurchasePaymentServiceUrl}
-          ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5002 --workers 2 app:app
-          Restart=always
-          RestartSec=3
-          StandardOutput=append:/var/log/sorni/purchase.log
-          StandardError=append:/var/log/sorni/purchase.log
+              [Service]
+              WorkingDirectory=/opt/sorni/purchase
+              Environment=PAYMENT_SERVICE_URL=${PaymentUrl}
+              ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:5002 --workers 2 app:app
+              Restart=always
+              RestartSec=3
+              StandardOutput=append:/var/log/sorni/purchase.log
+              StandardError=append:/var/log/sorni/purchase.log
 
-          [Install]
-          WantedBy=multi-user.target
-          SRV
-          systemctl daemon-reload && systemctl enable sorni-purchase && systemctl start sorni-purchase
-          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+              [Install]
+              WantedBy=multi-user.target
+              SRV
+              systemctl daemon-reload && systemctl enable sorni-purchase && systemctl start sorni-purchase
+              /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+            - PaymentUrl: !If
+                - ShouldDeployComplete
+                - !Sub "http://${LabAlb.DNSName}/api/payments"
+                - !Ref PurchasePaymentServiceUrl
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-purchase-${Environment}
