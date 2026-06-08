@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CloudCuyo Microservices Lab - temporary ALB and EC2 instance profile for instructor validation
+Description: Sorny microservices prerequisites - temporary ALB and EC2 instance profile
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -11,7 +11,7 @@ Metadata:
           - PublicSubnetAId
           - PublicSubnetBId
       - Label:
-          default: Laboratorio
+          default: Aplicacion
         Parameters:
           - ProjectName
           - Environment
@@ -19,7 +19,7 @@ Metadata:
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
-    Description: VPC del laboratorio.
+    Description: VPC.
 
   PublicSubnetAId:
     Type: AWS::EC2::Subnet::Id
@@ -31,12 +31,12 @@ Parameters:
 
   ProjectName:
     Type: String
-    Default: cloudcuyo
+    Default: sorny
     AllowedPattern: "^[a-z0-9-]+$"
 
   Environment:
     Type: String
-    Default: microservices-lab
+    Default: microservices
     AllowedPattern: "^[a-z0-9-]+$"
 
 Resources:
@@ -44,14 +44,14 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: !Sub ${ProjectName}-alb-sg-${Environment}
-      GroupDescription: SG ALB publico para lab de microservicios CloudCuyo
+      GroupDescription: SG ALB publico para microservicios Sorny
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: HTTP publico para el laboratorio
+          Description: HTTP publico
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
@@ -90,7 +90,7 @@ Resources:
           FixedResponseConfig:
             StatusCode: "404"
             ContentType: text/plain
-            MessageBody: CloudCuyo lab route not configured
+            MessageBody: Sorny route not configured
 
   LabEc2Role:
     Type: AWS::IAM::Role
@@ -119,7 +119,7 @@ Resources:
 
 Outputs:
   AlbDnsName:
-    Description: DNS publico del ALB del laboratorio.
+    Description: DNS publico del ALB.
     Value: !GetAtt LabAlb.DNSName
 
   AlbArn:
