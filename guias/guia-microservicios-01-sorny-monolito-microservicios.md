@@ -138,7 +138,7 @@ El stack `cloudformation/microservices-sorny-stack.yaml` crea:
 
 > **¿Por que PurchasePaymentServiceUrl tiene un placeholder?** purchase-service necesita llamar a payment-service por red (estan en EC2s separadas). El DNS del ALB no se conoce antes del deploy. El alumno lo corregira en la Fase 7 una vez que tenga el DNS del stack.
 
-> **DeployComplete=true (modo demo/instructor):** Setear este parametro en `true` crea automaticamente todas las reglas del ALB y configura `PAYMENT_SERVICE_URL` con el DNS real del ALB. Util para demostrar el resultado final sin hacer el ejercicio paso a paso, o para deployar rapido y enfocarse directamente en la Fase 5 (diagnostico y fix).
+> **DeployComplete=true (modo instructor):** Crea automaticamente todas las reglas del ALB (base + microservicios). El alumno se salta las Fases 3 y 4 y arranca directo en la Fase 5 (diagnostico). `PAYMENT_SERVICE_URL` sigue siendo el placeholder — el ejercicio de diagnostico y fix con CloudWatch y `systemctl edit` es obligatorio igual.
 
 ### 1.2 Anotar outputs del stack
 
