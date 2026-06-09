@@ -414,8 +414,9 @@ Resources:
           pip3 install flask gunicorn
           mkdir -p /opt/sorni/monolith /var/log/sorni
           cat > /opt/sorni/monolith/app.py << 'PYAPP'
-          import uuid
+          import uuid, logging
           from flask import Flask, jsonify, request
+          logging.basicConfig(level=logging.INFO)
           app = Flask(__name__)
           PRODUCTS=[{"sku":"sorni-luma-32","name":"Sorny Luma 32","description":"LED 32 pulgadas para habitacion o cocina","price":189999},{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","description":"Smart TV 43 pulgadas Full HD","price":319999},{"sku":"sorni-croma-50","name":"Sorny Croma 50","description":"4K 50 pulgadas con HDR basico","price":489999},{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","description":"4K 55 pulgadas, panel rapido para deportes","price":629999},{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","description":"4K 65 pulgadas para living grande","price":899999},{"sku":"sorni-mega-75","name":"Sorny Mega 75","description":"75 pulgadas, experiencia cine en casa","price":1299999}]
           INVENTORY={i["sku"]:3 for i in PRODUCTS}
@@ -496,7 +497,9 @@ Resources:
           pip3 install flask gunicorn
           mkdir -p /opt/sorni/delivery /var/log/sorni
           cat > /opt/sorni/delivery/app.py << 'PYAPP'
+          import logging
           from flask import Flask, jsonify, request
+          logging.basicConfig(level=logging.INFO)
           app = Flask(__name__)
           @app.get("/api/delivery/health")
           def h(): return jsonify({"service":"delivery-service","status":"ok"})
@@ -557,8 +560,9 @@ Resources:
           pip3 install flask requests gunicorn
           mkdir -p /opt/sorni/purchase /var/log/sorni
           cat > /opt/sorni/purchase/app.py << 'PYAPP'
-          import os, uuid, requests
+          import os, uuid, requests, logging
           from flask import Flask, jsonify, request
+          logging.basicConfig(level=logging.INFO)
           app = Flask(__name__)
           PU=os.getenv("PAYMENT_SERVICE_URL","http://127.0.0.1:5004/api/payments")
           PRODUCTS={"sorni-luma-32":{"sku":"sorni-luma-32","name":"Sorny Luma 32","price":189999},"sorni-braviax-43":{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","price":319999},"sorni-croma-50":{"sku":"sorni-croma-50","name":"Sorny Croma 50","price":489999},"sorni-trinitronix-55":{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","price":629999},"sorni-cinepro-65":{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","price":899999},"sorni-mega-75":{"sku":"sorni-mega-75","name":"Sorny Mega 75","price":1299999}}
@@ -636,7 +640,9 @@ Resources:
           pip3 install flask gunicorn
           mkdir -p /opt/sorni/payment /var/log/sorni
           cat > /opt/sorni/payment/app.py << 'PYAPP'
+          import logging
           from flask import Flask, jsonify, request
+          logging.basicConfig(level=logging.INFO)
           app = Flask(__name__)
           @app.get("/api/payments/health")
           def h(): return jsonify({"service":"payment-service","status":"ok"})

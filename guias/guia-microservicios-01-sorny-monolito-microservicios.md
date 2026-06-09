@@ -408,15 +408,18 @@ El error incluye la URL que intento usar: `http://REPLACE-WITH-ALB-DNS/api/payme
 1. Ir a **CloudWatch > Log groups**
 2. Abrir `/sorny/microservices-site/site`
 3. Click en el stream `purchase-service`
-4. Buscar la entrada del intento de compra fallido:
+4. Buscar las entradas del intento de compra fallido. Vas a ver algo como:
 
 ```
-purchase sku=sorni-luma-32 customer=test@sorny.local
-payment fail pid=pur-abc12345 url=http://REPLACE-WITH-ALB-DNS/api/payments
-...Failed to establish a new connection: [Errno -3] Temporary failure in name resolution
+[2026-06-09 19:20:55,644] INFO in app: purchase sku=sorni-luma-32 customer=test@sorny.local
+[2026-06-09 19:20:57,891] ERROR in app: payment fail pid=pur-f06b45f8 url=http://REPLACE-WITH-ALB-DNS/api/payments
+...
+socket.gaierror: [Errno -2] Name or service not known
+...
+Failed to establish a new connection: [Errno -2] Name or service not known
 ```
 
-El log muestra exactamente que paso: purchase-service intento conectarse al hostname `REPLACE-WITH-ALB-DNS` y no pudo resolverlo en DNS.
+El log confirma que purchase-service intento conectarse a `REPLACE-WITH-ALB-DNS` y fallo en la resolucion DNS. El traceback completo es esperado — es la excepcion de Python que registro el servicio.
 
 ### 6.2 Confirmar que payment-service no recibio la llamada
 
