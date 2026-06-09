@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: "Sorny commerce microservices - 5 EC2s: frontend, monolith, delivery, purchase, payment. DeployComplete=true despliega todo listo para demo."
+Description: "Sorny commerce microservices - 5 EC2s: frontend, monolith, delivery, purchase, payment. DeployMonolito=true despliega todo listo para demo."
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -27,7 +27,7 @@ Metadata:
       - Label:
           default: Modo de despliegue
         Parameters:
-          - DeployComplete
+          - DeployMonolito
 
 Parameters:
   VpcId:
@@ -81,14 +81,14 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
 
-  DeployComplete:
+  DeployMonolito:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: "true = crea todas las reglas del ALB automaticamente (base + microservicios). El alumno se salta las Fases 3 y 4 y va directo al ejercicio de diagnostico. PAYMENT_SERVICE_URL sigue siendo el placeholder y debe corregirse manualmente."
 
 Conditions:
-  ShouldDeployComplete: !Equals [!Ref DeployComplete, "true"]
+  ShouldDeployComplete: !Equals [!Ref DeployMonolito, "true"]
   ShouldCreateBaseRules: !Or
     - !Equals [!Ref CreateBaseAlbRules, "true"]
     - !Condition ShouldDeployComplete
