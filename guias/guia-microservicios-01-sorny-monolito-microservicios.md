@@ -1,6 +1,6 @@
 # Guia MS-01: Sorny — de monolito a microservicios en AWS
 
-**Objetivo:** Partir de una aplicacion web funcional con un backend monolitico y separar sus responsabilidades en servicios independientes, cada uno en su propia EC2. El alumno observa como cambian las rutas, los contratos, las dependencias y la observabilidad cuando una aplicacion se divide en servicios con infraestructura separada.
+**Objetivo:** Partir de una aplicacion web funcional con un backend monolitico y separar sus responsabilidades en servicios independientes, cada uno en su propia EC2. Vas a observar como cambian las rutas, las dependencias y la observabilidad cuando una aplicacion se divide en servicios con infraestructura separada.
 
 **Duracion estimada:** 2-3 horas
 
@@ -12,7 +12,7 @@
 
 Sorny es una tienda de televisores. El sitio permite ver seis modelos, seleccionar uno, comprarlo y dejar datos de contacto para coordinar el envio.
 
-Hoy, todo el backend vive en un unico proceso. Cuando un cliente compra, ese proceso recibe la solicitud, genera un enlace de pago y registra los datos de envio del cliente. Eso funciona, pero tiene un problema: compras, pagos y delivery estan mezclados en el mismo codigo.
+Hoy, todo el backend vive en un unico proceso. Cuando un cliente compra, ese proceso recibe la solicitud, genera un enlace de pago y registra los datos de envio. Eso funciona, pero tiene un problema: compras, pagos y delivery estan mezclados en el mismo codigo.
 
 En este laboratorio se divide ese backend en servicios independientes, **uno por EC2**.
 
@@ -24,7 +24,7 @@ En este laboratorio se divide ese backend en servicios independientes, **uno por
 | `purchase-service` | EC2-purchase | 5002 | Recibe la compra y coordina el pago |
 | `payment-service` | EC2-payment | 5004 | Genera el enlace de pago |
 
-Al dividir el backend aparecen preguntas nuevas:
+Al separar los servicios van a aparecer preguntas concretas:
 - como decide el ALB a que servicio mandar cada request;
 - como se comunican servicios que estan en EC2s distintas;
 - que pasa cuando una dependencia entre servicios falla;
@@ -53,7 +53,7 @@ Usuario
   v
 ALB
   |
-  +-- /                   -> frontend        (EC2-frontend,  puerto 5000)
+  +-- /                   -> frontend         (EC2-frontend,  puerto 5000)
   |
   +-- /api/purchases/*    -> purchase-service (EC2-purchase,  puerto 5002)
   |
@@ -73,7 +73,7 @@ ALB
 
 - Acceder a [https://console.aws.amazon.com/](https://console.aws.amazon.com/)
 - Region: **us-east-1 (N. Virginia)**
-- Permisos para EC2, CloudFormation, CloudWatch, ELB e IAM (solo lectura)
+- Permisos para EC2, CloudFormation, CloudWatch y ELB
 
 ### Recursos de red necesarios
 
@@ -82,11 +82,11 @@ ALB
 | VPC con Internet Gateway | Debe existir en la cuenta |
 | Subnet publica en us-east-1a | Debe existir |
 | Subnet publica en us-east-1b | Debe existir |
-| IAM Instance Profile con `AmazonSSMManagedInstanceCore` y `CloudWatchAgentServerPolicy` | Debe existir |
+| IAM Instance Profile con permisos SSM y CloudWatch | Debe existir |
 
-> **¿Por que necesitamos dos subnets?** El ALB necesita al menos dos subnets en distintas AZs. Las EC2s van en SubnetA, el ALB ocupa ambas.
+> **¿Por que dos subnets?** El ALB requiere al menos dos subnets en distintas zonas de disponibilidad. Las EC2s van en una, el ALB ocupa ambas.
 
-> **¿Por que SSM en vez de SSH?** Session Manager permite conectarse desde la consola sin clave SSH ni IP publica. Se usa para inspeccionar y corregir configuracion durante el lab.
+> **¿Por que SSM en vez de SSH?** Session Manager permite conectarse a una EC2 desde la consola de AWS sin necesidad de clave SSH ni IP publica. Lo vamos a usar en la Fase 7 para corregir una configuracion.
 
 ### Anotar valores necesarios antes de desplegar
 
@@ -101,16 +101,12 @@ ALB
 
 El stack `cloudformation/microservices-sorny-stack.yaml` crea:
 
-- 1 ALB publico con listener HTTP :80 (sin reglas — solo default 404)
+- 1 ALB publico con listener HTTP :80
 - 6 Security Groups (ALB + uno por EC2)
 - 5 EC2s con Amazon Linux 2023 (frontend, monolith, delivery, purchase, payment)
 - 5 target groups (frontend, monolith, delivery, purchase, payment)
 - CloudWatch Log Group con streams por servicio
-- 5 alarmas de status check (una por EC2)
-
-> **¿Por que el ALB arranca sin reglas?** Las reglas del ALB son el ejercicio principal del lab. El stack levanta toda la infraestructura pero deja el ALB vacio. El alumno construye la tabla de routing completa paso a paso.
-
-> **¿Un servicio por EC2?** Si. Cada EC2 instala solo el codigo de su servicio. EC2-purchase tiene solo purchase-service. EC2-payment tiene solo payment-service. Esto hace visible la dependencia entre servicios: purchase necesita llamar a payment por red, no por localhost.
+- 5 alarmas de status check
 
 ### 1.1 Desplegar con CloudFormation (AWS Console)
 
@@ -136,30 +132,25 @@ El stack `cloudformation/microservices-sorny-stack.yaml` crea:
 8. Click **Submit**
 9. Esperar a estado **CREATE_COMPLETE** (~10-12 minutos)
 
-> **¿Por que PurchasePaymentServiceUrl tiene un placeholder?** purchase-service necesita llamar a payment-service por red (estan en EC2s separadas). El DNS del ALB no se conoce antes del deploy. El alumno lo corregira en la Fase 7 una vez que tenga el DNS del stack.
+> **Sobre el parametro DeployMonolito:** Si lo seteás en `true` antes de crear el stack, las reglas del ALB (base y de microservicios) se crean automaticamente al terminar el deploy. Podes ir directo a la Fase 5 sin pasar por las Fases 3 y 4. La URL de payment-service sigue siendo el placeholder — el ejercicio de diagnostico y correccion de la Fase 6 en adelante es obligatorio de todas formas.
 
-> **DeployMonolito=true (modo instructor):** Crea automaticamente todas las reglas del ALB (base + microservicios). El alumno se salta las Fases 3 y 4 y arranca directo en la Fase 5 (diagnostico). `PAYMENT_SERVICE_URL` sigue siendo el placeholder — el ejercicio de diagnostico y fix con CloudWatch y `systemctl edit` es obligatorio igual.
+> **Sobre PurchasePaymentServiceUrl:** purchase-service necesita la direccion de payment-service para funcionar. Como aun no conocemos el DNS del ALB en este momento, el campo queda con un placeholder. Lo vas a corregir en la Fase 7 una vez que el stack este desplegado.
 
 ### 1.2 Anotar outputs del stack
 
 Cuando el stack llegue a **CREATE_COMPLETE**:
 
 1. Ir a pestana **Outputs**
-2. Anotar **todos** los valores — los vamos a usar en cada fase:
+2. Anotar los siguientes valores:
 
    | Output | Descripcion |
    |---|---|
-   | `AlbDnsName` | DNS del ALB — anotar en un lugar visible |
+   | `AlbDnsName` | DNS del ALB — lo vas a usar en todas las fases siguientes |
+   | `PurchaseNodeId` | ID de EC2-purchase — lo vas a usar en la Fase 7 |
    | `FrontendNodeId` | ID de EC2-frontend |
    | `MonolithNodeId` | ID de EC2-monolith |
    | `DeliveryNodeId` | ID de EC2-delivery |
-   | `PurchaseNodeId` | ID de EC2-purchase |
    | `PaymentNodeId` | ID de EC2-payment |
-   | `FrontendTargetGroupArn` | ARN del TG frontend |
-   | `MonolithTargetGroupArn` | ARN del TG monolith |
-   | `DeliveryTargetGroupArn` | ARN del TG delivery |
-   | `PurchaseTargetGroupArn` | ARN del TG purchase |
-   | `PaymentTargetGroupArn` | ARN del TG payment |
 
 ### Troubleshooting de la Fase 1
 
@@ -173,16 +164,14 @@ Cuando el stack llegue a **CREATE_COMPLETE**:
 
 ## Fase 2: Inspeccionar los componentes
 
-Con el stack desplegado, antes de crear cualquier regla, inspeccionamos lo que tenemos.
-
 ### 2.1 Verificar que el ALB esta vacio
 
 1. Abrir el navegador en `http://<AlbDnsName>/`
 2. Debe aparecer: `Sorny route not configured` con HTTP 404
 
-Esto es esperado. El listener existe pero no tiene ninguna regla. Todo request cae en la default action.
+El ALB existe y el listener esta activo, pero todavia no tiene ninguna regla de routing. Todo request cae en la accion por defecto (404). Lo que ves en el navegador es exactamente lo esperado antes de configurar las rutas.
 
-3. Ir a **EC2 > Load Balancers** > seleccionar el ALB > pestana **Listeners and rules** > click en **HTTP:80**
+3. Ir a **EC2 > Load Balancers** > seleccionar el ALB (`sorni-ms-*`) > pestana **Listeners and rules** > click en **HTTP:80**
 4. Debe verse solo la **Default action**: fixed-response 404
 
 ### 2.2 Verificar los target groups
@@ -190,74 +179,31 @@ Esto es esperado. El listener existe pero no tiene ninguna regla. Todo request c
 1. Ir a **EC2 > Target Groups**
 2. Los 5 TGs deben aparecer con estado **unused**:
 
-   | Target group | EC2 | Puerto |
+   | Target group | Puerto | Servicio |
    |---|---|---|
-   | `sorni-Front-*` | EC2-frontend | 5000 |
-   | `sorni-Monol-*` | EC2-monolith | 5001 |
-   | `sorni-Deliv-*` | EC2-delivery | 5005 |
-   | `sorni-Purch-*` | EC2-purchase | 5002 |
-   | `sorni-Payme-*` | EC2-payment | 5004 |
+   | `sorni-Front-*` | 5000 | frontend |
+   | `sorni-Monol-*` | 5001 | monolithic-backend |
+   | `sorni-Deliv-*` | 5005 | delivery-service |
+   | `sorni-Purch-*` | 5002 | purchase-service |
+   | `sorni-Payme-*` | 5004 | payment-service |
 
 3. Click en cualquier TG > pestana **Targets**
-4. La instancia debe estar **healthy** — el servicio responde localmente aunque el ALB no le envie trafico todavia.
+4. La instancia debe estar **healthy**
 
-> **"unused" no es un error.** Los servicios estan vivos y sus health checks pasan. Solo falta que el ALB tenga reglas que los referencien.
-
-### 2.3 Verificar las 5 EC2s via Session Manager
-
-1. Ir a **EC2 > Instances** — deben verse 5 instancias running:
-   - `sorny-frontend-*`
-   - `sorny-monolith-*`
-   - `sorny-delivery-*`
-   - `sorny-purchase-*`
-   - `sorny-payment-*`
-
-2. Conectarse a cada una via **Connect > Session Manager** y verificar el servicio:
-
-**EC2-frontend:**
-```bash
-curl -s http://127.0.0.1:5000/health
-# {"service": "frontend", "status": "ok"}
-```
-
-**EC2-monolith:**
-```bash
-curl -s http://127.0.0.1:5001/api/health
-# {"service": "monolithic-backend", "status": "ok"}
-```
-
-**EC2-delivery:**
-```bash
-curl -s http://127.0.0.1:5005/api/delivery/health
-# {"service": "delivery-service", "status": "ok"}
-```
-
-**EC2-purchase:**
-```bash
-curl -s http://127.0.0.1:5002/api/purchases/health
-# {"service": "purchase-service", "status": "ok", "payment_service_url": "http://REPLACE-WITH-ALB-DNS/api/payments"}
-```
-
-> Notar que `payment_service_url` muestra el placeholder. purchase-service todavia no sabe como llegar a payment-service. Esto se corrige en la Fase 6.
-
-**EC2-payment:**
-```bash
-curl -s http://127.0.0.1:5004/api/payments/health
-# {"service": "payment-service", "status": "ok"}
-```
+> **"unused" no significa que el servicio este caido.** Significa que el TG existe y su instancia responde correctamente, pero el ALB todavia no tiene ninguna regla que le envie trafico. En cuanto creemos las reglas en las proximas fases, el estado va a cambiar.
 
 ---
 
 ## Fase 3: Crear las reglas base del ALB
 
-En esta fase conectamos el ALB con el frontend y el monolito. Al terminar, el sitio funciona completamente contra el backend monolitico.
+En esta fase conectamos el ALB con el frontend y el monolito. Al terminar, el sitio va a funcionar completamente contra el backend monolitico.
 
 ### Como navegar al listener del ALB
 
-Estos pasos aplican para crear cualquier regla en esta y en la siguiente fase:
+Estos pasos son los mismos para cualquier regla que crees en esta fase y en la siguiente:
 
 1. Ir a **EC2 > Load Balancing > Load Balancers**
-2. Click en el nombre del ALB (`sorny-ms-microservices-site` o similar)
+2. Click en el nombre del ALB (`sorni-ms-microservices-site` o similar)
 3. Pestana **Listeners and rules** > click en el enlace **HTTP:80**
 
 ---
@@ -311,7 +257,7 @@ Click **Create**.
 
 ### 3.3 Verificar el orden y probar el sitio
 
-La lista debe quedar:
+La lista de reglas debe quedar:
 
 | Prioridad | Path | Target group | EC2 |
 |---|---|---|---|
@@ -319,20 +265,22 @@ La lista debe quedar:
 | 200 | `/*` | sorni-Front-* | EC2-frontend (5000) |
 | default | — | fixed-response 404 | — |
 
+> El ALB evalua las reglas de menor a mayor numero. La regla 100 captura las APIs antes de que lleguen a la 200. Si el orden fuera al reves, el `/*` captaria todo antes que el `/api/*`.
+
 Esperar 1-2 minutos a que `sorni-Front-*` y `sorni-Monol-*` pasen a **healthy**, luego:
 
-1. Abrir `http://<AlbDnsName>/` — deben verse los 6 televisores
-2. Probar la compra completa — debe completarse exitosamente
-3. `http://<AlbDnsName>/api/products` → `"backend": "monolithic-backend"` ✓
-4. `http://<AlbDnsName>/api/health` → `{"service": "monolithic-backend", ...}` ✓
+1. Abrir `http://<AlbDnsName>/` — deben verse los 6 televisores Sorny
+2. Click en **Comprar ahora** en cualquier televisor y completar la compra — debe completarse exitosamente
+3. `http://<AlbDnsName>/api/products` → responde con `"backend": "monolithic-backend"`
+4. `http://<AlbDnsName>/api/health` → responde con `{"service": "monolithic-backend", ...}`
 
-> El flujo completo pasa por EC2-monolith. El campo `"backend"` en las respuestas confirma quien proceso cada request.
+El campo `"backend"` en las respuestas confirma que todo el flujo paso por EC2-monolith.
 
 ---
 
 ## Fase 4: Crear las reglas de microservicios
 
-Ahora agregamos reglas mas especificas para desviar compras, delivery y pagos a sus EC2s dedicadas. Al tener numeros de prioridad mas bajos (10, 20, 30), se evaluan antes que la regla `/api/*` (100) y la capturan primero.
+Ahora agregamos reglas mas especificas para desviar compras, delivery y pagos a sus EC2s dedicadas. Al tener numeros de prioridad menores (10, 20, 30), se evaluan antes que la regla `/api/*` (100) y la capturan primero.
 
 ### 4.1 Crear regla para purchase-service
 
@@ -425,13 +373,13 @@ Esperar 1-2 minutos a que `sorni-Purch-*`, `sorni-Deliv-*` y `sorni-Payme-*` pas
 1. Ir al sitio `http://<AlbDnsName>/`
 2. Click en **Comprar ahora** en cualquier televisor
 
-**Resultado esperado:** La compra **falla**. El modal muestra un error: "No pudimos completar la compra: payment_service_unavailable".
+**Resultado esperado:** La compra **falla**. El modal muestra: "No pudimos completar la compra: payment_service_unavailable".
 
 ### 5.2 Entender por que falla
 
-Los target groups estan healthy. El ALB envia el request a EC2-purchase. Pero purchase-service necesita llamar a payment-service para generar el enlace de pago, y no sabe como encontrarlo.
+Los target groups estan healthy y el ALB envia el request correctamente a EC2-purchase. El problema esta en otro lado: purchase-service necesita llamar a payment-service para generar el enlace de pago, y no sabe como llegar a el.
 
-Probar el endpoint directamente:
+Podes confirmar esto probando el endpoint directamente:
 
 ```
 POST http://<AlbDnsName>/api/purchases
@@ -440,14 +388,16 @@ Content-Type: application/json
 {"sku": "sorni-luma-32", "customer": "test@sorny.local"}
 ```
 
-Respuesta:
+La respuesta va a ser:
 ```json
 {"error": "payment_service_unavailable", "detail": "...REPLACE-WITH-ALB-DNS..."}
 ```
 
-> **¿Por que falla si payment-service esta healthy?** payment-service esta vivo y responde en EC2-payment. Pero purchase-service no sabe su direccion. Intenta conectarse a `http://REPLACE-WITH-ALB-DNS/api/payments` — un hostname que no existe. El health check del ALB verifica que el servicio responde en su puerto, no que sus dependencias esten configuradas correctamente.
+El error incluye la URL que intento usar: `http://REPLACE-WITH-ALB-DNS/api/payments` — un hostname que no existe.
 
-> **Esta es la diferencia clave con el monolito.** En el monolito, purchase y payment vivian en el mismo proceso. No habia red de por medio. Al separarlos en EC2s distintas, aparece la necesidad de service discovery o configuracion explicita de URLs.
+> **¿Por que falla si payment-service esta healthy?** El health check del ALB solo verifica que el servicio responde en su puerto. No sabe si las dependencias de ese servicio estan bien configuradas. payment-service esta vivo en EC2-payment, pero purchase-service no tiene su direccion correcta. Este es uno de los problemas caracteristicos de las arquitecturas distribuidas: un servicio puede estar "verde" y aun asi el flujo completo falla.
+
+> **La diferencia con el monolito:** en el monolito, purchase y payment vivian en el mismo proceso. No habia red de por medio. Al separarlos en EC2s distintas, la URL de un servicio hacia el otro tiene que estar configurada explicitamente.
 
 ---
 
@@ -466,20 +416,16 @@ payment fail pid=pur-abc12345 url=http://REPLACE-WITH-ALB-DNS/api/payments
 ...Failed to establish a new connection: [Errno -3] Temporary failure in name resolution
 ```
 
-El log muestra exactamente que sucedio: purchase-service intento conectarse al hostname `REPLACE-WITH-ALB-DNS` y no pudo resolverlo.
+El log muestra exactamente que paso: purchase-service intento conectarse al hostname `REPLACE-WITH-ALB-DNS` y no pudo resolverlo en DNS.
 
 ### 6.2 Confirmar que payment-service no recibio la llamada
 
 1. En el mismo log group, abrir el stream `payment-service`
-2. No debe haber registros de esa compra — la llamada nunca llego a payment-service
+2. No hay registros de esa compra — la llamada nunca llego a payment-service
 
-### 6.3 Identificar la correccion necesaria
+### 6.3 Identificar la correccion
 
-El problema es claro: `PAYMENT_SERVICE_URL` en EC2-purchase apunta a un placeholder. Debe apuntar al ALB, que tiene la regla `/api/payments/*` → EC2-payment.
-
-La URL correcta es: `http://<AlbDnsName>/api/payments`
-
-El valor de `AlbDnsName` esta en los outputs del stack de la Fase 1.
+La URL correcta de payment-service es `http://<AlbDnsName>/api/payments`. El ALB ya tiene la regla `/api/payments/*` → EC2-payment. Solo falta que purchase-service use esa URL.
 
 ---
 
@@ -488,8 +434,8 @@ El valor de `AlbDnsName` esta en los outputs del stack de la Fase 1.
 ### 7.1 Conectarse a EC2-purchase por Session Manager
 
 1. Ir a **EC2 > Instances**
-2. Seleccionar `sorny-purchase-*` (usar `PurchaseNodeId`)
-3. Click **Connect > Session Manager > Connect**
+2. Buscar la instancia con ID `<PurchaseNodeId>` (del output del stack)
+3. Click en **Connect > Session Manager > Connect**
 
 ### 7.2 Verificar la configuracion actual
 
@@ -508,7 +454,7 @@ Environment=PAYMENT_SERVICE_URL=http://REPLACE-WITH-ALB-DNS/api/payments
 sudo systemctl edit sorni-purchase
 ```
 
-Se abre un editor. Agregar el siguiente contenido (reemplazar `<AlbDnsName>` con el valor del output):
+Se abre un editor. Ingresar el siguiente contenido reemplazando `<AlbDnsName>` con el valor del output:
 
 ```ini
 [Service]
@@ -533,50 +479,43 @@ curl -s http://127.0.0.1:5002/api/purchases/health
 
 El campo `payment_service_url` debe mostrar el DNS del ALB, no el placeholder.
 
-### 7.6 Probar la compra nuevamente
+### 7.6 Probar la compra
 
 1. Volver al sitio `http://<AlbDnsName>/`
 2. Comprar un televisor y completar el formulario
 3. La compra debe completarse exitosamente
 
-### 7.7 Confirmar el flujo por microservicios
-
-```
-POST http://<AlbDnsName>/api/purchases
-Content-Type: application/json
-
-{"sku": "sorni-luma-32", "customer": "test@sorny.local"}
-```
-
-La respuesta debe incluir `"backend": "purchase-service"`.
-
-Revisar en CloudWatch los streams `purchase-service` y `payment-service` — ambos deben tener registros del mismo `pid`.
+La respuesta de la API ahora incluye `"backend": "purchase-service"`, confirmando que el request paso por EC2-purchase y no por el monolito.
 
 ---
 
 ## Fase 8: Observar con CloudWatch
 
-### 8.1 Comparar los streams de una compra exitosa
+### 8.1 Seguir el flujo de una compra exitosa en los logs
 
 1. Ir a **CloudWatch > Log groups > `/sorny/microservices-site/site`**
-2. Abrir `purchase-service`:
+2. Abrir el stream `purchase-service`:
    ```
    purchase sku=sorni-luma-32 customer=test@sorny.local
    purchase created pid=pur-abc12345 sku=sorni-luma-32
    ```
-3. Abrir `payment-service`:
+3. Abrir el stream `payment-service`:
    ```
    payment link pid=pur-abc12345 amt=189999
    ```
-4. Abrir `delivery-service` — debe tener el registro del POST a `/api/delivery` con nombre y email
-5. Abrir `monolithic-backend` — no debe tener registros de esta compra
+4. Abrir el stream `delivery-service` — debe tener el registro con nombre y email del cliente
+5. Abrir el stream `monolithic-backend` — no debe tener registros de esta compra
 
-### 8.2 Comparar request counts por target group
+Cada servicio tiene su propio stream de logs. Para diagnosticar un problema, no hay que buscar en un log mezclado: se abre el stream del servicio que fallo.
 
-1. **EC2 > Target Groups** > `sorni-Purch-*` > **Monitoring** > `RequestCount` — picos por cada compra
-2. `sorni-Monol-*` > **Monitoring** — solo requests a `/api/products` y `/api/health`
+### 8.2 Comparar metricas por target group
 
-> **¿Que demuestra esto?** Cada servicio tiene su propio scope. Los logs estan separados. Las metricas son por servicio. Si hay un error, se identifica en que parte del flujo ocurrio sin revisar un log gigante mezclado.
+1. Ir a **EC2 > Target Groups** > `sorni-Purch-*` > pestana **Monitoring**
+2. Revisar `RequestCount` — muestra los picos correspondientes a las compras
+3. Ir a `sorni-Monol-*` > **Monitoring**
+4. Su `RequestCount` refleja solo las rutas que no fueron migradas: `/api/products`, `/api/health`
+
+El monolito sigue activo como fallback para las rutas no migradas. Esto permite hacer la migracion de forma gradual, servicio por servicio, sin necesidad de migrar todo al mismo tiempo.
 
 ---
 
@@ -585,9 +524,9 @@ Revisar en CloudWatch los streams `purchase-service` y `payment-service` — amb
 1. Ir a **CloudFormation > Stacks**
 2. Seleccionar `sorny-microservices-stack`
 3. Click **Delete** > confirmar
-4. Esperar ~5 minutos
+4. Esperar ~5 minutos hasta que desaparezca
 
-**NO eliminar:** VPC, subnets, Internet Gateway, route tables, IAM roles.
+**No eliminar:** VPC, subnets, Internet Gateway, route tables, IAM roles.
 
 ---
 
@@ -595,14 +534,12 @@ Revisar en CloudWatch los streams `purchase-service` y `payment-service` — amb
 
 - El sitio devuelve 404 al abrir por primera vez (ALB sin reglas)
 - Los 5 target groups aparecen como `unused` antes de crear reglas
-- Los 5 servicios responden a `curl` por localhost en sus EC2s
 - Despues de crear las reglas base, el sitio muestra los 6 televisores y la compra funciona via monolito
-- Los TGs de purchase, delivery y payment pasan a healthy al crear las reglas de microservicios
+- Los TGs de purchase, delivery y payment pasan a **healthy** al crear las reglas de microservicios
 - La primera compra con microservicios activos **falla** con `payment_service_unavailable`
-- CloudWatch muestra el error en el stream `purchase-service` con la URL del placeholder
+- Los logs de CloudWatch muestran el error en el stream `purchase-service`
 - El stream `payment-service` no tiene registros del intento fallido
 - Despues de corregir `PAYMENT_SERVICE_URL` con `systemctl edit`, la compra funciona
 - `POST /api/purchases` devuelve `"backend": "purchase-service"`
-- Los streams de CloudWatch de purchase-service y payment-service tienen el mismo `pid`
-- Se puede explicar por que un servicio puede estar "healthy" pero el flujo falla por una dependencia mal configurada
-- Se puede explicar la diferencia entre health check de red y configuracion correcta de dependencias
+- Los streams `purchase-service` y `payment-service` tienen registros del mismo `pid`
+- Se puede explicar por que un servicio puede estar "healthy" pero el flujo completo falla por una dependencia mal configurada
