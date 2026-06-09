@@ -132,7 +132,7 @@ El stack `cloudformation/microservices-sorny-stack.yaml` crea:
 8. Click **Submit**
 9. Esperar a estado **CREATE_COMPLETE** (~10-12 minutos)
 
-> **Sobre el parametro DeployMonolito:** Si lo seteás en `true` antes de crear el stack, las reglas del ALB (base y de microservicios) se crean automaticamente al terminar el deploy. Podes ir directo a la Fase 5 sin pasar por las Fases 3 y 4. La URL de payment-service sigue siendo el placeholder — el ejercicio de diagnostico y correccion de la Fase 6 en adelante es obligatorio de todas formas.
+> **Sobre el parametro DeployMonolito:** Si lo seteás en `true`, las reglas base del ALB (frontend y monolito) se crean automaticamente al terminar el deploy. El sitio Sorny va a funcionar con el monolito desde el primer momento. Arrancas directo en la Fase 4 para crear las reglas de microservicios, probar la compra y diagnosticar el error.
 
 > **Sobre PurchasePaymentServiceUrl:** purchase-service necesita la direccion de payment-service para funcionar. Como aun no conocemos el DNS del ALB en este momento, el campo queda con un placeholder. Lo vas a corregir en la Fase 7 una vez que el stack este desplegado.
 
