@@ -53,15 +53,15 @@ Usuario
   v
 ALB
   |
-  +-- /                   -> frontend         (EC2-frontend,  puerto 5000)
+  +-- /                             -> frontend         (EC2-frontend,  puerto 5000)
   |
-  +-- /api/purchases/*    -> purchase-service (EC2-purchase,  puerto 5002)
+  +-- /api/purchases /api/purchases/* -> purchase-service (EC2-purchase,  puerto 5002)
   |
-  +-- /api/delivery/*     -> delivery-service (EC2-delivery,  puerto 5005)
+  +-- /api/delivery  /api/delivery/*  -> delivery-service (EC2-delivery,  puerto 5005)
   |
-  +-- /api/payments/*     -> payment-service  (EC2-payment,   puerto 5004)
+  +-- /api/payments  /api/payments/*  -> payment-service  (EC2-payment,   puerto 5004)
   |
-  +-- /api/*              -> monolith fallback (EC2-monolith, puerto 5001)
+  +-- /api/*                        -> monolith fallback (EC2-monolith, puerto 5001)
        (fallback para rutas no migradas: /api/products, /api/health)
 ```
 
@@ -107,6 +107,8 @@ El stack `cloudformation/microservices-sorny-stack.yaml` crea:
 - 5 target groups (frontend, monolith, delivery, purchase, payment)
 - CloudWatch Log Group con streams por servicio
 - 5 alarmas de status check
+
+> Las alarmas creadas por el stack cubren solo el estado de cada EC2 (`StatusCheckFailed`). No detectan fallas funcionales del flujo de compra. Para detectar ese tipo de falla se podrian agregar alarmas sobre `HTTPCode_Target_5XX_Count` del target group de purchase-service.
 
 ### 1.1 Desplegar con CloudFormation (AWS Console)
 
@@ -362,6 +364,8 @@ Click **Create**.
 | 200 | `/*` | sorni-Front-* | EC2-frontend (5000) |
 | default | — | fixed-response 404 | — |
 
+> Cada regla de microservicio usa dos path values: el path exacto (ej: `/api/purchases`) y el wildcard (ej: `/api/purchases/*`). El path exacto captura el POST de compra; el wildcard captura rutas como `/api/purchases/health` y `/api/purchases/<id>`.
+
 Esperar 1-2 minutos a que `sorni-Purch-*`, `sorni-Deliv-*` y `sorni-Payme-*` pasen a **healthy**.
 
 ---
@@ -407,6 +411,8 @@ El error incluye la URL que intento usar: `http://REPLACE-WITH-ALB-DNS/api/payme
 
 1. Ir a **CloudWatch > Log groups**
 2. Abrir `/sorny/microservices-site/site`
+
+   > Este nombre viene de los defaults del stack (`ProjectName=sorny`, `Environment=microservices-site`). Si el docente uso valores distintos, el nombre cambia: `/<ProjectName>/<Environment>/site`.
 3. Click en el stream `purchase-service`
 4. Buscar las entradas del intento de compra fallido. Vas a ver algo como:
 
