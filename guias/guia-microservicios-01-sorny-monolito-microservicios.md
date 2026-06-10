@@ -524,6 +524,18 @@ El monolito sigue activo como fallback para las rutas no migradas. Esto permite 
 
 ## Limpieza
 
+Antes de eliminar el stack hay que borrar las reglas del ALB que creaste manualmente en la Fase 4. Si no lo hacés, CloudFormation no va a poder eliminar los target groups y el stack va a quedar en `DELETE_FAILED`.
+
+### 1. Eliminar las reglas de microservicios del ALB
+
+1. Ir a **EC2 > Load Balancers** > seleccionar el ALB > **Listeners and rules** > **HTTP:80**
+2. Seleccionar las reglas con prioridad 10, 20 y 30 (purchase, delivery, payment)
+3. Click en **Actions > Delete** y confirmar
+
+> Si usaste `DeployMonolito=false` y tambien creaste las reglas base (prioridad 100 y 200), eliminalas tambien.
+
+### 2. Eliminar el stack
+
 1. Ir a **CloudFormation > Stacks**
 2. Seleccionar `sorny-microservices-stack`
 3. Click **Delete** > confirmar

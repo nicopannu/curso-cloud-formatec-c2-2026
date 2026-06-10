@@ -414,9 +414,8 @@ Resources:
           pip3 install flask gunicorn
           mkdir -p /opt/sorni/monolith /var/log/sorni
           cat > /opt/sorni/monolith/app.py << 'PYAPP'
-          import uuid, logging
+          import uuid
           from flask import Flask, jsonify, request
-          logging.basicConfig(level=logging.INFO)
           app = Flask(__name__)
           PRODUCTS=[{"sku":"sorni-luma-32","name":"Sorny Luma 32","description":"LED 32 pulgadas para habitacion o cocina","price":189999},{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","description":"Smart TV 43 pulgadas Full HD","price":319999},{"sku":"sorni-croma-50","name":"Sorny Croma 50","description":"4K 50 pulgadas con HDR basico","price":489999},{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","description":"4K 55 pulgadas, panel rapido para deportes","price":629999},{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","description":"4K 65 pulgadas para living grande","price":899999},{"sku":"sorni-mega-75","name":"Sorny Mega 75","description":"75 pulgadas, experiencia cine en casa","price":1299999}]
           INVENTORY={i["sku"]:3 for i in PRODUCTS}
@@ -433,7 +432,7 @@ Resources:
               if INVENTORY.get(s,0)<=0: return jsonify({"error":"out_of_inventory"}),409
               INVENTORY[s]-=1; pid="pur-"+uuid.uuid4().hex[:8]; purl="/checkout?pid="+pid+"&amount="+str(pr["price"])
               PURCHASES[pid]={"purchase_id":pid,"sku":s,"status":"payment_pending","payment_url":purl}
-              app.logger.info("monolith purchase created pid=%s sku=%s",pid,s)
+              print(f"monolith purchase created pid={pid} sku={s}", flush=True)
               return jsonify({"backend":"monolithic-backend","purchase_id":pid,"sku":s,"status":"payment_pending","payment_url":purl})
           @app.get("/api/purchases/<pid>")
           def get(pid):
@@ -443,7 +442,7 @@ Resources:
           @app.post("/api/delivery")
           def delivery():
               p=request.get_json(silent=True) or {}
-              app.logger.info("delivery request name=%s email=%s product=%s",p.get("name"),p.get("email"),p.get("product_name"))
+              print(f"delivery request name={p.get('name')} email={p.get('email')} product={p.get('product_name')}", flush=True)
               return jsonify({"status":"delivery_pending","message":"Te contactaremos para coordinar el envio","backend":"monolithic-backend"})
           PYAPP
           cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
@@ -497,16 +496,14 @@ Resources:
           pip3 install flask gunicorn
           mkdir -p /opt/sorni/delivery /var/log/sorni
           cat > /opt/sorni/delivery/app.py << 'PYAPP'
-          import logging
           from flask import Flask, jsonify, request
-          logging.basicConfig(level=logging.INFO)
           app = Flask(__name__)
           @app.get("/api/delivery/health")
           def h(): return jsonify({"service":"delivery-service","status":"ok"})
           @app.post("/api/delivery")
           def delivery():
               p=request.get_json(silent=True) or {}
-              app.logger.info("delivery-service request name=%s email=%s product=%s",p.get("name"),p.get("email"),p.get("product_name"))
+              print(f"delivery-service request name={p.get('name')} email={p.get('email')} product={p.get('product_name')}", flush=True)
               return jsonify({"status":"delivery_pending","message":"Te contactaremos para coordinar el envio","backend":"delivery-service"})
           PYAPP
           cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
@@ -560,9 +557,8 @@ Resources:
           pip3 install flask requests gunicorn
           mkdir -p /opt/sorni/purchase /var/log/sorni
           cat > /opt/sorni/purchase/app.py << 'PYAPP'
-          import os, uuid, requests, logging
+          import os, uuid, requests
           from flask import Flask, jsonify, request
-          logging.basicConfig(level=logging.INFO)
           app = Flask(__name__)
           PU=os.getenv("PAYMENT_SERVICE_URL","http://127.0.0.1:5004/api/payments")
           PRODUCTS={"sorni-luma-32":{"sku":"sorni-luma-32","name":"Sorny Luma 32","price":189999},"sorni-braviax-43":{"sku":"sorni-braviax-43","name":"Sorny Braviax 43","price":319999},"sorni-croma-50":{"sku":"sorni-croma-50","name":"Sorny Croma 50","price":489999},"sorni-trinitronix-55":{"sku":"sorni-trinitronix-55","name":"Sorny Trinitronix 55","price":629999},"sorni-cinepro-65":{"sku":"sorni-cinepro-65","name":"Sorny CinePro 65","price":899999},"sorni-mega-75":{"sku":"sorni-mega-75","name":"Sorny Mega 75","price":1299999}}
@@ -575,13 +571,13 @@ Resources:
               if not sk: return jsonify({"error":"missing_sku"}),400
               product=PRODUCTS.get(sk)
               if not product: return jsonify({"error":"unknown_sku"}),404
-              app.logger.info("purchase sku=%s customer=%s",sk,cs)
+              print(f"purchase sku={sk} customer={cs}", flush=True)
               pid="pur-"+uuid.uuid4().hex[:8]
               try: pr=requests.post(PU.rstrip("/")+"/checkout",json={"purchase_id":pid,"sku":sk,"amount":product["price"]},timeout=2)
               except Exception as e: app.logger.exception("payment fail pid=%s url=%s",pid,PU); return jsonify({"error":"payment_service_unavailable","detail":str(e)}),503
               if pr.status_code!=200: return jsonify({"error":"payment_rejected","detail":pr.json()}),pr.status_code
               pd=pr.json(); pu={"purchase_id":pid,"sku":sk,"status":"payment_pending","payment_url":pd["payment_url"],"backend":"purchase-service"}
-              PUR[pid]=pu; app.logger.info("purchase created pid=%s sku=%s",pid,sk); return jsonify(pu)
+              PUR[pid]=pu; print(f"purchase created pid={pid} sku={sk}", flush=True); return jsonify(pu)
           @app.get("/api/purchases/<pid>")
           def get(pid):
               pu=PUR.get(pid)
@@ -640,9 +636,7 @@ Resources:
           pip3 install flask gunicorn
           mkdir -p /opt/sorni/payment /var/log/sorni
           cat > /opt/sorni/payment/app.py << 'PYAPP'
-          import logging
           from flask import Flask, jsonify, request
-          logging.basicConfig(level=logging.INFO)
           app = Flask(__name__)
           @app.get("/api/payments/health")
           def h(): return jsonify({"service":"payment-service","status":"ok"})
@@ -651,7 +645,7 @@ Resources:
               p=request.get_json(silent=True) or {}; pid=p.get("purchase_id"); am=p.get("amount")
               if not pid or am is None: return jsonify({"error":"missing_purchase_or_amount"}),400
               purl="/checkout?pid="+pid+"&amount="+str(am)
-              app.logger.info("payment link pid=%s amt=%s",pid,am)
+              print(f"payment link pid={pid} amt={am}", flush=True)
               return jsonify({"backend":"payment-service","purchase_id":pid,"payment_url":purl,"status":"payment_link_created"})
           PYAPP
           cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
