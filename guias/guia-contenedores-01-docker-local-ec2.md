@@ -10,7 +10,7 @@
 
 ## Contexto narrativo
 
-En M2-C3, Sorny separo responsabilidades en servicios: frontend, purchase, delivery y payment. Eso resolvio parte del problema de arquitectura, pero cada servicio sigue instalado manualmente en EC2 con Python, pip, systemd y configuracion de servidor.
+Sorny tiene responsabilidades separadas: frontend, purchase, delivery y payment. El problema de esta clase es que esos componentes todavia necesitan un modelo de ejecucion claro: algunos convienen como contenedores, otros pueden pasar a serverless.
 
 El siguiente paso es empaquetar servicios. Antes de hablar de Docker Swarm o Lambda, necesitamos entender Docker como unidad minima:
 
@@ -77,7 +77,7 @@ Al finalizar, deberias poder:
 - publicar un puerto del contenedor hacia el host;
 - ver hostname e IP internas de un contenedor;
 - correr varias replicas manuales de una misma imagen;
-- explicar por que Docker sin Swarm/Kubernetes/ECS no es un orquestador de servicios;
+- explicar por que Docker sin Swarm/Kubernetes no es un orquestador de servicios;
 - conectar este aprendizaje con Docker Swarm: escalar un servicio requiere algo mas que `docker run`.
 
 ---
@@ -455,8 +455,7 @@ Pero no ofrece por si solo:
 Para eso aparecen orquestadores:
 
 - Docker Swarm;
-- Kubernetes;
-- ECS con EC2.
+- Kubernetes.
 
 La diferencia entre “EC2 con Docker manual” y “Docker Swarm” en nuestro lab va a estar justamente ahi: **queremos declarar servicios, replicas y recuperacion, no solo ejecutar contenedores manuales**.
 

@@ -1,69 +1,74 @@
-# Contenedores y Serverless - Formatec Cloud 2026
+# M2-C4 - Contenedores y Serverless
 
-Repositorio del curso Arquitectura e Ingenieria Cloud | C2.
+Repositorio de la clase M2-C4 del curso Arquitectura e Ingenieria Cloud | C2.
 
 Profesor Nicolas Pannucio.
 
-## Para que sirve este repositorio
+## Proposito de esta branch
 
-Este repositorio acompana las practicas del curso. Cada branch representa una clase o un caso concreto.
+Esta branch contiene solamente el material necesario para la clase de contenedores y serverless.
 
-En esta branch continuamos con Sorny despues del lab de microservicios. Primero usamos Docker para entender imagenes y contenedores. Despues migramos dos APIs Sorny a Docker Swarm sobre 1 manager y 2 workers EC2 publicos y dejamos una tercera API como Lambda para comparar modelos de ejecucion.
+El caso usado es Sorny. El foco de esta clase es comparar modelos de ejecucion:
 
-## Como recorrer el material
+```text
+Docker local o EC2 bootstrap -> imagenes y contenedores
+Docker Swarm en EC2          -> servicios replicados sobre VMs propias
+AWS Lambda                   -> funcion stateless por evento HTTP
+```
 
-1. Lee este README para ubicarte.
-2. Empeza por la Guia A de fundamentos Docker.
-3. Usa el bootstrap Sorny M2-C4 para levantar ALB, frontend EC2 y 1 manager y 2 workers Swarm publicos.
-4. Segui con Guia B1 para migrar `purchase-service` y `payment-service` a Docker Swarm.
-5. Segui con Guia B2 para llevar `delivery-service` a Lambda.
+## Recorrido recomendado
+
+1. Empezar por la Guia A para instalar/probar Docker.
+2. Si no se puede instalar Docker localmente, usar el bootstrap EC2 de AWS.
+3. Seguir con Guia B1 para desplegar `purchase-service` y `payment-service` en Docker Swarm.
+4. Cerrar con Guia B2 para llevar `delivery-service` a Lambda.
 
 La idea no es memorizar pantallas de consola. La idea es decidir que modelo de ejecucion conviene para cada responsabilidad.
 
-## Branches
-
-Cada practica tiene su propia branch:
-
-| Branch | Contenido |
-|---|---|
-| `main` | Documentacion general y estructura base del repo |
-| `m2-c1-lab` | Modulo 2 - Clase 1: migracion inicial y razonamiento de arquitectura |
-| `m2-c2-lab` | Modulo 2 - Clase 2: escalabilidad y alta disponibilidad |
-| `m2-c3-lab` | Modulo 2 - Clase 3: monolito a microservicios con Sorny |
-| `m2-c4-contenedores-serverless` | Modulo 2 - Clase 4: Docker, Docker Swarm y Lambda |
-
-```bash
-git clone https://github.com/nicopannu/curso-cloud-formatec-c2-2026.git
-cd curso-cloud-formatec-c2-2026
-
-git checkout m2-c4-contenedores-serverless
-```
-
-## Guias principales
+## Guias
 
 | Ruta | Uso |
 |---|---|
-| `guias/guia-contenedores-01-docker-local-ec2.md` | Guia A: Docker local con Windows/WSL2 si se puede, o EC2 bootstrap como alternativa. Construye una imagen que saluda con hostname e IP |
-| `guias/guia-contenedores-02-sorny-docker-swarm.md` | Guia B1: migrar `purchase-service` y `payment-service` de Sorny a Docker Swarm en 1 manager y 2 workers EC2 publicos |
-| `guias/guia-serverless-01-sorny-delivery-lambda.md` | Guia B2: llevar `delivery-service` de Sorny a Lambda, subiendo ZIP a S3 |
-| `guias/guia-microservicios-01-sorny-monolito-microservicios.md` | Antecedente M2-C3 para entender el caso Sorny original |
+| `guias/guia-contenedores-01-docker-local-ec2.md` | Guia A: instalacion Docker en Windows 10 + WSL2/Docker Desktop, o alternativa EC2 con Docker |
+| `guias/guia-contenedores-02-sorny-docker-swarm.md` | Guia B1: migrar `purchase-service` y `payment-service` a Docker Swarm con 1 manager y 2 workers EC2 publicos |
+| `guias/guia-serverless-01-sorny-delivery-lambda.md` | Guia B2: llevar `delivery-service` a Lambda, subiendo ZIP a S3 y exponiendo API Gateway |
 
-## Templates CloudFormation
-
-| Ruta | Uso |
-|---|---|
-| `cloudformation/docker-ec2-bootstrap.yaml` | Opcion B de Guia A: EC2 publica Amazon Linux 2023 con Docker instalado |
-| `cloudformation/sorny-microservices-m2c4-bootstrap.yaml` | Bootstrap de Guia B: ALB publico, frontend EC2 y 1 manager y 2 workers EC2 publicos para Docker Swarm |
-| `cloudformation/microservices-sorny-stack.yaml` | Template original M2-C3, mantenido como antecedente |
-
-## Artefactos de apoyo
+## CloudFormation
 
 | Ruta | Uso |
 |---|---|
-| `apps/docker-hostinfo/` | App Flask + Dockerfile para construir imagen `sorny-hostinfo:v1` |
+| `cloudformation/docker-ec2-bootstrap.yaml` | Opcion AWS de Guia A: EC2 publica Amazon Linux 2023 con Docker instalado |
+| `cloudformation/sorny-swarm-m2c4-bootstrap.yaml` | Bootstrap de Guia B1: ALB publico, frontend EC2, 1 manager y 2 workers para Docker Swarm |
+
+## Artefactos de aplicacion
+
+| Ruta | Uso |
+|---|---|
+| `apps/docker-hostinfo/` | App Flask + Dockerfile para construir imagen `sorny-hostinfo:v1` en Guia A |
 | `apps/sorny-swarm/` | Apps, Dockerfiles y `docker-stack.yml` para `purchase-service` y `payment-service` en Swarm |
 | `lambda/sorny-delivery-lambda/app.py` | Codigo fuente del handler Lambda de delivery |
 | `lambda/sorny-delivery-lambda/sorny-delivery-lambda.zip` | ZIP listo para subir a S3 y cargar en Lambda |
+
+## Arquitectura objetivo
+
+```text
+Usuario
+  |
+  v
+ALB publico
+  |
+  +-- /*                               -> frontend EC2
+  +-- /api/purchases, /api/purchases/* -> Docker Swarm workers :5003
+  +-- /api/payments,  /api/payments/*  -> Docker Swarm workers :5004
+
+Docker Swarm:
+  - swarm-manager: administra el cluster, no recibe trafico de aplicacion
+  - swarm-worker-1: ejecuta servicios
+  - swarm-worker-2: ejecuta servicios
+
+Serverless:
+  - delivery-service -> Lambda + API Gateway
+```
 
 ## Resultado esperado
 
@@ -78,4 +83,14 @@ Al terminar, deberias poder explicar:
 - como S3 puede usarse como repositorio de artefactos ZIP para Lambda;
 - que trade-offs aparecen entre VM, contenedor orquestado y serverless.
 
-Proyecto educativo - Formatec Cloud Course 2026.
+## Limpieza
+
+Los recursos AWS creados durante la clase deben eliminarse al terminar:
+
+- stacks CloudFormation;
+- Lambda;
+- API Gateway;
+- bucket S3 usado para el ZIP;
+- log groups si no se necesitan.
+
+No eliminar VPC, subnets, roles ni recursos compartidos del curso.

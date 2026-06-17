@@ -1,6 +1,6 @@
-# CloudFormation - Sorny M2-C4
+# CloudFormation - M2-C4 Contenedores y Serverless
 
-Este folder contiene templates de apoyo para los labs de contenedores y serverless.
+Este folder contiene solo los templates necesarios para la clase M2-C4.
 
 La idea no es memorizar CloudFormation. La idea es levantar puntos de partida repetibles para discutir decisiones de arquitectura: Docker manual, Docker Swarm en EC2 y Lambda.
 
@@ -8,9 +8,8 @@ La idea no es memorizar CloudFormation. La idea es levantar puntos de partida re
 
 | Template | Uso |
 |---|---|
-| `docker-ec2-bootstrap.yaml` | Opcion B de la Guia A: EC2 publica Amazon Linux 2023 con Docker instalado |
-| `sorny-microservices-m2c4-bootstrap.yaml` | Bootstrap de Guia B: ALB publico, frontend EC2 y 1 manager y 2 workers EC2 publicos para Docker Swarm |
-| `microservices-sorny-stack.yaml` | Template original de M2-C3, mantenido como antecedente |
+| `docker-ec2-bootstrap.yaml` | Opcion AWS de la Guia A: EC2 publica Amazon Linux 2023 con Docker instalado |
+| `sorny-swarm-m2c4-bootstrap.yaml` | Bootstrap de Guia B1: ALB publico, frontend EC2, 1 manager y 2 workers EC2 publicos para Docker Swarm |
 
 ---
 
@@ -29,7 +28,8 @@ Alumno -> EC2 publica:8080 -> contenedor Docker
 - 1 EC2 Amazon Linux 2023;
 - 1 Security Group con inbound TCP `8080` desde `AllowedHttpCidr`;
 - Docker instalado por UserData;
-- salida a internet para descargar imagenes.
+- salida a internet para descargar imagenes;
+- outputs utiles para SSM y pruebas HTTP.
 
 **No crea:** VPC, subnet, IAM role/profile, ALB, ECR ni repositorios.
 
@@ -48,9 +48,18 @@ Alumno -> EC2 publica:8080 -> contenedor Docker
 sorny-docker-bootstrap
 ```
 
+**Outputs importantes:**
+
+- `InstanceId`
+- `PublicDnsName`
+- `PublicIp`
+- `HttpUrl`
+- `SsmConnectHint`
+- `SecurityGroupId`
+
 ---
 
-## `sorny-microservices-m2c4-bootstrap.yaml`
+## `sorny-swarm-m2c4-bootstrap.yaml`
 
 **Usado en:** Guia B1 Docker Swarm y Guia B2 Lambda.
 
@@ -62,13 +71,14 @@ Usuario
   v
 ALB publico
   +-- /*                               -> frontend EC2 publica :5000
-  +-- /api/purchases, /api/purchases/* -> Docker Swarm routing mesh :5003
-  +-- /api/payments,  /api/payments/*  -> Docker Swarm routing mesh :5004
+  +-- /api/purchases, /api/purchases/* -> workers Swarm :5003
+  +-- /api/payments,  /api/payments/*  -> workers Swarm :5004
 
 EC2 publicas con SSM:
   - frontend
   - swarm-manager
-  - swarm-worker
+  - swarm-worker-1
+  - swarm-worker-2
 ```
 
 **Crea:**
@@ -76,16 +86,17 @@ EC2 publicas con SSM:
 - 1 ALB publico;
 - 1 listener HTTP `:80`;
 - 1 EC2 frontend con IP publica;
-- 1 manager y 2 workers EC2 publicos para Docker Swarm: manager y worker;
-- Docker instalado en ambos nodos Swarm;
+- 1 EC2 manager para Docker Swarm;
+- 2 EC2 workers para Docker Swarm;
+- Docker instalado en manager y workers;
 - Security Group del ALB;
 - Security Group del frontend;
 - Security Group de Swarm con:
   - puertos `5003` y `5004` para servicios publicados;
   - puertos internos Swarm `2377/tcp`, `7946/tcp`, `7946/udp`, `4789/udp` entre nodos;
 - Target Group de frontend;
-- Target Group de purchases hacia ambos nodos en puerto `5003`;
-- Target Group de payments hacia ambos nodos en puerto `5004`;
+- Target Group de purchases hacia los dos workers en puerto `5003`;
+- Target Group de payments hacia los dos workers en puerto `5004`;
 - reglas ALB para `/api/purchases*` y `/api/payments*`.
 
 **No crea:**
@@ -104,8 +115,8 @@ Esos pasos quedan a cargo del alumno en las guias, usando AWS Console y SSM Sess
 | Parametro | Uso recomendado |
 |---|---|
 | `VpcId` | VPC existente del laboratorio |
-| `SubnetAId` | Subnet publica para frontend y Swarm manager |
-| `SubnetBId` | Subnet publica para Swarm worker y ALB |
+| `SubnetAId` | Subnet publica para frontend, Swarm manager y worker 1 |
+| `SubnetBId` | Subnet publica para Swarm worker 2 y ALB |
 | `SsmInstanceProfileName` | Instance Profile existente con SSM |
 | `InstanceType` | `t3.micro` para demo, `t3.small` si Docker build queda justo |
 
@@ -134,20 +145,6 @@ sorny-m2c4-swarm
 
 ---
 
-## Relacion con M2-C3
-
-El template `microservices-sorny-stack.yaml` queda como antecedente de M2-C3. Ese material muestra la separacion inicial desde monolito hacia microservicios.
-
-En M2-C4 no repetimos todo ese diagnostico. Usamos el caso Sorny para comparar modelos de ejecucion:
-
-```text
-Docker local/EC2 -> fundamento de imagen y contenedor
-Docker Swarm     -> servicios replicados en 2 EC2
-Lambda           -> funcion por evento para delivery-service
-```
-
----
-
 ## Limpieza
 
 Para `docker-ec2-bootstrap.yaml`:
@@ -155,7 +152,7 @@ Para `docker-ec2-bootstrap.yaml`:
 1. Eliminar el stack `sorny-docker-bootstrap`.
 2. No eliminar VPC, subnets ni roles compartidos.
 
-Para `sorny-microservices-m2c4-bootstrap.yaml`:
+Para `sorny-swarm-m2c4-bootstrap.yaml`:
 
 1. En el manager, eliminar primero el stack Swarm:
 

@@ -18,7 +18,7 @@ La decision de arquitectura de esta guia no es “usar Docker porque si”. La p
 Que cambia cuando una API deja de correr como proceso instalado en una VM y pasa a correr como servicio contenedorizado en un cluster con plano de control y dos nodos de ejecucion?
 ```
 
-Para mantener continuidad con M2-C2 y M2-C3, conservamos:
+Para mantener una arquitectura visible y facil de discutir en clase, conservamos:
 
 - un ALB publico como punto de entrada;
 - el frontend en su propia EC2;
@@ -38,7 +38,7 @@ Cambiamos:
 Bootstrap:
 
 ```text
-cloudformation/sorny-microservices-m2c4-bootstrap.yaml
+cloudformation/sorny-swarm-m2c4-bootstrap.yaml
 ```
 
 El stack crea:
@@ -164,7 +164,7 @@ Upload a template file
 3. Cargar:
 
 ```text
-cloudformation/sorny-microservices-m2c4-bootstrap.yaml
+cloudformation/sorny-swarm-m2c4-bootstrap.yaml
 ```
 
 4. Stack name sugerido:
