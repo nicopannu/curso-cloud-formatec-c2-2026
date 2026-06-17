@@ -101,9 +101,9 @@ Resources:
           exec > >(tee /var/log/user-data.log) 2>&1
           dnf update -y
           dnf install -y docker curl jq
-          systemctl enable docker
-          systemctl start docker
+          systemctl enable --now docker
           usermod -aG docker ec2-user || true
+          docker --version
           mkdir -p /opt/sorny/docker-demo
           cat > /opt/sorny/docker-demo/README.txt << 'EOF'
           EC2 lista para el lab Docker de M2-C4.
@@ -129,6 +129,14 @@ Outputs:
   PublicIp:
     Description: IP publica para probar http://<IP>:8080
     Value: !GetAtt DockerLabInstance.PublicIp
+
+  HttpUrl:
+    Description: URL publica esperada cuando el contenedor escuche en puerto 8080
+    Value: !Sub http://${DockerLabInstance.PublicDnsName}:8080
+
+  SsmConnectHint:
+    Description: ID a seleccionar en EC2 > Instances > Connect > Session Manager
+    Value: !Sub ${DockerLabInstance}
 
   SecurityGroupId:
     Description: Security Group de la EC2 Docker lab
