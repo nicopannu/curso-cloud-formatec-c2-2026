@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "M2-C4 Docker bootstrap - EC2 publica Amazon Linux 2023 con Docker instalado para alumnos sin Docker local."
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Red
+        Parameters:
+          - VpcId
+          - SubnetId
+          - AllowedHttpCidr
+      - Label:
+          default: EC2
+        Parameters:
+          - InstanceType
+          - SsmInstanceProfileName
+          - LatestAmiId
+      - Label:
+          default: Identificacion
+        Parameters:
+          - ProjectName
+          - Environment
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC del laboratorio
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet publica con salida a internet
+
+  AllowedHttpCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR autorizado a entrar al puerto 8080. En clase conviene reemplazar por la IP/rango del aula.
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t3.small]
+    Description: Tipo de instancia
+
+  SsmInstanceProfileName:
+    Type: String
+    Default: cloudcuyo-ssm-role
+    Description: Instance Profile existente con permisos SSM. Ajustar si el lab usa otro nombre.
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+  ProjectName:
+    Type: String
+    Default: sorny
+    AllowedPattern: "^[a-z0-9-]+$"
+
+  Environment:
+    Type: String
+    Default: docker-lab
+    AllowedPattern: "^[a-z0-9-]+$"
+
+Resources:
+  DockerLabSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-${Environment}-docker-sg
+      GroupDescription: SG para EC2 Docker lab - puerto 8080 publico controlado
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref AllowedHttpCidr
+          Description: HTTP demo contenedor
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-docker-sg
+        - Key: Lab
+          Value: m2-c4-docker
+
+  DockerLabInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfileName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetId
+          GroupSet: [!Ref DockerLabSg]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/user-data.log) 2>&1
+          dnf update -y
+          dnf install -y docker curl jq
+          systemctl enable docker
+          systemctl start docker
+          usermod -aG docker ec2-user || true
+          mkdir -p /opt/sorny/docker-demo
+          cat > /opt/sorny/docker-demo/README.txt << 'EOF'
+          EC2 lista para el lab Docker de M2-C4.
+          Conectarse por Session Manager y ejecutar:
+            docker version
+            docker run hello-world
+          EOF
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-docker-host
+        - Key: Lab
+          Value: m2-c4-docker
+
+Outputs:
+  InstanceId:
+    Description: ID de la EC2 Docker lab
+    Value: !Ref DockerLabInstance
+
+  PublicDnsName:
+    Description: DNS publico para probar http://<DNS>:8080
+    Value: !GetAtt DockerLabInstance.PublicDnsName
+
+  PublicIp:
+    Description: IP publica para probar http://<IP>:8080
+    Value: !GetAtt DockerLabInstance.PublicIp
+
+  SecurityGroupId:
+    Description: Security Group de la EC2 Docker lab
+    Value: !Ref DockerLabSg

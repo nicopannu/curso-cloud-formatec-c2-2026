@@ -1,0 +1,538 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "M2-C4 Sorny bootstrap - ALB publico, frontend EC2, 1 manager y 2 workers EC2 publicos para Docker Swarm. Administracion por SSM."
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Red
+        Parameters:
+          - VpcId
+          - SubnetAId
+          - SubnetBId
+      - Label:
+          default: EC2
+        Parameters:
+          - InstanceType
+          - SsmInstanceProfileName
+          - LatestAmiId
+      - Label:
+          default: Aplicacion
+        Parameters:
+          - ProjectName
+          - Environment
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC del laboratorio
+
+  SubnetAId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet publica A para frontend, swarm manager y worker 1
+
+  SubnetBId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet publica B para swarm worker 2 y ALB
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t3.small]
+    Description: Tipo de instancia para frontend y nodos Swarm
+
+  SsmInstanceProfileName:
+    Type: String
+    Description: Instance Profile existente con permisos para SSM Session Manager
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+  ProjectName:
+    Type: String
+    Default: sorny
+    AllowedPattern: "^[a-z0-9-]+$"
+
+  Environment:
+    Type: String
+    Default: m2-c4-swarm
+    AllowedPattern: "^[a-z0-9-]+$"
+
+Resources:
+  AlbSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-alb-sg-${Environment}
+      GroupDescription: ALB publico HTTP para Sorny
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP publico
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-alb-sg-${Environment}
+        - Key: Lab
+          Value: m2-c4-swarm
+
+  FrontendSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-frontend-sg-${Environment}
+      GroupDescription: Frontend EC2 - trafico desde ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          SourceSecurityGroupId: !Ref AlbSg
+          Description: Frontend desde ALB
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-frontend-sg-${Environment}
+        - Key: Lab
+          Value: m2-c4-swarm
+
+  SwarmSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-swarm-sg-${Environment}
+      GroupDescription: Docker Swarm nodes - ALB hacia workers, routing mesh y trafico interno Swarm
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5003
+          ToPort: 5003
+          SourceSecurityGroupId: !Ref AlbSg
+          Description: purchase-service desde ALB
+        - IpProtocol: tcp
+          FromPort: 5004
+          ToPort: 5004
+          SourceSecurityGroupId: !Ref AlbSg
+          Description: payment-service desde ALB
+        - IpProtocol: tcp
+          FromPort: 5003
+          ToPort: 5004
+          CidrIp: 0.0.0.0/0
+          Description: Acceso directo opcional para pruebas del lab
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-swarm-sg-${Environment}
+        - Key: Lab
+          Value: m2-c4-swarm
+
+  SwarmMgmtIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SwarmSg
+      IpProtocol: tcp
+      FromPort: 2377
+      ToPort: 2377
+      SourceSecurityGroupId: !Ref SwarmSg
+      Description: Docker Swarm cluster management
+
+  SwarmDiscoveryTcpIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SwarmSg
+      IpProtocol: tcp
+      FromPort: 7946
+      ToPort: 7946
+      SourceSecurityGroupId: !Ref SwarmSg
+      Description: Docker Swarm node discovery TCP
+
+  SwarmDiscoveryUdpIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SwarmSg
+      IpProtocol: udp
+      FromPort: 7946
+      ToPort: 7946
+      SourceSecurityGroupId: !Ref SwarmSg
+      Description: Docker Swarm node discovery UDP
+
+  SwarmOverlayIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SwarmSg
+      IpProtocol: udp
+      FromPort: 4789
+      ToPort: 4789
+      SourceSecurityGroupId: !Ref SwarmSg
+      Description: Docker Swarm overlay network VXLAN
+
+  LabAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-alb-${Environment}
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      SecurityGroups: [!Ref AlbSg]
+      Subnets: [!Ref SubnetAId, !Ref SubnetBId]
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-alb-${Environment}
+        - Key: Lab
+          Value: m2-c4-swarm
+
+  LabAlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LabAlb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+  FrontendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-front-${Environment}
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 5000
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: 200
+      Targets:
+        - Id: !Ref FrontendInstance
+          Port: 5000
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-front-${Environment}
+
+  PurchaseTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-purchase-${Environment}
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 5003
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /api/purchases/health
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: 200
+      Targets:
+        - Id: !Ref SwarmWorker1Instance
+          Port: 5003
+        - Id: !Ref SwarmWorker2Instance
+          Port: 5003
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-purchase-${Environment}
+
+  PaymentTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-payment-${Environment}
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 5004
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /api/payments/health
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: 200
+      Targets:
+        - Id: !Ref SwarmWorker1Instance
+          Port: 5004
+        - Id: !Ref SwarmWorker2Instance
+          Port: 5004
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-payment-${Environment}
+
+  PurchaseListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref LabAlbListener
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /api/purchases
+            - /api/purchases/*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref PurchaseTargetGroup
+
+  PaymentListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref LabAlbListener
+      Priority: 20
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /api/payments
+            - /api/payments/*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref PaymentTargetGroup
+
+  FrontendInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfileName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref FrontendSg
+          SubnetId: !Ref SubnetAId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-frontend-${Environment}
+        - Key: Lab
+          Value: m2-c4-swarm
+        - Key: Role
+          Value: frontend
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          dnf update -y
+          dnf install -y python3 python3-pip
+          mkdir -p /opt/sorny-frontend
+          cat > /opt/sorny-frontend/app.py <<'PY'
+          import os
+          import socket
+          from flask import Flask, jsonify
+
+          app = Flask(__name__)
+          ALB_DNS = os.getenv("ALB_DNS", "pendiente")
+
+          @app.get("/")
+          def index():
+              return """
+              <html><head><title>Sorny M2-C4</title></head>
+              <body style='font-family: Arial; margin: 40px'>
+                <h1>Sorny M2-C4: Contenedores y Serverless</h1>
+                <p>Frontend en EC2. APIs de purchases/payments en Docker Swarm. Delivery pasa a Lambda en la guia B2.</p>
+                <ul>
+                  <li><a href='/health'>/health frontend</a></li>
+                  <li><a href='/api/purchases/health'>/api/purchases/health</a></li>
+                  <li><a href='/api/payments/health'>/api/payments/health</a></li>
+                </ul>
+              </body></html>
+              """
+
+          @app.get("/health")
+          def health():
+              return jsonify({
+                  "service": "frontend",
+                  "status": "ok",
+                  "runtime": "ec2",
+                  "hostname": socket.gethostname()
+              })
+
+          if __name__ == "__main__":
+              app.run(host="0.0.0.0", port=5000)
+          PY
+          cat > /etc/systemd/system/sorny-frontend.service <<'UNIT'
+          [Unit]
+          Description=Sorny frontend Flask app
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          WorkingDirectory=/opt/sorny-frontend
+          ExecStart=/usr/bin/python3 /opt/sorny-frontend/app.py
+          Restart=always
+          RestartSec=3
+          Environment=PYTHONUNBUFFERED=1
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          pip3 install flask==3.0.3
+          systemctl daemon-reload
+          systemctl enable --now sorny-frontend
+
+  SwarmManagerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfileName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref SwarmSg
+          SubnetId: !Ref SubnetAId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-swarm-manager-${Environment}
+        - Key: Lab
+          Value: m2-c4-swarm
+        - Key: Role
+          Value: swarm-manager
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          dnf update -y
+          dnf install -y docker git
+          systemctl enable --now docker
+          usermod -aG docker ec2-user || true
+          mkdir -p /opt/sorny-swarm
+          cat > /opt/sorny-swarm/README.txt <<'TXT'
+          Docker esta instalado. Inicializar Swarm por SSM:
+            MANAGER_PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+            docker swarm init --advertise-addr $MANAGER_PRIVATE_IP
+          Luego unir worker 1 y worker 2 con el token generado.
+          Para que el manager no ejecute workloads de aplicacion:
+            docker node update --availability drain <manager-node-name>
+          TXT
+
+  SwarmWorker1Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfileName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref SwarmSg
+          SubnetId: !Ref SubnetAId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-swarm-worker-1-${Environment}
+        - Key: Lab
+          Value: m2-c4-swarm
+        - Key: Role
+          Value: swarm-worker
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          dnf update -y
+          dnf install -y docker git
+          systemctl enable --now docker
+          usermod -aG docker ec2-user || true
+          mkdir -p /opt/sorny-swarm
+          cat > /opt/sorny-swarm/README.txt <<'TXT'
+          Docker esta instalado. Unir este worker al Swarm con el comando docker swarm join generado en el manager.
+          TXT
+
+  SwarmWorker2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SsmInstanceProfileName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref SwarmSg
+          SubnetId: !Ref SubnetBId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-swarm-worker-2-${Environment}
+        - Key: Lab
+          Value: m2-c4-swarm
+        - Key: Role
+          Value: swarm-worker
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          dnf update -y
+          dnf install -y docker git
+          systemctl enable --now docker
+          usermod -aG docker ec2-user || true
+          mkdir -p /opt/sorny-swarm
+          cat > /opt/sorny-swarm/README.txt <<'TXT'
+          Docker esta instalado. Unir este worker al Swarm con el comando docker swarm join generado en el manager.
+          TXT
+
+Outputs:
+  AlbDnsName:
+    Description: DNS publico del ALB
+    Value: !GetAtt LabAlb.DNSName
+
+  AlbUrl:
+    Description: URL publica del frontend Sorny
+    Value: !Sub http://${LabAlb.DNSName}/
+
+  FrontendInstanceId:
+    Description: ID EC2 frontend para Session Manager
+    Value: !Ref FrontendInstance
+
+  FrontendPublicIp:
+    Description: IP publica frontend
+    Value: !GetAtt FrontendInstance.PublicIp
+
+  SwarmManagerInstanceId:
+    Description: ID EC2 manager para Session Manager
+    Value: !Ref SwarmManagerInstance
+
+  SwarmManagerPublicIp:
+    Description: IP publica Swarm manager
+    Value: !GetAtt SwarmManagerInstance.PublicIp
+
+  SwarmManagerPrivateIp:
+    Description: IP privada para docker swarm init --advertise-addr
+    Value: !GetAtt SwarmManagerInstance.PrivateIp
+
+  SwarmWorker1InstanceId:
+    Description: ID EC2 worker 1 para Session Manager
+    Value: !Ref SwarmWorker1Instance
+
+  SwarmWorker1PublicIp:
+    Description: IP publica Swarm worker 1
+    Value: !GetAtt SwarmWorker1Instance.PublicIp
+
+  SwarmWorker1PrivateIp:
+    Description: IP privada del worker 1
+    Value: !GetAtt SwarmWorker1Instance.PrivateIp
+
+  SwarmWorker2InstanceId:
+    Description: ID EC2 worker 2 para Session Manager
+    Value: !Ref SwarmWorker2Instance
+
+  SwarmWorker2PublicIp:
+    Description: IP publica Swarm worker 2
+    Value: !GetAtt SwarmWorker2Instance.PublicIp
+
+  SwarmWorker2PrivateIp:
+    Description: IP privada del worker 2
+    Value: !GetAtt SwarmWorker2Instance.PrivateIp
+
+  PurchaseTargetGroupName:
+    Description: Target Group para /api/purchases hacia Swarm puerto 5003
+    Value: !GetAtt PurchaseTargetGroup.TargetGroupName
+
+  PaymentTargetGroupName:
+    Description: Target Group para /api/payments hacia Swarm puerto 5004
+    Value: !GetAtt PaymentTargetGroup.TargetGroupName
+
+  PurchaseHealthUrl:
+    Description: Health check publico para purchase-service cuando Swarm este desplegado
+    Value: !Sub http://${LabAlb.DNSName}/api/purchases/health
+
+  PaymentHealthUrl:
+    Description: Health check publico para payment-service cuando Swarm este desplegado
+    Value: !Sub http://${LabAlb.DNSName}/api/payments/health

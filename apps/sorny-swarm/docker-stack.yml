@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  payment-service:
+    image: sorny/payment-service:swarm-v1
+    environment:
+      SERVICE_VERSION: swarm-v1
+    ports:
+      - target: 5004
+        published: 5004
+        protocol: tcp
+        mode: ingress
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+
+  purchase-service:
+    image: sorny/purchase-service:swarm-v1
+    environment:
+      SERVICE_VERSION: swarm-v1
+      PAYMENT_URL: http://payment-service:5004/api/payments/checkout
+    ports:
+      - target: 5003
+        published: 5003
+        protocol: tcp
+        mode: ingress
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
