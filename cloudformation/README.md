@@ -4,18 +4,28 @@ Este folder contiene solo los templates necesarios para la clase M2-C4.
 
 La idea no es memorizar CloudFormation. La idea es levantar puntos de partida repetibles para discutir decisiones de arquitectura: Docker manual, Docker Swarm en EC2 y Lambda.
 
+## Referencia por lab
+
+| Lab | Documento principal | CloudFormation asociado | Uso |
+|---|---|---|---|
+| LAB01 | `guias/guia-contenedores-lab01-docker-local-ec2.md` | `contenedores-lab01-docker-ec2-bootstrap.yaml` | EC2 publica opcional para practicar Docker cuando no se usa Docker local |
+| LAB02 | `guias/guia-contenedores-lab02-sorny-docker-swarm.md` | `contenedores-lab02-sorny-swarm-bootstrap.yaml` | ALB, frontend EC2, manager y workers para Docker Swarm |
+| LAB03 | `guias/guia-contenedores-lab03-sorny-delivery-lambda.md` | Sin template propio | Lambda/API Gateway/S3 se crean paso a paso por consola para reforzar el modelo serverless |
+
+---
+
 ## Templates
 
 | Template | Uso |
 |---|---|
-| `docker-ec2-bootstrap.yaml` | Opcion AWS de la Guia A: EC2 publica Amazon Linux 2023 con Docker instalado |
-| `sorny-swarm-m2c4-bootstrap.yaml` | Bootstrap de Guia B1: ALB publico, frontend EC2, 1 manager y 2 workers EC2 publicos para Docker Swarm |
+| `contenedores-lab01-docker-ec2-bootstrap.yaml` | LAB01 AWS opcional: EC2 publica Amazon Linux 2023 con Docker instalado |
+| `contenedores-lab02-sorny-swarm-bootstrap.yaml` | LAB02 bootstrap: ALB publico, frontend EC2, 1 manager y 2 workers EC2 publicos para Docker Swarm |
 
 ---
 
-## `docker-ec2-bootstrap.yaml`
+## LAB01 — `contenedores-lab01-docker-ec2-bootstrap.yaml`
 
-**Usado en:** Guia A - Docker local o EC2 bootstrap.
+**Usado en:** `guias/guia-contenedores-lab01-docker-local-ec2.md` — LAB01 Docker local o EC2 bootstrap.
 
 **Modelo:**
 
@@ -59,9 +69,9 @@ sorny-docker-bootstrap
 
 ---
 
-## `sorny-swarm-m2c4-bootstrap.yaml`
+## LAB02 — `contenedores-lab02-sorny-swarm-bootstrap.yaml`
 
-**Usado en:** Guia B1 Docker Swarm y Guia B2 Lambda.
+**Usado en:** `guias/guia-contenedores-lab02-sorny-docker-swarm.md` — LAB02 Docker Swarm. Sirve como arquitectura de partida para `guias/guia-contenedores-lab03-sorny-delivery-lambda.md` — LAB03 Lambda.
 
 **Modelo inicial:**
 
@@ -147,12 +157,12 @@ sorny-m2c4-swarm
 
 ## Limpieza
 
-Para `docker-ec2-bootstrap.yaml`:
+Para `contenedores-lab01-docker-ec2-bootstrap.yaml`:
 
 1. Eliminar el stack `sorny-docker-bootstrap`.
 2. No eliminar VPC, subnets ni roles compartidos.
 
-Para `sorny-swarm-m2c4-bootstrap.yaml`:
+Para `contenedores-lab02-sorny-swarm-bootstrap.yaml`:
 
 1. En el manager, eliminar primero el stack Swarm:
 
@@ -160,7 +170,7 @@ Para `sorny-swarm-m2c4-bootstrap.yaml`:
 docker stack rm sorny
 ```
 
-2. Si se crearon recursos externos durante Guia B2, limpiar:
+2. Si se crearon recursos externos durante LAB03, limpiar:
 
 - API Gateway;
 - Lambda;

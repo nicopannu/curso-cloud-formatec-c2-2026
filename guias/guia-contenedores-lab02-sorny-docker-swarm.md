@@ -1,4 +1,4 @@
-# Guia B1: Sorny — migrar servicios a Docker Swarm en EC2
+# Guia Contenedores LAB02: Sorny — migrar servicios a Docker Swarm en EC2
 
 **Objetivo:** partir de Sorny con ALB y frontend en EC2, crear un cluster Docker Swarm con 1 EC2 manager y 2 EC2 workers publicos y migrar dos APIs (`purchase-service` y `payment-service`) a servicios contenedorizados. La administracion se realiza desde AWS Console y conexiones SSM Session Manager.
 
@@ -29,7 +29,7 @@ Cambiamos:
 
 - `purchase-service` pasa a Docker Swarm;
 - `payment-service` pasa a Docker Swarm;
-- `delivery-service` no se migra a Swarm: queda reservado para la guia B2 en Lambda.
+- `delivery-service` no se migra a Swarm: queda reservado para el LAB03 en Lambda.
 
 ---
 
@@ -38,7 +38,7 @@ Cambiamos:
 Bootstrap:
 
 ```text
-cloudformation/sorny-swarm-m2c4-bootstrap.yaml
+cloudformation/contenedores-lab02-sorny-swarm-bootstrap.yaml
 ```
 
 El stack crea:
@@ -87,7 +87,7 @@ Docker Swarm:
   swarm-worker-1 EC2 publica
   swarm-worker-2 EC2 publica
 
-Guia B2:
+LAB03:
   /api/delivery -> Lambda
 ```
 
@@ -136,7 +136,7 @@ Al finalizar, deberias poder:
 
 ## Pre-requisitos
 
-- Haber completado Guia A o entender Dockerfile, imagen y contenedor.
+- Haber completado LAB01 o entender Dockerfile, imagen y contenedor.
 - Acceso a AWS Console en la region del curso.
 - VPC con 2 subnets publicas.
 - Instance Profile existente con permisos para SSM.
@@ -164,7 +164,7 @@ Upload a template file
 3. Cargar:
 
 ```text
-cloudformation/sorny-swarm-m2c4-bootstrap.yaml
+cloudformation/contenedores-lab02-sorny-swarm-bootstrap.yaml
 ```
 
 4. Stack name sugerido:

@@ -1,4 +1,4 @@
-# Guia B2: Sorny — llevar delivery-service a AWS Lambda
+# Guia Contenedores LAB03: Sorny — llevar delivery-service a AWS Lambda
 
 **Objetivo:** continuar desde la arquitectura con ALB, frontend en EC2 y dos servicios en Docker Swarm. En esta parte, `delivery-service` no se despliega como contenedor: se implementa como funcion Lambda, con codigo ZIP almacenado en S3 y exposicion HTTP desde API Gateway.
 
@@ -10,7 +10,7 @@
 
 ## Contexto narrativo
 
-En la guia B1, Sorny migro dos APIs a un modelo de servicios contenedorizados:
+En el LAB02, Sorny migro dos APIs a un modelo de servicios contenedorizados:
 
 ```text
 purchase-service -> Docker Swarm en 2 EC2
@@ -35,7 +35,7 @@ Cuando conviene operar un servicio contenedorizado y cuando conviene ejecutar un
 
 ## Arquitectura de partida
 
-La arquitectura que viene de B1 queda asi:
+La arquitectura que viene del LAB02 queda asi:
 
 ```text
 Usuario

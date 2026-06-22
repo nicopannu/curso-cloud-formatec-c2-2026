@@ -18,33 +18,34 @@ AWS Lambda                   -> funcion stateless por evento HTTP
 
 ## Recorrido recomendado
 
-1. Empezar por la Guia A para instalar/probar Docker.
-2. Si no se puede instalar Docker localmente, usar el bootstrap EC2 de AWS.
-3. Seguir con Guia B1 para desplegar `purchase-service` y `payment-service` en Docker Swarm.
-4. Cerrar con Guia B2 para llevar `delivery-service` a Lambda.
+1. Empezar por LAB01 para instalar/probar Docker.
+2. Si no se puede instalar Docker localmente, usar el bootstrap EC2 de AWS del LAB01.
+3. Seguir con LAB02 para desplegar `purchase-service` y `payment-service` en Docker Swarm.
+4. Cerrar con LAB03 para llevar `delivery-service` a Lambda.
 
 La idea no es memorizar pantallas de consola. La idea es decidir que modelo de ejecucion conviene para cada responsabilidad.
 
-## Guias
+## Documentos del laboratorio
 
-| Ruta | Uso |
-|---|---|
-| `guias/guia-contenedores-01-docker-local-ec2.md` | Guia A: instalacion Docker en Windows 10 + WSL2/Docker Desktop, o alternativa EC2 con Docker |
-| `guias/guia-contenedores-02-sorny-docker-swarm.md` | Guia B1: migrar `purchase-service` y `payment-service` a Docker Swarm con 1 manager y 2 workers EC2 publicos |
-| `guias/guia-serverless-01-sorny-delivery-lambda.md` | Guia B2: llevar `delivery-service` a Lambda, subiendo ZIP a S3 y exponiendo API Gateway |
+| Lab | Documento | Foco |
+|---|---|---|
+| LAB01 | `guias/guia-contenedores-lab01-docker-local-ec2.md` | Fundamentos Docker: Windows + WSL2/Docker Desktop o EC2 bootstrap |
+| LAB02 | `guias/guia-contenedores-lab02-sorny-docker-swarm.md` | Migracion de `purchase-service` y `payment-service` a Docker Swarm en EC2 |
+| LAB03 | `guias/guia-contenedores-lab03-sorny-delivery-lambda.md` | Migracion de `delivery-service` a Lambda + API Gateway |
 
 ## CloudFormation
 
-| Ruta | Uso |
-|---|---|
-| `cloudformation/docker-ec2-bootstrap.yaml` | Opcion AWS de Guia A: EC2 publica Amazon Linux 2023 con Docker instalado |
-| `cloudformation/sorny-swarm-m2c4-bootstrap.yaml` | Bootstrap de Guia B1: ALB publico, frontend EC2, 1 manager y 2 workers para Docker Swarm |
+| Lab | Template | Uso |
+|---|---|---|
+| LAB01 | `cloudformation/contenedores-lab01-docker-ec2-bootstrap.yaml` | EC2 publica Amazon Linux 2023 con Docker instalado para quienes no usen Docker local |
+| LAB02 | `cloudformation/contenedores-lab02-sorny-swarm-bootstrap.yaml` | ALB publico, frontend EC2, 1 manager y 2 workers para Docker Swarm |
+| LAB03 | Sin template propio | Se implementa paso a paso por consola: S3, Lambda, API Gateway y CloudWatch Logs |
 
 ## Artefactos de aplicacion
 
 | Ruta | Uso |
 |---|---|
-| `apps/docker-hostinfo/` | App Flask + Dockerfile para construir imagen `sorny-hostinfo:v1` en Guia A |
+| `apps/docker-hostinfo/` | App Flask + Dockerfile para construir imagen `sorny-hostinfo:v1` en LAB01 |
 | `apps/sorny-swarm/` | Apps, Dockerfiles y `docker-stack.yml` para `purchase-service` y `payment-service` en Swarm |
 | `lambda/sorny-delivery-lambda/app.py` | Codigo fuente del handler Lambda de delivery |
 | `lambda/sorny-delivery-lambda/sorny-delivery-lambda.zip` | ZIP listo para subir a S3 y cargar en Lambda |

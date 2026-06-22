@@ -1,4 +1,4 @@
-# Guia A: Sorny — Docker local o EC2 bootstrap
+# Guia Contenedores LAB01: Sorny — Docker local o EC2 bootstrap
 
 **Objetivo:** Instalar o usar Docker, probar contenedores, construir una imagen propia y entender que Docker sin orquestador puede correr varios contenedores, pero no administra un servicio escalable por si solo.
 
@@ -60,7 +60,7 @@ Alumno -> navegador/curl -> EC2 publica:8080 -> contenedor Docker:8080
 Template:
 
 ```text
-cloudformation/docker-ec2-bootstrap.yaml
+cloudformation/contenedores-lab01-docker-ec2-bootstrap.yaml
 ```
 
 El template levanta una EC2 Amazon Linux 2023 con Docker instalado y puerto 8080 permitido por Security Group.
@@ -275,7 +275,7 @@ Crear stack:
 
 ```text
 CloudFormation > Create stack > Upload template
-Template: cloudformation/docker-ec2-bootstrap.yaml
+Template: cloudformation/contenedores-lab01-docker-ec2-bootstrap.yaml
 Stack name: sorny-docker-bootstrap
 ```
 
