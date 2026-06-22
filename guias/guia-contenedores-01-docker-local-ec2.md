@@ -297,6 +297,39 @@ Cuando el stack termine, anotar outputs:
 
 Conectarse por Session Manager.
 
+Importante: `CREATE_COMPLETE` indica que CloudFormation creo la EC2, pero el `UserData` puede seguir instalando paquetes durante algunos minutos. Antes de continuar, esperar hasta que Docker exista y el servicio este activo:
+
+```bash
+sudo -i
+
+while ! command -v docker >/dev/null 2>&1; do
+  echo "Esperando instalacion de Docker por UserData..."
+  sleep 10
+done
+
+while ! systemctl is-active --quiet docker; do
+  echo "Esperando que el daemon Docker quede activo..."
+  sleep 10
+done
+
+systemctl is-active docker
+
+docker --version
+```
+
+Resultado esperado:
+
+```text
+active
+Docker version ...
+```
+
+Si despues de varios minutos Docker no aparece, revisar:
+
+```bash
+tail -n 80 /var/log/user-data.log
+```
+
 ---
 
 ## Fase 1: Probar Docker

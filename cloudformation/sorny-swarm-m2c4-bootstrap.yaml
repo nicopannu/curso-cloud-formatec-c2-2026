@@ -106,7 +106,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: !Sub ${ProjectName}-swarm-sg-${Environment}
-      GroupDescription: Docker Swarm nodes - ALB hacia workers, routing mesh y trafico interno Swarm
+      GroupDescription: Docker Swarm nodes - ALB hacia workers, puertos host y trafico interno Swarm
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp

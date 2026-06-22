@@ -74,11 +74,11 @@ ALB publico
   |
   +-- /*                               -> frontend EC2
   |
-  +-- /api/purchases/*                 -> Swarm routing mesh puerto 5003
+  +-- /api/purchases/*                 -> workers Swarm puerto 5003
   |                                         replicas purchase-service
   |                                         contenedores distribuidos en 2 workers
   |
-  +-- /api/payments/*                  -> Swarm routing mesh puerto 5004
+  +-- /api/payments/*                  -> workers Swarm puerto 5004
                                             replicas payment-service
                                             contenedores distribuidos en 2 workers
 
@@ -102,7 +102,7 @@ Al finalizar, deberias poder:
 - explicar la diferencia entre imagen, contenedor, servicio Swarm y stack;
 - crear un cluster Docker Swarm con 1 manager y 2 workers usando EC2;
 - desplegar `purchase-service` y `payment-service` como servicios replicados;
-- entender el routing mesh de Swarm y su relacion con el ALB;
+- entender como publicar puertos en Swarm para que un ALB apunte a workers reales;
 - validar health checks desde el ALB y desde cada nodo;
 - observar como Swarm reubica tareas ante fallas simples;
 - distinguir que parte administra AWS y que parte administra el equipo;
@@ -267,9 +267,19 @@ Connect > Session Manager > Connect
 sudo -i
 ```
 
-5. Validar Docker:
+5. Validar Docker. Igual que en la guia anterior, `CREATE_COMPLETE` no siempre significa que el `UserData` termino de instalar Docker. Esperar explicitamente:
 
 ```bash
+while ! command -v docker >/dev/null 2>&1; do
+  echo "Esperando instalacion de Docker por UserData..."
+  sleep 10
+done
+
+while ! systemctl is-active --quiet docker; do
+  echo "Esperando que el daemon Docker quede activo..."
+  sleep 10
+done
+
 docker --version
 systemctl status docker --no-pager
 ```
@@ -280,6 +290,8 @@ Resultado esperado:
 Docker version ...
 Active: active (running)
 ```
+
+Si Docker no aparece despues de varios minutos, revisar `/var/log/cloud-init-output.log`.
 
 ---
 
@@ -356,6 +368,17 @@ sorny-swarm-worker-2-m2-c4-swarm
 
 ```bash
 sudo -i
+
+while ! command -v docker >/dev/null 2>&1; do
+  echo "Esperando instalacion de Docker por UserData..."
+  sleep 10
+done
+
+while ! systemctl is-active --quiet docker; do
+  echo "Esperando que el daemon Docker quede activo..."
+  sleep 10
+done
+
 docker --version
 ```
 
@@ -503,6 +526,25 @@ purchase-service replicas: 2  published port: 5003  placement: node.role == work
 
 La restriccion `node.role == worker` evita que las APIs se ejecuten en el manager. Ademas, en la fase anterior dejamos el manager en `Drain` para reforzar la separacion entre plano de control y plano de datos.
 
+Decision de publicacion de puertos:
+
+```text
+En este lab usamos ports.mode: host.
+
+Motivo:
+- el ALB apunta directamente a las EC2 workers;
+- cada worker expone realmente 5003 y 5004 en el host;
+- evitamos depender del routing mesh de Swarm para el trafico externo;
+- con 2 replicas y 2 workers, Docker tiende a ubicar una replica por worker porque el puerto host no puede duplicarse en el mismo nodo.
+```
+
+Trade-off:
+
+```text
+mode: host es mas explicito para este lab y se parece al modelo ALB -> instancia:puerto.
+La alternativa con routing mesh abstrae mas, pero agrega comportamiento de red que puede confundir la clase inicial.
+```
+
 Desplegar:
 
 ```bash
@@ -552,34 +594,36 @@ Solucion: construir la imagen en el nodo donde Swarm intento ejecutar la tarea, 
 
 ---
 
-## Fase 10: Probar desde cada nodo
+## Fase 10: Probar desde los workers
 
-En manager:
+Con el manager en `Drain`, no usar el manager como punto principal de prueba HTTP de las APIs. En este lab el ALB apunta solo a los workers y las tasks tienen restriccion `node.role == worker`.
 
-```bash
-curl -s http://localhost:5004/api/payments/health
-curl -s http://localhost:5003/api/purchases/health
-```
-
-En worker:
+En cada worker:
 
 ```bash
-curl -s http://localhost:5004/api/payments/health
-curl -s http://localhost:5003/api/purchases/health
+curl --max-time 10 -s http://localhost:5004/api/payments/health
+curl --max-time 10 -s http://localhost:5003/api/purchases/health
 ```
 
-Aunque el contenedor especifico no este corriendo en ese nodo, el routing mesh de Swarm puede recibir la conexion en el puerto publicado y enrutarla internamente.
+Con `mode: host`, cada worker publica el puerto en la EC2. En este lab esperamos que ambos workers respondan en `5003` y `5004` porque hay 2 replicas por servicio y 2 workers.
 
 Observar `hostname` e `ips` en la respuesta. Repetir varias veces:
 
 ```bash
-for i in $(seq 1 5); do curl -s http://localhost:5003/api/purchases/health; echo; done
+for i in $(seq 1 5); do curl --max-time 10 -s http://localhost:5003/api/purchases/health; echo; done
 ```
 
 Pregunta de checkpoint:
 
 ```text
 Por que no siempre responde el mismo hostname?
+```
+
+Nota docente:
+
+```text
+Si el manager esta en Drain, no usarlo para validar trafico HTTP de aplicacion.
+El manager administra el cluster; los workers son el plano de datos del lab.
 ```
 
 ---
@@ -621,9 +665,9 @@ Validar:
 Decision tecnica:
 
 ```text
-El ALB balancea entre EC2s.
-Swarm balancea/rutea entre contenedores dentro del cluster.
-Hay dos capas de distribucion de trafico.
+El ALB balancea entre EC2 workers.
+Cada worker expone los puertos 5003 y 5004 con `mode: host`.
+Swarm mantiene el estado deseado de replicas y reubica tareas ante fallas.
 ```
 
 ---
@@ -874,7 +918,7 @@ Cada grupo debe entregar:
 | Cluster Swarm | Manager en Drain y 2 workers Ready/Active, roles claros | Cluster funciona con ayuda | No se forma cluster |
 | Servicios | 2 servicios con 2 replicas y health OK | Servicios levantan pero con dudas | No hay servicios estables |
 | Integracion ALB | Rutas `/api/purchases` y `/api/payments` funcionan | Health OK pero flujo incompleto | ALB no llega a servicios |
-| Razonamiento | Explica ALB vs Swarm, replicas y routing mesh | Describe pasos pero con poca decision | Solo ejecuta comandos |
+| Razonamiento | Explica ALB vs Swarm, replicas y publicacion de puertos en workers | Describe pasos pero con poca decision | Solo ejecuta comandos |
 | Diagnostico | Usa `docker service ps`, logs y Target Groups | Revisa parcialmente | No logra aislar fallas |
 | Limpieza | Elimina recursos correctamente | Limpia con asistencia | Deja recursos corriendo |
 

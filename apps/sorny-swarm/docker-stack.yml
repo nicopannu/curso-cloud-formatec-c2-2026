@@ -9,7 +9,7 @@ services:
       - target: 5004
         published: 5004
         protocol: tcp
-        mode: ingress
+        mode: host
     deploy:
       replicas: 2
       placement:
@@ -30,7 +30,7 @@ services:
       - target: 5003
         published: 5003
         protocol: tcp
-        mode: ingress
+        mode: host
     deploy:
       replicas: 2
       placement:

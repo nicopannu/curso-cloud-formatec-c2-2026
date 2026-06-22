@@ -100,7 +100,7 @@ Resources:
           set -euo pipefail
           exec > >(tee /var/log/user-data.log) 2>&1
           dnf update -y
-          dnf install -y docker curl jq
+          dnf install -y docker jq
           systemctl enable --now docker
           usermod -aG docker ec2-user || true
           docker --version
