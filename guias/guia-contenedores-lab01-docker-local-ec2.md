@@ -261,6 +261,7 @@ Si `docker version` muestra cliente pero no servidor, Docker Desktop no esta ini
 | Ubuntu aparece VERSION 1 | Distro en WSL1 | `wsl --set-version Ubuntu 2` |
 | Docker Desktop no arranca | Virtualizacion deshabilitada | Habilitar VT-x/AMD-V en BIOS |
 | `Cannot connect to Docker daemon` | Docker Desktop apagado | Abrir Docker Desktop y esperar estado Running |
+| `The command 'docker' could not be found in this WSL 2 distro` | Docker Desktop no esta integrado con esta distro WSL | Docker Desktop > Settings > Resources > WSL Integration > activar Ubuntu > Apply & Restart |
 | Docker no aparece en Ubuntu | WSL Integration deshabilitada | Activar integracion en Docker Desktop |
 | Error de permisos en Windows corporativo | Sin permisos admin | Usar Opcion B con EC2 bootstrap |
 
