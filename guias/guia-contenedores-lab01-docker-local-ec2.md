@@ -93,7 +93,7 @@ Requisitos minimos:
 1. Windows 10 64 bits, version 2004 o superior, build 19041 o superior.
 2. Virtualizacion habilitada en BIOS/UEFI.
 3. Permisos de administrador para instalar componentes.
-4. Conexion a internet para descargar WSL, Ubuntu y Docker Desktop.
+4. Conexion a internet para descargar WSL, Ubuntu, Docker Desktop y el paquete del lab desde la branch `m2-c4`.
 
 #### Paso A.1: Verificar version de Windows
 
@@ -270,6 +270,7 @@ Si `docker version` muestra cliente pero no servidor, Docker Desktop no esta ini
 2. VPC y subnet publica existentes.
 3. Instance Profile SSM existente, por ejemplo `cloudcuyo-ssm-role`.
 4. Permisos para CloudFormation y EC2.
+5. Subnet publica con salida a internet para descargar Docker, imagenes base y el paquete del lab desde la branch `m2-c4`.
 
 Crear stack:
 
@@ -352,15 +353,30 @@ Preguntas:
 
 ---
 
-## Fase 2: Construir la imagen Sorny HostInfo
+## Fase 2: Descargar artefactos y construir la imagen Sorny HostInfo
 
-El repo trae una app minima:
+El `Dockerfile` no se copia a mano desde la guia. Forma parte del codigo fuente del curso y se descarga como artefacto versionado desde la branch `m2-c4`.
+
+Descargar el paquete del lab:
+
+```bash
+cd /opt 2>/dev/null || cd ~
+
+curl -L -o m2-c4.tar.gz \
+  https://github.com/nicopannu/curso-cloud-formatec-c2-2026/archive/refs/heads/m2-c4.tar.gz
+
+tar xzf m2-c4.tar.gz
+
+cd curso-cloud-formatec-c2-2026-m2-c4/apps/docker-hostinfo
+ls -la
+```
+
+El directorio debe contener:
 
 ```text
-apps/docker-hostinfo/
-  app.py
-  requirements.txt
-  Dockerfile
+app.py
+requirements.txt
+Dockerfile
 ```
 
 La app responde con:
@@ -371,10 +387,17 @@ La app responde con:
 - IPs vistas desde el contenedor;
 - version.
 
+Decision tecnica:
+
+```text
+No copiamos Dockerfiles a mano.
+El Dockerfile vive junto al codigo y se versiona.
+La VM o el pipeline descargan artefactos reproducibles y construyen la imagen.
+```
+
 Construir:
 
 ```bash
-cd apps/docker-hostinfo
 docker build -t sorny-hostinfo:v1 .
 ```
 

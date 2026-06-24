@@ -141,7 +141,7 @@ Al finalizar, deberias poder:
 - VPC con 2 subnets publicas.
 - Instance Profile existente con permisos para SSM.
 - Permisos para crear CloudFormation, EC2, ALB, Security Groups y CloudWatch Logs.
-- Repositorio del curso disponible en la VM manager, o posibilidad de copiar los archivos desde el repo local.
+- Acceso a internet desde las EC2 para descargar el paquete del lab desde la branch `m2-c4` del repositorio.
 
 No ejecutar recursos AWS si el docente no habilito la fase practica.
 
@@ -410,9 +410,26 @@ Checkpoint:
 
 ---
 
-## Fase 6: Cargar artefactos de Sorny en el manager
+## Fase 6: Descargar artefactos de Sorny en el manager
 
-La forma mas simple para la clase es crear los archivos en el manager copiando desde el repo. El repo trae:
+No vamos a crear `Dockerfile`, `app.py` ni `docker-stack.yml` copiando texto desde la guia. Esos archivos son parte del codigo fuente del curso y se descargan como un paquete versionado desde la branch `m2-c4`.
+
+En el manager:
+
+```bash
+cd /opt
+rm -rf curso-cloud-formatec-c2-2026-m2-c4 m2-c4.tar.gz
+
+curl -L -o m2-c4.tar.gz \
+  https://github.com/nicopannu/curso-cloud-formatec-c2-2026/archive/refs/heads/m2-c4.tar.gz
+
+tar xzf m2-c4.tar.gz
+
+cd curso-cloud-formatec-c2-2026-m2-c4/apps/sorny-swarm
+ls -R
+```
+
+El directorio debe contener:
 
 ```text
 apps/sorny-swarm/
@@ -427,24 +444,13 @@ apps/sorny-swarm/
     Dockerfile
 ```
 
-Si el repo esta disponible en la VM:
-
-```bash
-cd /home/ec2-user/curso-cloud-formatec-c2-2026/apps/sorny-swarm
-```
-
-Si no esta disponible, crear una carpeta y copiar los archivos desde la guia/repo del docente:
-
-```bash
-mkdir -p /opt/sorny-swarm
-cd /opt/sorny-swarm
-```
-
 Decision tecnica:
 
 ```text
-Para un lab simple, construimos imagenes localmente en los workers.
-En produccion usariamos un registry como ECR para que cualquier worker pueda descargar la imagen.
+No copiamos archivos a mano porque rompe trazabilidad y genera errores.
+El Dockerfile y el codigo viajan juntos, versionados en la branch del lab.
+Para un lab simple, construimos imagenes localmente en cada nodo.
+En produccion usariamos CI/CD + ECR para que cualquier worker descargue la imagen.
 ```
 
 ---
@@ -454,8 +460,7 @@ En produccion usariamos un registry como ECR para que cualquier worker pueda des
 En el manager:
 
 ```bash
-cd /opt/sorny-swarm
-# o la ruta donde esten los archivos
+cd /opt/curso-cloud-formatec-c2-2026-m2-c4/apps/sorny-swarm
 
 docker build -t sorny/payment-service:swarm-v1 ./payment-service
 docker build -t sorny/purchase-service:swarm-v1 ./purchase-service
@@ -476,36 +481,44 @@ sorny/purchase-service   swarm-v1
 
 ---
 
-## Fase 8: Construir imagenes en los dos workers sin registry
+## Fase 8: Descargar artefactos y construir imagenes en los dos workers sin registry
 
-Como no usamos ECR en este lab, los dos workers deben tener las mismas imagenes locales. El manager puede construirlas para prueba, pero los workloads van a quedar en los workers porque el manager estara en `Drain`.
+Como no usamos ECR en este lab, cada worker debe tener las mismas imagenes locales que declara `docker-stack.yml`. El manager puede construirlas para inspeccion, pero los workloads van a quedar en los workers porque el manager estara en `Drain`.
 
-En el manager:
-
-```bash
-cd /opt/sorny-swarm
-mkdir -p /tmp/sorny-images
-
-docker save sorny/payment-service:swarm-v1 -o /tmp/sorny-images/payment-service.tar
-docker save sorny/purchase-service:swarm-v1 -o /tmp/sorny-images/purchase-service.tar
-```
-
-Opcion simple para clase:
-
-1. Abrir SSM en el worker.
-2. Crear tambien `/opt/sorny-swarm`.
-3. Copiar los mismos archivos y construir imagenes con los mismos comandos.
-
-En cada worker:
+En cada worker, repetir:
 
 ```bash
-cd /opt/sorny-swarm
+cd /opt
+rm -rf curso-cloud-formatec-c2-2026-m2-c4 m2-c4.tar.gz
+
+curl -L -o m2-c4.tar.gz \
+  https://github.com/nicopannu/curso-cloud-formatec-c2-2026/archive/refs/heads/m2-c4.tar.gz
+
+tar xzf m2-c4.tar.gz
+
+cd curso-cloud-formatec-c2-2026-m2-c4/apps/sorny-swarm
 
 docker build -t sorny/payment-service:swarm-v1 ./payment-service
 docker build -t sorny/purchase-service:swarm-v1 ./purchase-service
+
+docker image ls | grep sorny
 ```
 
-> Nota docente: esta duplicacion es intencional. Sirve para explicar por que en un entorno real se usa un registry. Swarm necesita que cada nodo pueda resolver la imagen indicada en el stack.
+> Nota docente: esta duplicacion es intencional. Sirve para explicar por que en un entorno real se usa un registry. Swarm necesita que cada nodo pueda resolver la imagen indicada en el stack. En produccion, el flujo normal seria `build -> push a ECR -> workers hacen pull`.
+
+Checkpoint:
+
+```text
+Por que descargamos artefactos versionados en vez de copiar Dockerfiles a mano?
+```
+
+Respuesta esperada:
+
+```text
+Porque el Dockerfile es parte del codigo fuente.
+Versionarlo permite reproducibilidad, revision y trazabilidad.
+Copiar/pegar desde una guia es fragil y no representa un flujo real de delivery.
+```
 
 ---
 

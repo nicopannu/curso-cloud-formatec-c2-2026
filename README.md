@@ -43,6 +43,15 @@ La idea no es memorizar pantallas de consola. La idea es decidir que modelo de e
 
 ## Artefactos de aplicacion
 
+Durante LAB01 y LAB02 no se copian Dockerfiles a mano desde la guia. Las EC2 descargan el paquete versionado de la branch `m2-c4`:
+
+```bash
+curl -L -o m2-c4.tar.gz \
+  https://github.com/nicopannu/curso-cloud-formatec-c2-2026/archive/refs/heads/m2-c4.tar.gz
+```
+
+Esto mantiene trazabilidad: `Dockerfile`, codigo fuente y `docker-stack.yml` viajan juntos.
+
 | Ruta | Uso |
 |---|---|
 | `apps/docker-hostinfo/` | App Flask + Dockerfile para construir imagen `sorny-hostinfo:v1` en LAB01 |
