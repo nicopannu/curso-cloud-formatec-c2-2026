@@ -358,7 +358,32 @@ Preguntas:
 
 El `Dockerfile` no se copia a mano desde la guia. Forma parte del codigo fuente del curso y se descarga como artefacto versionado desde la branch `m2-c4`.
 
-Descargar el paquete del lab:
+Elegir una de estas dos formas segun donde estes ejecutando Docker.
+
+### Opcion A.1: Windows local con Docker Desktop desde PowerShell
+
+Usar esta opcion si vas a ejecutar `docker build` desde PowerShell.
+
+Abrir PowerShell y ejecutar:
+
+```powershell
+$LabDir = "$env:USERPROFILE\m2-c4-lab"
+New-Item -ItemType Directory -Force -Path $LabDir | Out-Null
+Set-Location $LabDir
+
+Invoke-WebRequest `
+  -Uri "https://github.com/nicopannu/curso-cloud-formatec-c2-2026/archive/refs/heads/m2-c4.tar.gz" `
+  -OutFile "m2-c4.tar.gz"
+
+tar -xzf m2-c4.tar.gz
+
+Set-Location ".\curso-cloud-formatec-c2-2026-m2-c4\apps\docker-hostinfo"
+Get-ChildItem
+```
+
+### Opcion A.2: WSL, Linux o EC2 con Bash
+
+Usar esta opcion si vas a ejecutar `docker build` desde Ubuntu/WSL, Linux o una EC2.
 
 ```bash
 LAB_DIR="$HOME/m2-c4-lab"
@@ -414,6 +439,14 @@ Probar local:
 
 ```bash
 curl http://localhost:8080
+```
+
+En PowerShell usar `curl.exe` o `Invoke-WebRequest` para evitar alias/confusiones:
+
+```powershell
+curl.exe http://localhost:8080
+# o
+Invoke-WebRequest http://localhost:8080
 ```
 
 Si usas EC2, probar desde navegador:

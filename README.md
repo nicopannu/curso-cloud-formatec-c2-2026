@@ -43,7 +43,21 @@ La idea no es memorizar pantallas de consola. La idea es decidir que modelo de e
 
 ## Artefactos de aplicacion
 
-Durante LAB01 y LAB02 no se copian Dockerfiles a mano desde la guia. Las EC2 descargan el paquete versionado de la branch `m2-c4`:
+Durante LAB01 y LAB02 no se copian Dockerfiles a mano desde la guia. Los alumnos descargan el paquete versionado de la branch `m2-c4`.
+
+Windows local con Docker Desktop desde PowerShell:
+
+```powershell
+$LabDir = "$env:USERPROFILE\m2-c4-lab"
+New-Item -ItemType Directory -Force -Path $LabDir | Out-Null
+Set-Location $LabDir
+
+Invoke-WebRequest `
+  -Uri "https://github.com/nicopannu/curso-cloud-formatec-c2-2026/archive/refs/heads/m2-c4.tar.gz" `
+  -OutFile "m2-c4.tar.gz"
+```
+
+WSL, Linux o EC2 con Bash:
 
 ```bash
 LAB_DIR="$HOME/m2-c4-lab"
