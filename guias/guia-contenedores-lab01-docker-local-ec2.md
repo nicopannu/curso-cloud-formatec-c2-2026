@@ -364,7 +364,6 @@ Descargar el paquete del lab:
 LAB_DIR="$HOME/m2-c4-lab"
 mkdir -p "$LAB_DIR"
 cd "$LAB_DIR"
-rm -rf curso-cloud-formatec-c2-2026-m2-c4 m2-c4.tar.gz
 
 curl -L -o m2-c4.tar.gz \
   https://github.com/nicopannu/curso-cloud-formatec-c2-2026/archive/refs/heads/m2-c4.tar.gz
