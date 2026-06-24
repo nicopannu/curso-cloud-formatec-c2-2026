@@ -417,7 +417,9 @@ No vamos a crear `Dockerfile`, `app.py` ni `docker-stack.yml` copiando texto des
 En el manager:
 
 ```bash
-cd /opt
+LAB_DIR="$HOME/m2-c4-lab"
+mkdir -p "$LAB_DIR"
+cd "$LAB_DIR"
 rm -rf curso-cloud-formatec-c2-2026-m2-c4 m2-c4.tar.gz
 
 curl -L -o m2-c4.tar.gz \
@@ -460,7 +462,7 @@ En produccion usariamos CI/CD + ECR para que cualquier worker descargue la image
 En el manager:
 
 ```bash
-cd /opt/curso-cloud-formatec-c2-2026-m2-c4/apps/sorny-swarm
+cd "$HOME/m2-c4-lab/curso-cloud-formatec-c2-2026-m2-c4/apps/sorny-swarm"
 
 docker build -t sorny/payment-service:swarm-v1 ./payment-service
 docker build -t sorny/purchase-service:swarm-v1 ./purchase-service
@@ -488,7 +490,9 @@ Como no usamos ECR en este lab, cada worker debe tener las mismas imagenes local
 En cada worker, repetir:
 
 ```bash
-cd /opt
+LAB_DIR="$HOME/m2-c4-lab"
+mkdir -p "$LAB_DIR"
+cd "$LAB_DIR"
 rm -rf curso-cloud-formatec-c2-2026-m2-c4 m2-c4.tar.gz
 
 curl -L -o m2-c4.tar.gz \

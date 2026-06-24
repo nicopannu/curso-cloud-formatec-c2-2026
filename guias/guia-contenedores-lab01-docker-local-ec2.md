@@ -360,7 +360,10 @@ El `Dockerfile` no se copia a mano desde la guia. Forma parte del codigo fuente 
 Descargar el paquete del lab:
 
 ```bash
-cd /opt 2>/dev/null || cd ~
+LAB_DIR="$HOME/m2-c4-lab"
+mkdir -p "$LAB_DIR"
+cd "$LAB_DIR"
+rm -rf curso-cloud-formatec-c2-2026-m2-c4 m2-c4.tar.gz
 
 curl -L -o m2-c4.tar.gz \
   https://github.com/nicopannu/curso-cloud-formatec-c2-2026/archive/refs/heads/m2-c4.tar.gz

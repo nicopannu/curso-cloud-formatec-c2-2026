@@ -46,6 +46,10 @@ La idea no es memorizar pantallas de consola. La idea es decidir que modelo de e
 Durante LAB01 y LAB02 no se copian Dockerfiles a mano desde la guia. Las EC2 descargan el paquete versionado de la branch `m2-c4`:
 
 ```bash
+LAB_DIR="$HOME/m2-c4-lab"
+mkdir -p "$LAB_DIR"
+cd "$LAB_DIR"
+
 curl -L -o m2-c4.tar.gz \
   https://github.com/nicopannu/curso-cloud-formatec-c2-2026/archive/refs/heads/m2-c4.tar.gz
 ```
