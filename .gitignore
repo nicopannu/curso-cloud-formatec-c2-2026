@@ -17,7 +17,10 @@ ENV/
 .terraform/
 *.tfstate
 *.tfstate.*
-.terraform.lock.hcl
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
 
 # IDE
 .vscode/
