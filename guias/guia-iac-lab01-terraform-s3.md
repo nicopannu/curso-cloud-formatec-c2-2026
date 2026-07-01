@@ -67,12 +67,22 @@ En este laboratorio vas a trabajar sin variables, outputs, locals, modulos ni ba
 La secuencia propuesta para el modulo IaC queda asi:
 
 1. **LAB01:** proyecto Terraform minimo y primer recurso S3.
-2. **LAB02:** variables para parametrizar region, cuenta, iniciales, nombres y tags.
-3. **LAB03:** Lambda reutilizando variables ya definidas.
+2. **LAB02:** variables desde terminal, outputs y Lambda basica.
+3. **LAB03:** reutilizacion de variables y ampliacion de la funcion Lambda.
 4. **LAB04:** modulos para separar responsabilidades y reutilizar infraestructura.
 5. **LAB05:** backend remoto con S3 y DynamoDB para estado compartido y bloqueo.
 
 Esta guia cubre solo el LAB01.
+
+En el siguiente laboratorio vas a ver distintas formas de pasar valores a Terraform. Una alternativa es declarar variables en la terminal y dejarlas disponibles como variables de entorno con el prefijo `TF_VAR_`:
+
+```powershell
+$env:TF_VAR_aws_account_id="485617552563"
+$env:TF_VAR_student_initials="np"
+$env:TF_VAR_aws_region="us-east-1"
+```
+
+Terraform puede leer esos valores automaticamente cuando el proyecto declare variables con esos nombres. Tambien existen otras alternativas, como usar `-var` en el comando o un archivo `terraform.tfvars`.
 
 ---
 
@@ -518,56 +528,3 @@ Si devuelve error de no encontrado o acceso no valido para ese bucket, revisa el
 | `BucketAlreadyExists` | El nombre del bucket ya existe globalmente | Cambiar iniciales o agregar un sufijo corto |
 | `AccessDenied` | El usuario no tiene permisos suficientes | Validar que el perfil y la cuenta AWS sean los correctos |
 | `Error acquiring the state lock` | No deberia ocurrir con estado local simple | Revisar si otro proceso Terraform esta corriendo |
-
----
-
-## 19. Actividad en clase
-
-Trabajo individual o en grupos pequenos:
-
-1. Abrir los tres archivos Terraform.
-2. Identificar que hace cada archivo.
-3. Cambiar el nombre del bucket.
-4. Ejecutar `init`, `fmt`, `validate` y `plan`.
-5. Explicar oralmente que propone el plan.
-6. Si tenes autorizacion para crear recursos, ejecutar `apply`.
-7. Observar el estado local.
-8. Ejecutar `destroy` al terminar.
-
----
-
-## 20. Entregables / evidencia de clase
-
-Para este LAB01 no se propone una entrega formal extensa. La evidencia minima de trabajo puede ser:
-
-- Captura o copia de salida de `terraform validate` exitoso.
-- Captura o copia del fragmento de `terraform plan` donde aparece `aws_s3_bucket.lab`.
-- Respuesta breve: que rol cumple `versions.tf`, `providers.tf` y `main.tf`.
-- Si hubo apply autorizado: evidencia de creacion y posterior destroy del bucket.
-
----
-
-## 21. Criterios de evaluacion
-
-| Criterio | Esperado |
-|---|---|
-| Comprension de estructura | Distingue version/provider/recurso sin mezclar variables o modulos todavia |
-| Uso de CLI | Ejecuta init, fmt, validate y plan en orden correcto |
-| Lectura del plan | Puede explicar que se va a crear antes del apply |
-| Seguridad operativa | No ejecuta apply/destroy sin autorizacion para usar AWS |
-| Limpieza | Si crea recursos, tambien ejecuta destroy al final |
-
----
-
-## 22. Cierre conceptual
-
-Preguntas para cerrar la clase:
-
-1. Que gano al declarar infraestructura en archivos en vez de crearla manualmente?
-2. Que parte del proyecto le dice a Terraform como hablar con AWS?
-3. Que parte representa la infraestructura deseada?
-4. Que diferencia hay entre `validate` y `plan`?
-5. Por que el estado local no alcanza para un equipo de trabajo?
-6. Que problema empieza a aparecer por tener el nombre del bucket hardcodeado?
-
-Esa pregunta conecta este laboratorio con el siguiente: variables.

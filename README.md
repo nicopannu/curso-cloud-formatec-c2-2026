@@ -17,14 +17,15 @@ Esta branch contiene el material de:
 | LAB | Guia | Proyecto Terraform | Foco |
 |---|---|---|---|
 | LAB01 | `guias/guia-iac-lab01-terraform-s3.md` | `terraform/iac-lab01-s3-basics/` | Estructura minima de un proyecto Terraform: version, provider, resource, init, fmt, validate, plan, state y destroy |
+| LAB02 | `guias/guia-iac-lab02-terraform-lambda.md` | Creado por el alumno durante la guia | Variables desde terminal, Lambda basica, outputs e invoke desde AWS CLI |
 
 ## Progresion prevista del modulo IaC
 
 El modulo esta organizado por etapas para incorporar los conceptos de Terraform de forma progresiva:
 
 1. LAB01: proyecto Terraform minimo y primer recurso S3.
-2. LAB02: variables y archivos `tfvars` para parametrizar el proyecto.
-3. LAB03: Lambda reutilizando variables existentes.
+2. LAB02: variables desde terminal, outputs y Lambda basica.
+3. LAB03: reutilizacion de variables y ampliacion de la funcion Lambda.
 4. LAB04: modulos para ordenar y reutilizar infraestructura.
 5. LAB05: backend remoto con S3 y DynamoDB para estado compartido y locking.
 
