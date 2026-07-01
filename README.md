@@ -10,21 +10,21 @@ Esta branch contiene el material de:
 
 | Branch | Modulo | Contenido |
 |---|---|---|
-| `m3-c1-lab` | M3 - Clase 1 | Introduccion a Infrastructure as Code con Terraform sobre AWS |
+| `m3-c1-lab` | M3 - Clase 1 | Introduccion progresiva a Infrastructure as Code con Terraform sobre AWS |
 
-## Laboratorio incluido
+## Laboratorios incluidos
 
 | LAB | Guia | Proyecto Terraform | Foco |
 |---|---|---|---|
-| LAB01 | `guias/guia-iac-lab01-terraform-s3.md` | `terraform/iac-lab01-s3-basics/` | Estructura minima de un proyecto Terraform: version, provider, resource, init, fmt, validate, plan, state y destroy |
-| LAB02 | `guias/guia-iac-lab02-terraform-lambda.md` | Creado por el alumno durante la guia | Variables desde terminal, Lambda basica, outputs e invoke desde AWS CLI |
+| LAB01 | `guias/guia-iac-lab01-terraform-s3.md` | `terraform/iac-lab01-s3-basics/` | Primer recurso con Terraform: bucket S3 simple, nombres claros, init, fmt, validate, plan, apply, state y destroy |
+| LAB02 | `guias/guia-iac-lab02-terraform-lambda.md` | Creado por el alumno durante la guia | Se suma Lambda e inicia el uso de variables con `terraform.tfvars`, outputs e invoke desde AWS CLI |
 
 ## Progresion prevista del modulo IaC
 
 El modulo esta organizado por etapas para incorporar los conceptos de Terraform de forma progresiva:
 
-1. LAB01: proyecto Terraform minimo y primer recurso S3.
-2. LAB02: variables desde terminal, outputs y Lambda basica.
+1. LAB01: primer proyecto Terraform y bucket S3 simple, con valores escritos directamente en los archivos.
+2. LAB02: se suma Lambda y se introducen variables desde `terraform.tfvars`, outputs e invocacion con AWS CLI.
 3. LAB03: reutilizacion de variables y ampliacion de la funcion Lambda.
 4. LAB04: modulos para ordenar y reutilizar infraestructura.
 5. LAB05: backend remoto con S3 y DynamoDB para estado compartido y locking.
@@ -131,7 +131,12 @@ cd curso-cloud-formatec-c2-2026
 git checkout m3-c1-lab
 ```
 
-Abrir la carpeta en el IDE y usar la terminal integrada para entrar al laboratorio:
+Abrir la carpeta en el IDE y seguir la guia correspondiente:
+
+- LAB01: `guias/guia-iac-lab01-terraform-s3.md`
+- LAB02: `guias/guia-iac-lab02-terraform-lambda.md`
+
+Para LAB01, entrar al proyecto ya incluido:
 
 ```powershell
 cd terraform/iac-lab01-s3-basics
@@ -158,7 +163,7 @@ terraform plan
 
 Si la infraestructura se crea a mano, no es repetible. Si no es repetible, no es confiable.
 
-El objetivo del LAB01 no es aprender S3 en profundidad. El objetivo es ver que Terraform convierte una declaracion de infraestructura en un plan revisable antes de crear recursos reales.
+El LAB01 muestra el flujo minimo de Terraform con un bucket S3. El LAB02 agrega Lambda y empieza a separar los valores variables en `terraform.tfvars` para que el proyecto sea mas claro y reutilizable.
 
 ---
 

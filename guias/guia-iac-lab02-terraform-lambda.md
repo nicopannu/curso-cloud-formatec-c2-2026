@@ -1,4 +1,4 @@
-# Guia LAB02: Variables, outputs y Lambda con Terraform
+# Guia LAB02: Variables con tfvars, outputs y Lambda con Terraform
 
 **Modulo:** M3 - Clase 1: Infrastructure as Code  
 **Duracion estimada:** 90 a 120 minutos  
@@ -9,15 +9,23 @@
 
 ## 1. Contexto
 
-En el LAB01 trabajaste con un proyecto Terraform minimo y un bucket S3 con valores escritos directamente en los archivos.
+En el LAB01 creaste un bucket S3 con un proyecto Terraform minimo: `versions.tf`, `providers.tf` y `main.tf`.
 
-En este laboratorio vas a crear un nuevo proyecto Terraform desde cero. El objetivo es incorporar variables, outputs y una Lambda simple que responda:
+En este laboratorio vas a crear un nuevo proyecto Terraform desde cero. Se suma una funcion Lambda y aparece el primer mecanismo para separar valores del codigo: `terraform.tfvars`.
+
+Para mantener el lab simple, todos los valores variables se van a cargar desde un archivo:
+
+```text
+terraform.tfvars
+```
+
+La infraestructura creada sera una Lambda simple que responde:
 
 ```text
 hola desde lambda
 ```
 
-La Lambda se va a crear con Terraform y luego se va a invocar desde la terminal con AWS CLI.
+Luego vas a invocarla desde la terminal con AWS CLI.
 
 ---
 
@@ -27,11 +35,11 @@ Al finalizar el LAB02 vas a poder:
 
 1. Crear la estructura de un proyecto Terraform desde cero.
 2. Declarar variables en `variables.tf`.
-3. Pasar valores a Terraform desde la terminal con `TF_VAR_*`.
+3. Asignar valores con `terraform.tfvars`.
 4. Usar variables dentro de recursos Terraform.
 5. Crear una funcion Lambda simple con Terraform.
 6. Crear outputs para recuperar datos utiles del despliegue.
-7. Invocar una Lambda desde la terminal usando un output de Terraform.
+7. Invocar una Lambda usando un output de Terraform.
 8. Limpiar los recursos creados con `terraform destroy`.
 
 ---
@@ -44,6 +52,8 @@ Alumno / Terminal
       | terraform init / plan / apply
       v
 Terraform CLI
+      |
+      | Lee variables.tf + terraform.tfvars
       |
       | Provider AWS
       v
@@ -62,7 +72,31 @@ Recursos que se van a crear:
 
 ---
 
-## 4. Pre-requisitos
+## 4. Alcance del LAB02
+
+### Incluido
+
+- Proyecto Terraform creado desde cero.
+- Variables en `variables.tf`.
+- Valores en `terraform.tfvars`.
+- Provider AWS parametrizado por variable.
+- Empaquetado local de codigo Lambda con provider `archive`.
+- Lambda basica en Python.
+- Outputs.
+- Invocacion con AWS CLI.
+- Limpieza con Terraform.
+
+### No incluido todavia
+
+- Otras formas de cargar variables.
+- Modulos.
+- Backend remoto S3/DynamoDB.
+- API Gateway.
+- Pipelines CI/CD.
+
+---
+
+## 5. Pre-requisitos
 
 Antes de empezar, validar que las herramientas esten disponibles:
 
@@ -78,7 +112,7 @@ Validar identidad AWS:
 aws sts get-caller-identity
 ```
 
-Si usas el perfil `curso`, configurar la terminal actual:
+Si usas el perfil `curso`, configurar la terminal actual para que AWS CLI y Terraform usen ese perfil:
 
 ```powershell
 $env:AWS_PROFILE="curso"
@@ -94,7 +128,7 @@ Necesitas permisos para crear y borrar:
 
 ---
 
-## 5. Crear carpeta del laboratorio
+## 6. Crear carpeta del laboratorio
 
 Desde la raiz del repositorio:
 
@@ -117,8 +151,10 @@ terraform/iac-lab02-lambda/
   versions.tf
   providers.tf
   variables.tf
+  terraform.tfvars
   main.tf
   outputs.tf
+  .gitignore
   function/
     lambda_function.py
   build/
@@ -128,7 +164,30 @@ Los archivos los vas a crear en los siguientes pasos.
 
 ---
 
-## 6. Crear `versions.tf`
+## 7. Crear `.gitignore`
+
+Crear el archivo:
+
+```powershell
+New-Item .gitignore
+```
+
+Contenido:
+
+```gitignore
+.terraform/
+*.tfstate
+*.tfstate.*
+build/
+response.json
+terraform.tfvars
+```
+
+`terraform.tfvars` puede contener valores propios del alumno o del entorno. En este laboratorio no contiene credenciales, pero igual conviene no subirlo al repositorio.
+
+---
+
+## 8. Crear `versions.tf`
 
 Crear el archivo:
 
@@ -163,7 +222,7 @@ En este laboratorio Terraform usa dos providers:
 
 ---
 
-## 7. Crear `providers.tf`
+## 9. Crear `providers.tf`
 
 Crear el archivo:
 
@@ -179,11 +238,11 @@ provider "aws" {
 }
 ```
 
-En LAB01 la region estaba escrita directamente. Ahora la region viene de una variable.
+La region ya no queda escrita directamente en el provider. Terraform la toma desde la variable `aws_region`, cuyo valor se carga desde `terraform.tfvars`.
 
 ---
 
-## 8. Crear `variables.tf`
+## 10. Crear `variables.tf`
 
 Crear el archivo:
 
@@ -210,45 +269,55 @@ variable "student_initials" {
 }
 ```
 
-Estas variables no tienen valor por defecto. Los valores se pasan desde la terminal.
+`variables.tf` declara que valores necesita el proyecto. Todavia no define los valores concretos.
+
+Checkpoint:
+
+- Que diferencia hay entre declarar una variable y asignarle un valor?
+- Por que conviene separar nombres, region e iniciales del codigo principal?
 
 ---
 
-## 9. Declarar variables desde la terminal
+## 11. Crear `terraform.tfvars`
 
-En PowerShell, declarar las variables de entorno que Terraform va a leer:
-
-```powershell
-$env:TF_VAR_aws_region="us-east-1"
-$env:TF_VAR_student_initials="np"
-$env:TF_VAR_lambda_name="lambda-hola-$($env:TF_VAR_student_initials)"
-```
-
-Verificar los valores:
+Crear el archivo:
 
 ```powershell
-$env:TF_VAR_aws_region
-$env:TF_VAR_student_initials
-$env:TF_VAR_lambda_name
+New-Item terraform.tfvars
 ```
 
-Terraform reconoce automaticamente las variables de entorno que empiezan con:
+Contenido ejemplo:
 
-```text
-TF_VAR_
+```hcl
+aws_region       = "us-east-1"
+student_initials = "np"
+lambda_name      = "lambda-hola-np"
 ```
 
-La parte posterior al prefijo debe coincidir con el nombre de la variable declarada en `variables.tf`.
+Cada alumno debe cambiar:
 
-Ejemplo:
+- `student_initials`: por sus iniciales o las del grupo.
+- `lambda_name`: por un nombre unico para su funcion.
 
-```text
-TF_VAR_lambda_name -> variable "lambda_name"
+Ejemplo para un grupo con iniciales `ab`:
+
+```hcl
+aws_region       = "us-east-1"
+student_initials = "ab"
+lambda_name      = "lambda-hola-ab"
 ```
+
+Terraform lee automaticamente el archivo `terraform.tfvars` cuando ejecutas `plan`, `apply` o `destroy`.
+
+Checkpoint:
+
+- Que archivo define las variables?
+- Que archivo asigna los valores?
+- Que pasaria si falta `lambda_name` en `terraform.tfvars`?
 
 ---
 
-## 10. Crear el codigo de Lambda
+## 12. Crear el codigo de Lambda
 
 Crear el archivo:
 
@@ -270,7 +339,7 @@ Esta funcion recibe un evento y devuelve un objeto JSON con un mensaje simple.
 
 ---
 
-## 11. Crear `main.tf`
+## 13. Crear `main.tf`
 
 Crear el archivo:
 
@@ -340,7 +409,7 @@ Puntos importantes:
 
 ---
 
-## 12. Crear `outputs.tf`
+## 14. Crear `outputs.tf`
 
 Crear el archivo:
 
@@ -373,7 +442,7 @@ En este caso vas a usar el output `lambda_function_name` para invocar la Lambda 
 
 ---
 
-## 13. Inicializar Terraform
+## 15. Inicializar Terraform
 
 Ejecutar:
 
@@ -398,13 +467,15 @@ Success! The configuration is valid.
 
 ---
 
-## 14. Revisar el plan
+## 16. Revisar el plan
 
 Ejecutar:
 
 ```powershell
 terraform plan
 ```
+
+Terraform lee automaticamente los valores desde `terraform.tfvars`.
 
 El plan debe mostrar creacion de recursos similares a:
 
@@ -422,9 +493,15 @@ Revisar especialmente:
 - archivo `.zip` que se va a usar;
 - outputs que van a quedar disponibles.
 
+Checkpoint:
+
+- Que recursos se van a crear?
+- Que valores salieron de `terraform.tfvars`?
+- Que diferencia hay entre revisar un plan y crear recursos directamente desde consola?
+
 ---
 
-## 15. Crear la Lambda
+## 17. Crear la Lambda
 
 Ejecutar solo si tenes autorizacion para crear recursos en la cuenta AWS:
 
@@ -454,7 +531,7 @@ terraform output -raw lambda_function_name
 
 ---
 
-## 16. Invocar la Lambda desde la terminal
+## 18. Invocar la Lambda desde la terminal
 
 Guardar el nombre de la funcion en una variable de PowerShell:
 
@@ -494,7 +571,7 @@ Ese output no ejecuta el comando automaticamente. Solo muestra el comando constr
 
 ---
 
-## 17. Probar un cambio de codigo
+## 19. Probar un cambio de codigo
 
 Editar `function/lambda_function.py` y cambiar el mensaje:
 
@@ -535,52 +612,6 @@ Get-Content response.json
 
 ---
 
-## 18. Alternativa: pasar variables con `-var`
-
-Ademas de `TF_VAR_*`, Terraform permite pasar valores directamente en el comando:
-
-```powershell
-terraform plan `
-  -var="aws_region=us-east-1" `
-  -var="student_initials=np" `
-  -var="lambda_name=lambda-hola-np"
-```
-
-La misma forma se puede usar con `apply`:
-
-```powershell
-terraform apply `
-  -var="aws_region=us-east-1" `
-  -var="student_initials=np" `
-  -var="lambda_name=lambda-hola-np"
-```
-
-Para este laboratorio, `TF_VAR_*` suele ser mas comodo porque no hace falta repetir los valores en cada comando.
-
----
-
-## 19. Alternativa: usar `terraform.tfvars`
-
-Otra opcion es crear un archivo llamado:
-
-```text
-terraform.tfvars
-```
-
-Contenido ejemplo:
-
-```hcl
-aws_region       = "us-east-1"
-student_initials = "np"
-lambda_name      = "lambda-hola-np"
-```
-
-Terraform lo lee automaticamente.
-
-No subir `terraform.tfvars` al repositorio si contiene valores locales, nombres personales, credenciales o informacion sensible.
-
----
-
 ## 20. Revisar estado local
 
 Despues del `apply`, Terraform crea o actualiza:
@@ -593,11 +624,24 @@ Ese archivo contiene el estado local de los recursos administrados.
 
 En este laboratorio, el estado queda en tu maquina. Mas adelante vas a usar backend remoto para guardar el estado en S3 y manejar bloqueo con DynamoDB.
 
+Checkpoint:
+
+- Que diferencia hay entre el archivo `terraform.tfvars` y `terraform.tfstate`?
+- Cual escribiste vos?
+- Cual mantiene Terraform?
+- Cual no deberias compartir si contiene datos del entorno?
+
 ---
 
 ## 21. Limpieza
 
-Al terminar, borrar los recursos creados:
+Antes de destruir, guardar el nombre de la funcion si no lo tenes en la terminal:
+
+```powershell
+$FUNCTION_NAME = terraform output -raw lambda_function_name
+```
+
+Borrar los recursos creados por Terraform:
 
 ```powershell
 terraform destroy
@@ -631,9 +675,48 @@ Si el log group no existe, AWS va a devolver un error de no encontrado. En ese c
 
 | Problema | Causa probable | Accion sugerida |
 |---|---|---|
-| Terraform pide un valor interactivo | Falta una variable | Revisar `$env:TF_VAR_aws_region`, `$env:TF_VAR_student_initials` y `$env:TF_VAR_lambda_name` |
+| Terraform pide un valor interactivo | Falta una variable en `terraform.tfvars` | Revisar `aws_region`, `student_initials` y `lambda_name` |
+| Terraform no toma un cambio de variable | El archivo no se llama exactamente `terraform.tfvars` o esta en otra carpeta | Verificar nombre y ubicacion del archivo |
 | `Archive creation error` | No existe `function/lambda_function.py` o `build/` | Revisar estructura de carpetas |
 | `AccessDenied` al crear IAM | El usuario no tiene permisos IAM | Validar permisos de la cuenta de laboratorio |
-| `ResourceConflictException` | Ya existe una Lambda con ese nombre | Cambiar `TF_VAR_lambda_name` |
+| `ResourceConflictException` | Ya existe una Lambda con ese nombre | Cambiar `lambda_name` en `terraform.tfvars` |
 | `InvalidParameterValueException` | Handler, runtime o ZIP incorrecto | Revisar `handler`, `runtime` y archivo Python |
 | Invoke no muestra el body esperado | Se invoco otra funcion o no se aplico el cambio | Revisar `$FUNCTION_NAME`, `terraform output` y volver a ejecutar `terraform apply` |
+
+---
+
+## 23. Entregables
+
+Entregar:
+
+1. Captura o salida del `terraform plan` donde se vean los recursos a crear.
+2. Contenido de `variables.tf`.
+3. Contenido de `terraform.tfvars`, sin credenciales ni datos sensibles.
+4. Salida de `terraform output` luego del `apply`.
+5. Respuesta de la Lambda con `hola desde lambda`.
+6. Confirmacion de limpieza con `terraform destroy`.
+
+---
+
+## 24. Criterios de evaluacion
+
+| Criterio | Esperado |
+|---|---|
+| Estructura del proyecto | El proyecto contiene archivos Terraform separados por responsabilidad. |
+| Uso de variables | Las variables estan declaradas en `variables.tf` y sus valores en `terraform.tfvars`. |
+| Planificacion | El alumno revisa el plan antes de aplicar. |
+| Lambda funcional | La funcion se crea e invoca correctamente. |
+| Outputs | Los outputs permiten recuperar nombre y ARN de la Lambda. |
+| Limpieza | Los recursos creados se eliminan al finalizar. |
+
+---
+
+## 25. Cierre para discusion
+
+Preguntas para cerrar el LAB02:
+
+1. Que cambio respecto del LAB01 S3?
+2. Que decisiones quedaron ahora escritas en archivos?
+3. Que ventajas tiene revisar un plan antes de crear recursos?
+4. Que riesgo aparece si `terraform.tfvars` contiene valores sensibles?
+5. Que problema queda pendiente si el estado sigue siendo local?

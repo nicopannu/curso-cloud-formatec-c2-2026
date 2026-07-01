@@ -94,7 +94,7 @@ terraform destroy
 ## Progresion prevista
 
 - LAB01: estructura minima de proyecto Terraform y primer recurso S3.
-- LAB02: variables desde terminal, outputs y Lambda basica.
+- LAB02: se suma Lambda y se introducen variables desde `terraform.tfvars`.
 - LAB03: reutilizacion de variables y ampliacion de la funcion Lambda.
 - LAB04: modulos para organizar infraestructura repetible.
 - LAB05: backend remoto con bucket S3 y tabla DynamoDB para estado y bloqueo.

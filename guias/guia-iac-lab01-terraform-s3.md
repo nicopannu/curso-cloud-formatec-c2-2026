@@ -7,34 +7,33 @@
 
 ---
 
-## 1. Contexto narrativo
+## 1. Contexto
 
-Hasta ahora muchas decisiones de infraestructura se pueden ejecutar desde consola: crear recursos, elegir regiones, configurar nombres y validar que algo exista.
+Crear infraestructura desde consola sirve para entender los servicios, pero no alcanza cuando necesitamos repetir, revisar y limpiar cambios de forma confiable.
 
-El problema aparece cuando queremos responder preguntas simples:
+En este laboratorio vas a usar Terraform para crear un recurso simple en AWS: un bucket S3.
 
-- Que se creo exactamente?
-- Quien lo cambio?
-- Como repetimos el mismo entorno?
-- Como revisamos un cambio antes de aplicarlo?
-- Como limpiamos recursos sin olvidarnos nada?
+El objetivo no es aprender S3 en profundidad. El objetivo es entender el flujo minimo de trabajo de Terraform:
 
-Terraform permite tratar infraestructura como codigo. En este primer laboratorio vas a trabajar con una estructura minima de proyecto y con el ciclo de trabajo basico.
+```text
+escribir archivos .tf -> inicializar -> formatear -> validar -> planificar -> aplicar -> revisar estado -> destruir
+```
 
-El recurso elegido es un bucket S3 porque es simple, barato, facil de identificar y facil de borrar.
+El bucket S3 se usa porque es un recurso simple, barato, facil de identificar y facil de borrar.
 
 ---
 
 ## 2. Objetivos de aprendizaje
 
-Al finalizar el LAB01, el alumno deberia poder:
+Al finalizar el LAB01 vas a poder:
 
 1. Reconocer los archivos minimos de un proyecto Terraform.
 2. Explicar la diferencia entre Terraform, provider y recurso.
 3. Ejecutar `terraform init`, `fmt`, `validate` y `plan`.
 4. Interpretar que significa que Terraform proponga crear un recurso.
-5. Entender que `apply` y `destroy` modifican recursos reales.
+5. Crear un bucket S3 con `terraform apply` cuando haya autorizacion.
 6. Identificar el archivo de estado local como registro de lo que Terraform administra.
+7. Eliminar recursos creados con `terraform destroy`.
 
 En este laboratorio vas a trabajar sin variables, outputs, locals, modulos ni backend remoto. Esos conceptos aparecen en los siguientes laboratorios.
 
@@ -49,10 +48,11 @@ En este laboratorio vas a trabajar sin variables, outputs, locals, modulos ni ba
 - Revision de un proyecto Terraform minimo.
 - Creacion planificada de un bucket S3.
 - Discusion sobre plan, apply, state y destroy.
+- Limpieza del recurso creado.
 
 ### No incluido todavia
 
-- Variables (`variables.tf`, `terraform.tfvars`, `-var`, `TF_VAR_*`).
+- Variables (`variables.tf`, `terraform.tfvars`).
 - Outputs.
 - Locals.
 - Lambda.
@@ -64,25 +64,15 @@ En este laboratorio vas a trabajar sin variables, outputs, locals, modulos ni ba
 
 ## 4. Progresion prevista
 
-La secuencia propuesta para el modulo IaC queda asi:
+La secuencia del modulo IaC queda asi:
 
 1. **LAB01:** proyecto Terraform minimo y primer recurso S3.
-2. **LAB02:** variables desde terminal, outputs y Lambda basica.
+2. **LAB02:** se suma Lambda y se introducen variables desde `terraform.tfvars`.
 3. **LAB03:** reutilizacion de variables y ampliacion de la funcion Lambda.
 4. **LAB04:** modulos para separar responsabilidades y reutilizar infraestructura.
 5. **LAB05:** backend remoto con S3 y DynamoDB para estado compartido y bloqueo.
 
 Esta guia cubre solo el LAB01.
-
-En el siguiente laboratorio vas a ver distintas formas de pasar valores a Terraform. Una alternativa es declarar variables en la terminal y dejarlas disponibles como variables de entorno con el prefijo `TF_VAR_`:
-
-```powershell
-$env:TF_VAR_aws_account_id="485617552563"
-$env:TF_VAR_student_initials="np"
-$env:TF_VAR_aws_region="us-east-1"
-```
-
-Terraform puede leer esos valores automaticamente cuando el proyecto declare variables con esos nombres. Tambien existen otras alternativas, como usar `-var` en el comando o un archivo `terraform.tfvars`.
 
 ---
 
@@ -305,7 +295,7 @@ Explicacion:
 - `lab`: nombre local dentro de Terraform.
 - `bucket`: nombre real del bucket en AWS.
 
-Importante: en LAB01 el nombre esta escrito directamente. Esto es intencional para no introducir variables todavia.
+En LAB01 el nombre esta escrito directamente para mantener el primer proyecto simple. En LAB02 vas a separar valores en `terraform.tfvars`.
 
 ---
 
@@ -528,3 +518,39 @@ Si devuelve error de no encontrado o acceso no valido para ese bucket, revisa el
 | `BucketAlreadyExists` | El nombre del bucket ya existe globalmente | Cambiar iniciales o agregar un sufijo corto |
 | `AccessDenied` | El usuario no tiene permisos suficientes | Validar que el perfil y la cuenta AWS sean los correctos |
 | `Error acquiring the state lock` | No deberia ocurrir con estado local simple | Revisar si otro proceso Terraform esta corriendo |
+
+---
+
+## 19. Entregables
+
+Entregar:
+
+1. Nombre del bucket definido en `main.tf`.
+2. Captura o salida del `terraform plan` donde se vea el recurso S3 a crear.
+3. Resultado de `terraform validate`.
+4. Si se ejecuto `apply`, evidencia de que el bucket existe.
+5. Confirmacion de limpieza con `terraform destroy`.
+
+---
+
+## 20. Criterios de evaluacion
+
+| Criterio | Esperado |
+|---|---|
+| Estructura Terraform | El alumno identifica `versions.tf`, `providers.tf` y `main.tf`. |
+| Nomenclatura | El bucket usa un nombre claro, unico y valido para S3. |
+| Planificacion | El alumno revisa el plan antes de aplicar. |
+| Comprension | El alumno diferencia `init`, `validate`, `plan`, `apply`, `state` y `destroy`. |
+| Limpieza | Los recursos creados se eliminan al finalizar. |
+
+---
+
+## 21. Cierre para discusion
+
+Preguntas para cerrar el LAB01:
+
+1. Que problema resuelve Terraform frente a crear el bucket manualmente?
+2. Que parte del proyecto todavia esta escrita de forma fija?
+3. Que valor convendria parametrizar en el LAB02?
+4. Por que el estado local no alcanza para trabajo en equipo?
+5. Que deberia pasar antes de ejecutar `apply` en una cuenta compartida?
