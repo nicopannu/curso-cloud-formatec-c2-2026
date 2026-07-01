@@ -1,527 +1,575 @@
-# Guia IaC LAB01 - Terraform sobre AWS con S3
+# Guia LAB01: Terraform minimo con un bucket S3
 
-**Modulo:** M3 - Implementacion y gestion  
-**Clase:** M3-C1 - Introduccion a Infrastructure as Code  
-**Branch:** `m3-c1-lab`  
-**Duracion estimada:** 60 a 75 minutos  
-**Tipo:** explicacion guiada + laboratorio paso a paso  
-**Plataforma:** AWS  
-**Herramienta:** Terraform
+**Modulo:** M3 - Clase 1: Infrastructure as Code  
+**Duracion estimada:** 90 a 120 minutos  
+**Proyecto Terraform:** `terraform/iac-lab01-s3-basics/`  
+**Nivel:** introductorio  
 
 ---
 
-## Contexto narrativo
+## 1. Contexto narrativo
 
-Hasta ahora CloudCuyo tomo decisiones de arquitectura: migrar workloads a AWS, mejorar disponibilidad, separar responsabilidades y probar nuevos modelos de ejecucion como contenedores y serverless.
+Hasta ahora muchas decisiones de infraestructura se pueden ejecutar desde consola: crear recursos, elegir regiones, configurar nombres y validar que algo exista.
 
-El problema de esta clase aparece despues de tomar esas decisiones: si cada ambiente se arma a mano, la arquitectura no es repetible. Puede funcionar una vez, pero no hay garantia de que el siguiente ambiente quede igual, que otro equipo lo pueda revisar o que los cambios sean trazables.
+El problema aparece cuando queremos responder preguntas simples:
 
-En este laboratorio, CloudCuyo empieza a tratar la infraestructura como software. El ejercicio usa un recurso simple y barato, un bucket S3 privado, para aprender el ciclo completo de Terraform: codigo, provider, variables, plan, estado, recursos reales, cambios y limpieza.
+- Que se creo exactamente?
+- Quien lo cambio?
+- Como repetimos el mismo entorno?
+- Como revisamos un cambio antes de aplicarlo?
+- Como limpiamos recursos sin olvidarnos nada?
 
-Mensaje para abrir la actividad:
+Terraform permite tratar infraestructura como codigo. En este primer laboratorio no buscamos construir una arquitectura compleja. Buscamos entender la estructura minima de un proyecto Terraform y el ciclo de trabajo basico.
 
-> Si la infraestructura se crea a mano, no es repetible. Si no es repetible, no es confiable.
-
----
-
-## Objetivos de aprendizaje
-
-Al finalizar, el alumno deberia poder:
-
-1. Explicar que problema resuelve Infrastructure as Code frente a cambios manuales por consola.
-2. Reconocer las piezas basicas de Terraform: provider, resource, variable, local, output y state.
-3. Ejecutar el flujo basico: `init`, `fmt`, `validate`, `plan`, `apply` y `destroy`.
-4. Leer un `terraform plan` antes de aprobar cambios reales.
-5. Entender por que `terraform.tfstate` es critico y sensible.
-6. Aplicar controles minimos de seguridad: no secretos, bloqueo publico, cifrado, tags y limpieza.
-7. Diferenciar validacion local, planificacion contra AWS y modificacion real de recursos.
+El recurso elegido es un bucket S3 porque es simple, barato, facil de identificar y facil de borrar.
 
 ---
 
-## Arquitectura del ejercicio
+## 2. Objetivos de aprendizaje
+
+Al finalizar el LAB01, el alumno deberia poder:
+
+1. Reconocer los archivos minimos de un proyecto Terraform.
+2. Explicar la diferencia entre Terraform, provider y recurso.
+3. Ejecutar `terraform init`, `fmt`, `validate` y `plan`.
+4. Interpretar que significa que Terraform proponga crear un recurso.
+5. Entender que `apply` y `destroy` modifican recursos reales.
+6. Identificar el archivo de estado local como registro de lo que Terraform administra.
+
+Este laboratorio evita deliberadamente variables, outputs, locals, modulos y backend remoto. Esos conceptos se agregan en laboratorios posteriores.
+
+---
+
+## 3. Alcance del LAB01
+
+### Incluido
+
+- Preparacion de terminal con Git, AWS CLI y Terraform.
+- Clonado del repositorio del curso.
+- Revision de un proyecto Terraform minimo.
+- Creacion planificada de un bucket S3.
+- Discusion sobre plan, apply, state y destroy.
+
+### No incluido todavia
+
+- Variables (`variables.tf`, `terraform.tfvars`, `-var`, `TF_VAR_*`).
+- Outputs.
+- Locals.
+- Lambda.
+- Modulos.
+- Backend remoto S3/DynamoDB.
+- Pipelines CI/CD.
+
+La decision pedagogica es separar conceptos. Primero se entiende el esqueleto. Despues se parametriza.
+
+---
+
+## 4. Progresion prevista
+
+La secuencia propuesta para el modulo IaC queda asi:
+
+1. **LAB01:** proyecto Terraform minimo y primer recurso S3.
+2. **LAB02:** variables para parametrizar region, cuenta, iniciales, nombres y tags.
+3. **LAB03:** Lambda reutilizando variables ya definidas.
+4. **LAB04:** modulos para separar responsabilidades y reutilizar infraestructura.
+5. **LAB05:** backend remoto con S3 y DynamoDB para estado compartido y bloqueo.
+
+Esta guia cubre solo el LAB01.
+
+---
+
+## 5. Arquitectura objetivo del LAB01
+
+Arquitectura minima:
 
 ```text
-Repositorio Git
-  |
-  | archivos .tf
-  v
+Alumno / Terminal
+      |
+      | terraform init / validate / plan / apply
+      v
 Terraform CLI
-  |
-  | init / fmt / validate / plan / apply
-  v
-Provider AWS
-  |
-  v
-AWS S3 Bucket privado
-  |-- Public Access Block
-  |-- Versioning enabled
-  |-- Server-side encryption AES256
-  |-- Tags comunes
-
-Terraform local state
-  |-- terraform.tfstate
+      |
+      | Provider AWS
+      v
+AWS S3 Bucket
 ```
 
-Decision de alcance: usamos S3 porque permite explicar IaC sin sumar VPC, subnets, EC2, ALB o IAM complejo. El foco de la clase es el metodo de trabajo, no construir una arquitectura grande.
+No hay aplicacion, no hay Lambda, no hay red propia, no hay ALB, no hay base de datos.
+
+La pregunta central es:
+
+> Como pasa Terraform de un archivo `.tf` a un plan de infraestructura en AWS?
 
 ---
 
-## Alcance del lab
+## 6. Pre-requisitos
 
-### Obligatorio
+Cada alumno necesita:
 
-- Revisar la estructura del proyecto Terraform.
-- Ejecutar `terraform init`, `terraform fmt`, `terraform validate` y `terraform plan`.
-- Leer el plan y explicar que cambios propone Terraform.
-- Identificar que informacion queda en el estado.
-- Entregar evidencia del plan y una explicacion corta de los componentes.
-
-### Con autorizacion docente
-
-- Ejecutar `terraform apply` en la cuenta AWS de laboratorio.
-- Revisar outputs.
-- Ejecutar un cambio controlado y leer el nuevo plan.
-- Ejecutar `terraform destroy` y verificar limpieza.
-
-### Opcional / demostracion docente
-
-- Modificar un tag manualmente en AWS y discutir drift.
-- Conversar sobre estado remoto, locking, ambientes y CI/CD.
-- Comparar este laboratorio con una infraestructura mayor: VPC + EC2 + ALB.
-
----
-
-## Pre-requisitos
-
-En la terminal del alumno o del docente:
-
-- Terraform instalado.
-- AWS CLI instalado si se va a validar identidad o usar cuenta real.
-- Credenciales AWS configuradas solo para una cuenta sandbox/laboratorio.
-- Permisos para crear, consultar y eliminar buckets S3.
+- Windows con PowerShell.
+- Visual Studio Code u otro IDE equivalente.
 - Git instalado.
+- AWS CLI instalado.
+- Terraform instalado.
+- Credenciales AWS entregadas o autorizadas por el docente.
+- Permisos para crear y borrar un bucket S3 en la cuenta de laboratorio.
 
-Verificaciones:
+Validaciones iniciales:
 
-```bash
-terraform version
+```powershell
+git --version
 aws --version
+terraform version
 ```
 
-Validacion no destructiva de identidad AWS:
+Si algun comando no existe, instalarlo antes de seguir.
 
-```bash
+---
+
+## 7. Preparacion de herramientas en Windows
+
+### Opcion recomendada: winget
+
+```powershell
+winget --version
+```
+
+Si `winget` esta disponible:
+
+```powershell
+winget install --id Git.Git -e
+winget install --id Amazon.AWSCLI -e
+winget install --id Hashicorp.Terraform -e
+```
+
+Cerrar y volver a abrir PowerShell.
+
+Validar:
+
+```powershell
+git --version
+aws --version
+terraform version
+```
+
+### Opcion alternativa: Chocolatey
+
+Si el alumno ya usa Chocolatey:
+
+```powershell
+choco install git awscli terraform -y
+```
+
+Cerrar y volver a abrir PowerShell.
+
+---
+
+## 8. Configurar acceso AWS
+
+Si el docente entrega credenciales para un perfil llamado `curso`:
+
+```powershell
+aws configure --profile curso
+```
+
+Completar:
+
+- AWS Access Key ID
+- AWS Secret Access Key
+- Default region name: `us-east-1`
+- Default output format: `json`
+
+Validar identidad sin crear recursos:
+
+```powershell
+aws sts get-caller-identity --profile curso
+```
+
+Esperado: AWS devuelve un `Account`, un `UserId` y un `Arn`.
+
+Para que Terraform use ese perfil en la terminal actual:
+
+```powershell
+$env:AWS_PROFILE="curso"
+```
+
+Validar nuevamente:
+
+```powershell
 aws sts get-caller-identity
 ```
 
-Si se usa un perfil especifico:
+Checkpoint oral:
 
-```bash
-AWS_PROFILE=curso aws sts get-caller-identity
-```
-
-Nota docente: `sts get-caller-identity` no crea recursos. `terraform apply` y `terraform destroy` si modifican AWS.
+- Que cuenta AWS estoy usando?
+- Que perfil de AWS CLI quedo activo?
+- Por que conviene validar identidad antes de crear recursos?
 
 ---
 
-## Preparacion del repositorio
+## 9. Obtener el material
 
-Clonar y cambiar a la branch del laboratorio:
+Clonar el repositorio:
 
-```bash
+```powershell
 git clone https://github.com/nicopannu/curso-cloud-formatec-c2-2026.git
 cd curso-cloud-formatec-c2-2026
 git checkout m3-c1-lab
 ```
 
-Entrar al proyecto Terraform:
+Entrar al proyecto Terraform del LAB01:
 
-```bash
+```powershell
 cd terraform/iac-lab01-s3-basics
 ```
 
-Estructura esperada:
+Abrir la carpeta en el IDE para ver los archivos.
+
+---
+
+## 10. Estructura minima del proyecto
+
+El proyecto contiene solamente estos archivos Terraform:
 
 ```text
 terraform/iac-lab01-s3-basics/
   versions.tf
   providers.tf
-  variables.tf
   main.tf
-  outputs.tf
-  terraform.tfvars.example
   README.md
 ```
 
+### `versions.tf`
+
+Define versiones requeridas:
+
+```hcl
+terraform {
+  required_version = ">= 1.6.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+```
+
+Explicacion:
+
+- `terraform`: bloque de configuracion general.
+- `required_version`: version minima de Terraform CLI.
+- `required_providers`: plugins que Terraform necesita.
+- `hashicorp/aws`: provider oficial para interactuar con AWS.
+
+### `providers.tf`
+
+Configura el provider:
+
+```hcl
+provider "aws" {
+  region = "us-east-1"
+}
+```
+
+Explicacion:
+
+- Terraform no habla con AWS por si solo.
+- Usa un provider.
+- El provider necesita una region.
+- Las credenciales no se escriben en el `.tf`; se toman del ambiente/AWS CLI.
+
+### `main.tf`
+
+Declara el recurso:
+
+```hcl
+resource "aws_s3_bucket" "lab" {
+  bucket = "s3-bucket-485617552563-np"
+}
+```
+
+Explicacion:
+
+- `resource`: declara infraestructura administrada por Terraform.
+- `aws_s3_bucket`: tipo de recurso del provider AWS.
+- `lab`: nombre local dentro de Terraform.
+- `bucket`: nombre real del bucket en AWS.
+
+Importante: en LAB01 el nombre esta escrito directamente. Esto es intencional para no introducir variables todavia.
+
 ---
 
-## Actividad 1 - Leer el codigo antes de ejecutar
+## 11. Ajustar el nombre del bucket
 
-Abrir los archivos `.tf` y ubicar:
+Antes de planificar, cada alumno debe cambiar el nombre del bucket en `main.tf`.
 
-1. `versions.tf`: version requerida de Terraform y providers.
-2. `providers.tf`: region AWS y `default_tags`.
-3. `variables.tf`: parametros configurables.
-4. `main.tf`: recursos AWS declarados.
-5. `outputs.tf`: datos que Terraform mostrara despues del apply.
+Patron recomendado:
 
-Preguntas para el grupo:
+```text
+s3-bucket-NUMERO_DE_CUENTA-INICIALES
+```
 
-- Que recurso principal se va a crear?
-- Donde aparece la region?
-- Que valores podrian cambiar entre ambientes?
-- Donde se declara que el bucket no debe ser publico?
-- Que parte del codigo ayuda a identificar costos y ownership?
+Ejemplo:
 
-Checkpoint: antes de correr Terraform, el alumno debe poder señalar en el codigo que recurso se va a crear y que controles de seguridad tendra.
+```text
+s3-bucket-485617552563-np
+```
+
+Reglas practicas para nombres S3:
+
+- Debe ser globalmente unico.
+- Usar minusculas, numeros y guiones.
+- No usar espacios.
+- No usar guion bajo.
+- Evitar datos sensibles o nombres personales completos.
+
+Checkpoint oral:
+
+- Por que S3 exige nombres globales?
+- Que problema aparece si dos alumnos usan exactamente el mismo nombre?
+- Que parte de este nombre hace que sea mas dificil colisionar?
 
 ---
 
-## Actividad 2 - Inicializar Terraform
+## 12. Inicializar Terraform
 
 Ejecutar:
 
-```bash
+```powershell
 terraform init -backend=false
 ```
 
-Explicacion:
+Que ocurre:
 
-- `init` prepara el directorio de trabajo.
-- Descarga los providers necesarios.
-- `-backend=false` evita configurar backend remoto; para este primer lab usamos estado local.
-- Se genera o usa `.terraform.lock.hcl`, que fija versiones de providers para reproducibilidad.
+- Terraform lee los archivos `.tf`.
+- Detecta que necesita el provider AWS.
+- Descarga el plugin del provider.
+- Crea archivos/directorios locales de trabajo.
+
+Usamos `-backend=false` porque el LAB01 todavia no enseña backend remoto. El estado sera local.
 
 Checkpoint:
 
-- Que diferencia hay entre instalar Terraform y descargar providers?
-- Por que el provider AWS no viene embebido dentro del binario de Terraform?
+- Que provider descargo Terraform?
+- Que archivo lock aparece luego del init?
+- Por que todavia no se creo ningun recurso AWS?
 
 ---
 
-## Actividad 3 - Formato y validacion
+## 13. Formatear y validar
 
-Ejecutar:
+Formatear:
 
-```bash
-terraform fmt -check
+```powershell
+terraform fmt
+```
+
+Validar sintaxis y estructura:
+
+```powershell
 terraform validate
 ```
 
-Si `fmt -check` marca cambios necesarios, ejecutar:
+Resultado esperado:
 
-```bash
-terraform fmt
-terraform fmt -check
+```text
+Success! The configuration is valid.
+```
+
+Diferencia conceptual:
+
+- `fmt` ordena formato.
+- `validate` revisa que la configuracion sea valida para Terraform.
+- Ninguno de los dos crea recursos.
+
+---
+
+## 14. Ver el plan
+
+Ejecutar:
+
+```powershell
+terraform plan
+```
+
+Terraform deberia mostrar que quiere crear un bucket S3.
+
+Buscar en la salida:
+
+```text
+# aws_s3_bucket.lab will be created
++ resource "aws_s3_bucket" "lab" {
+    + bucket = "s3-bucket-..."
+}
 ```
 
 Explicacion:
 
-- `fmt` estandariza estilo del codigo.
-- `validate` revisa sintaxis, referencias internas y esquema de providers.
-- `validate` no confirma que la arquitectura sea segura ni que el cambio sea deseable.
+- `+` significa crear.
+- `-` significaria destruir.
+- `~` significaria modificar.
+- El plan permite revisar antes de tocar AWS.
 
-Checkpoint:
+Checkpoint oral:
 
-- Por que `validate` puede pasar aunque la decision arquitectonica sea mala?
-- Que tipo de errores detecta y que tipo de errores no detecta?
-
----
-
-## Actividad 4 - Preparar variables
-
-El lab ya tiene defaults seguros. Si se quiere personalizar:
-
-```bash
-cp terraform.tfvars.example terraform.tfvars
-```
-
-Editar `terraform.tfvars`:
-
-```hcl
-aws_region   = "us-east-1"
-project_name = "cloudcuyo-iac"
-environment  = "lab"
-owner        = "formatec"
-```
-
-Reglas:
-
-- No guardar secretos en `terraform.tfvars`.
-- No commitear `terraform.tfvars`.
-- Mantener nombres en minusculas para S3.
-- Usar cuenta de laboratorio, no cuenta productiva.
-
-Checkpoint:
-
-- Que valores conviene parametrizar?
-- Que valores no deberian estar en un repositorio?
+- Que recurso se crearia?
+- En que region se crearia?
+- Que nombre real tendria en AWS?
+- Por que conviene revisar el plan antes del apply?
 
 ---
 
-## Actividad 5 - Leer el plan antes de aplicar
+## 15. Apply autorizado por el docente
 
-Ejecutar:
+No ejecutar este paso si el docente no autorizo crear recursos reales.
 
-```bash
-terraform plan
-```
+Si esta autorizado:
 
-Con perfil AWS especifico:
-
-```bash
-AWS_PROFILE=curso terraform plan
-```
-
-Durante la lectura del plan, marcar:
-
-- acciones `+ create`;
-- recursos a crear;
-- atributos conocidos antes del apply;
-- atributos conocidos despues del apply;
-- tags aplicados;
-- dependencias implicitas entre recursos.
-
-Recursos esperados:
-
-- `random_id.bucket_suffix`
-- `aws_s3_bucket.lab`
-- `aws_s3_bucket_public_access_block.lab`
-- `aws_s3_bucket_versioning.lab`
-- `aws_s3_bucket_server_side_encryption_configuration.lab`
-
-Preguntas para el grupo:
-
-- Terraform va a crear, modificar o destruir?
-- Por que aparece un sufijo aleatorio para el bucket?
-- Que atributos todavia no conoce Terraform antes de crear el recurso?
-- Que linea del plan revisarian con mas cuidado en un ambiente real?
-- Que pasaria si el plan mostrara `destroy` en produccion?
-
-Checkpoint: nadie deberia ejecutar `apply` sin poder explicar el plan.
-
----
-
-## Actividad 6 - Aplicar cambios reales en AWS
-
-Ejecutar solo si el docente autoriza el uso de la cuenta AWS de laboratorio.
-
-```bash
+```powershell
 terraform apply
 ```
 
-Con perfil AWS especifico:
+Terraform pedira confirmacion:
 
-```bash
-AWS_PROFILE=curso terraform apply
+```text
+Do you want to perform these actions?
 ```
 
-Cuando Terraform pida confirmacion, escribir:
+Responder:
 
 ```text
 yes
 ```
 
-Luego revisar outputs:
+Luego validar en AWS CLI:
 
-```bash
-terraform output
+```powershell
+aws s3 ls
 ```
 
-Evidencia esperada:
+O buscar el bucket especifico:
 
-- nombre final del bucket;
-- ARN del bucket;
-- region usada;
-- tags comunes.
+```powershell
+aws s3api head-bucket --bucket s3-bucket-485617552563-np
+```
 
-Explicacion docente:
+Reemplazar el nombre por el que haya usado el alumno.
 
-`apply` no es un paso administrativo. Es el momento en que el codigo modifica infraestructura real. Por eso en equipos profesionales suele requerir revision, aprobacion y pipeline.
+Checkpoint:
+
+- Que cambio entre `plan` y `apply`?
+- Donde queda registrado lo creado?
+- Si borro el bucket desde consola, Terraform se entera automaticamente?
 
 ---
 
-## Actividad 7 - Entender el estado local
+## 16. Estado local
 
-Listar archivos generados:
+Despues de aplicar, Terraform crea o actualiza:
 
-```bash
-ls -la
+```text
+terraform.tfstate
 ```
 
-Identificar:
+Este archivo representa lo que Terraform cree administrar.
 
-- `.terraform/`
-- `.terraform.lock.hcl`
-- `terraform.tfstate`
-- posible `terraform.tfstate.backup`
+Puntos clave:
 
-Preguntas:
+- No es documentacion humana.
+- Es informacion operativa de Terraform.
+- Puede contener datos sensibles en escenarios reales.
+- No deberia subirse al repositorio.
+- En equipos de trabajo, se reemplaza por backend remoto.
 
-- Que recurso real queda asociado al estado?
-- Por que `terraform.tfstate` es sensible?
-- Que problema aparece si dos personas aplican desde estados locales distintos?
-- Que cambiaria en un equipo real? Estado remoto y locking.
-
-Checkpoint: el alumno debe poder explicar que Terraform no consulta Git para saber que administra; usa el state.
+El backend remoto se vera mas adelante, cuando se agregue S3 + DynamoDB para estado compartido y locking.
 
 ---
 
-## Actividad 8 - Cambio controlado
+## 17. Destroy y limpieza
 
-Cambiar una variable simple, por ejemplo `owner`, en `terraform.tfvars`:
+Al finalizar el laboratorio, si se creo el bucket:
 
-```hcl
-owner = "equipo-a"
-```
-
-Ejecutar:
-
-```bash
-terraform plan
-```
-
-Con perfil:
-
-```bash
-AWS_PROFILE=curso terraform plan
-```
-
-Objetivo:
-
-- ver que Terraform detecta diferencia entre codigo, variables y estado;
-- distinguir update de replacement;
-- discutir si el cambio es seguro;
-- reforzar que el plan se revisa antes del apply.
-
-Preguntas:
-
-- Este cambio reemplaza el bucket o actualiza metadatos?
-- Que indica el simbolo `~` en el plan?
-- Aplicarian este cambio automaticamente en produccion?
-
----
-
-## Actividad 9 - Drift opcional
-
-Solo como demostracion docente:
-
-1. Cambiar manualmente un tag del bucket desde la consola AWS.
-2. Ejecutar:
-
-```bash
-terraform plan
-```
-
-3. Observar que Terraform intenta volver al estado declarado en codigo.
-
-Discusion:
-
-- Que riesgo tienen los cambios manuales?
-- Cuando un cambio manual puede ser una emergencia valida?
-- Como se deberia registrar luego ese cambio en codigo?
-
----
-
-## Actividad 10 - Limpieza
-
-Si se ejecuto `apply`, cerrar con:
-
-```bash
+```powershell
 terraform destroy
 ```
 
-Con perfil:
+Confirmar con:
 
-```bash
-AWS_PROFILE=curso terraform destroy
+```text
+yes
 ```
 
-Confirmar con `yes`.
+Validar que ya no exista:
 
-Luego verificar que el bucket ya no existe:
-
-```bash
-terraform state list
+```powershell
+aws s3api head-bucket --bucket s3-bucket-485617552563-np
 ```
 
-Opcional con AWS CLI, reemplazando el nombre por el output visto antes:
-
-```bash
-aws s3api head-bucket --bucket NOMBRE_DEL_BUCKET
-```
-
-Si el bucket fue destruido, `head-bucket` debe fallar porque ya no existe o no es accesible.
-
-Cierre docente:
-
-- En laboratorios, limpiar recursos es parte de la practica.
-- En produccion, `destroy` debe estar restringido, revisado y auditado.
+Si devuelve error de no encontrado o acceso no valido para ese bucket, revisar con el docente. En un entorno de laboratorio, el objetivo es no dejar recursos creados innecesariamente.
 
 ---
 
-## Troubleshooting
+## 18. Troubleshooting
 
-| Problema | Causa probable | Accion |
+| Problema | Causa probable | Accion sugerida |
 |---|---|---|
-| `terraform: command not found` | Terraform no instalado o no esta en PATH | Instalar Terraform o revisar PATH |
-| `No valid credential sources found` | No hay credenciales AWS | Configurar perfil AWS o variables de entorno |
-| `AccessDenied` | Permisos insuficientes | Validar IAM de la cuenta laboratorio |
-| `BucketAlreadyExists` | Nombre global S3 duplicado | Revisar `random_id` o cambiar `project_name` |
-| `fmt -check` falla | Formato distinto al estandar | Ejecutar `terraform fmt` |
-| `destroy` falla con bucket no vacio | Hay objetos dentro del bucket | Vaciar bucket y repetir destroy |
+| `terraform: command not found` | Terraform no esta instalado o la terminal no recargo PATH | Reabrir PowerShell o reinstalar Terraform |
+| `No valid credential sources found` | Terraform no encuentra credenciales AWS | Revisar `$env:AWS_PROFILE` y `aws sts get-caller-identity` |
+| `BucketAlreadyExists` | El nombre del bucket ya existe globalmente | Cambiar iniciales o agregar un sufijo corto acordado por el docente |
+| `AccessDenied` | El usuario no tiene permisos suficientes | Validar perfil/cuenta con el docente |
+| `Error acquiring the state lock` | No deberia ocurrir con estado local simple | Revisar si otro proceso Terraform esta corriendo |
 
 ---
 
-## Entregables
+## 19. Actividad en clase
 
-Cada alumno o grupo debe entregar:
+Trabajo individual o en grupos pequenos:
 
-1. Salida o captura de `terraform validate` exitoso.
-2. Fragmento del `terraform plan` indicando recursos a crear.
-3. Tabla corta con `provider`, `resource`, `variable`, `output` y `state` explicados con sus palabras.
-4. Respuesta breve: por que el estado de Terraform no se comparte informalmente?
-5. Si se hizo `apply`: nombre del bucket creado, outputs y evidencia de `destroy`.
-6. Una decision de seguridad identificada en el codigo, por ejemplo bloqueo publico, cifrado o tags.
+1. Abrir los tres archivos Terraform.
+2. Identificar que hace cada archivo.
+3. Cambiar el nombre del bucket.
+4. Ejecutar `init`, `fmt`, `validate` y `plan`.
+5. Explicar oralmente que propone el plan.
+6. Si el docente autoriza, ejecutar `apply`.
+7. Observar el estado local.
+8. Ejecutar `destroy` al terminar.
 
 ---
 
-## Criterios de evaluacion
+## 20. Entregables / evidencia de clase
+
+Para este LAB01 no se propone una entrega formal extensa. La evidencia minima de trabajo puede ser:
+
+- Captura o copia de salida de `terraform validate` exitoso.
+- Captura o copia del fragmento de `terraform plan` donde aparece `aws_s3_bucket.lab`.
+- Respuesta breve: que rol cumple `versions.tf`, `providers.tf` y `main.tf`.
+- Si hubo apply autorizado: evidencia de creacion y posterior destroy del bucket.
+
+---
+
+## 21. Criterios de evaluacion
 
 | Criterio | Esperado |
 |---|---|
-| Comprension de IaC | Explica por que el codigo mejora repetibilidad, revision y trazabilidad |
-| Lectura de Terraform | Identifica provider, recursos, variables, outputs y state |
-| Interpretacion del plan | Distingue crear, modificar y destruir antes de aplicar |
-| Seguridad basica | Reconoce bloqueo publico, cifrado, tags, no secretos y cuenta sandbox |
-| Operacion responsable | No ejecuta apply sin autorizacion y limpia recursos si los creo |
-| Justificacion tecnica | Explica trade-offs entre lab simple y uso real en equipos |
+| Comprension de estructura | Distingue version/provider/recurso sin mezclar variables o modulos todavia |
+| Uso de CLI | Ejecuta init, fmt, validate y plan en orden correcto |
+| Lectura del plan | Puede explicar que se va a crear antes del apply |
+| Seguridad operativa | No ejecuta apply/destroy sin autorizacion docente |
+| Limpieza | Si crea recursos, tambien ejecuta destroy al final |
 
 ---
 
-## Anti-patrones a evitar
+## 22. Cierre conceptual
 
-- Ejecutar `apply` sin leer el plan.
-- Usar una cuenta productiva para una demo.
-- Subir `terraform.tfstate`, `terraform.tfvars` o secretos al repositorio.
-- Pensar que `validate` confirma que la arquitectura es segura.
-- Crear recursos por consola y olvidarse de reflejarlos en codigo.
-- No ejecutar `destroy` al final del laboratorio.
-- Copiar comandos sin entender que recurso real modifican.
+Preguntas para cerrar la clase:
 
----
+1. Que gano al declarar infraestructura en archivos en vez de crearla manualmente?
+2. Que parte del proyecto le dice a Terraform como hablar con AWS?
+3. Que parte representa la infraestructura deseada?
+4. Que diferencia hay entre `validate` y `plan`?
+5. Por que el estado local no alcanza para un equipo de trabajo?
+6. Que problema empieza a aparecer por tener el nombre del bucket hardcodeado?
 
-## Cierre para discusion
-
-Preguntas finales:
-
-1. Que diferencia hay entre crear el bucket por consola y declararlo en Terraform?
-2. Que parte del ejercicio representa el estado deseado?
-3. Que parte representa la realidad en AWS?
-4. Que pasaria si alguien modifica el bucket manualmente?
-5. Como cambiaria este lab si trabajaran tres personas sobre la misma infraestructura?
-6. Que deberia pasar antes de ejecutar `apply` en una empresa?
-
-Takeaway:
-
-> Terraform no es importante porque crea un bucket. Es importante porque obliga a que el cambio de infraestructura sea visible, revisable, repetible y limpiable.
+La ultima pregunta abre el LAB02: variables.

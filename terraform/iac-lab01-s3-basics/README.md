@@ -1,94 +1,100 @@
-# LAB01 IaC - Terraform S3 basico
+# LAB01 - Terraform minimo con S3
 
-Proyecto Terraform minimo para explicar Infrastructure as Code en AWS.
+Este proyecto es intencionalmente simple. Sirve para explicar como se compone un proyecto Terraform antes de introducir variables, outputs, modulos o backend remoto.
 
-## Que crea
+## Objetivo
 
-Un bucket S3 privado con:
+Crear un bucket S3 usando Terraform con la menor cantidad de piezas posibles:
 
-- nombre unico generado con `random_id`;
-- bloqueo de acceso publico;
-- versionado habilitado;
-- cifrado SSE-S3;
-- tags comunes aplicados desde `default_tags` del provider.
-
-## Por que S3
-
-S3 permite explicar el ciclo completo de Terraform sin montar una arquitectura grande:
-
-- provider;
-- recurso real;
-- variables;
-- outputs;
-- plan;
-- state;
-- cambio controlado;
-- destroy.
-
-El objetivo pedagogico no es construir una solucion de storage, sino mostrar que la infraestructura puede ser declarada, revisada, aplicada y limpiada de forma repetible.
+- `versions.tf`: version de Terraform y provider requerido.
+- `providers.tf`: configuracion del provider AWS.
+- `main.tf`: recurso que se quiere crear.
 
 ## Archivos
 
 | Archivo | Rol |
 |---|---|
-| `versions.tf` | Version minima de Terraform y providers requeridos |
-| `providers.tf` | Configuracion del provider AWS y tags comunes |
-| `variables.tf` | Parametros modificables del lab |
-| `main.tf` | Recursos AWS declarados |
-| `outputs.tf` | Datos visibles luego del apply |
-| `terraform.tfvars.example` | Ejemplo seguro de variables, sin secretos |
+| `versions.tf` | Declara que provider necesita Terraform para hablar con AWS. |
+| `providers.tf` | Configura AWS como destino y define la region. |
+| `main.tf` | Declara el recurso S3 que Terraform debe administrar. |
 
-## Flujo seguro sin crear recursos
+En este LAB01 no hay:
 
-```bash
+- `variables.tf`
+- `terraform.tfvars`
+- `outputs.tf`
+- `locals`
+- `modules`
+- backend remoto
+
+Eso se agrega en laboratorios posteriores.
+
+## Nombre del bucket
+
+En `main.tf` el nombre esta escrito directamente:
+
+```hcl
+resource "aws_s3_bucket" "lab" {
+  bucket = "s3-bucket-485617552563-np"
+}
+```
+
+Antes de ejecutar `terraform plan` o `terraform apply`, cada alumno debe cambiarlo por un nombre propio siguiendo el patron:
+
+```text
+s3-bucket-NUMERO_DE_CUENTA-INICIALES
+```
+
+Ejemplo:
+
+```text
+s3-bucket-485617552563-np
+```
+
+S3 exige nombres globalmente unicos. Si el nombre ya existe, AWS va a rechazar la creacion del bucket.
+
+## Comandos de trabajo
+
+Inicializar Terraform sin backend remoto:
+
+```powershell
 terraform init -backend=false
-terraform fmt -check
+```
+
+Formatear archivos:
+
+```powershell
+terraform fmt
+```
+
+Validar sintaxis:
+
+```powershell
 terraform validate
+```
+
+Ver el plan:
+
+```powershell
 terraform plan
 ```
 
-`plan` consulta AWS y prepara una propuesta de cambios, pero no crea recursos.
+Crear recursos solo si el docente autoriza el uso de AWS:
 
-Si se usa el perfil AWS del curso desde el entorno del docente:
-
-```bash
-AWS_PROFILE=curso terraform plan
-```
-
-## Flujo con recursos reales
-
-Ejecutar solo con autorizacion del docente y en cuenta sandbox/laboratorio:
-
-```bash
+```powershell
 terraform apply
-terraform output
+```
+
+Limpiar recursos al terminar:
+
+```powershell
 terraform destroy
 ```
 
-Con perfil del curso:
+## Progresion prevista
 
-```bash
-AWS_PROFILE=curso terraform apply
-AWS_PROFILE=curso terraform output
-AWS_PROFILE=curso terraform destroy
-```
-
-## Variables
-
-Se puede copiar el ejemplo:
-
-```bash
-cp terraform.tfvars.example terraform.tfvars
-```
-
-`terraform.tfvars` esta ignorado por Git para evitar subir valores locales. No guardar secretos en variables versionadas.
-
-## Limpieza
-
-Si se ejecuto `apply`, cerrar con:
-
-```bash
-terraform destroy
-```
-
-Verificar que el bucket no quede creado. El cleanup forma parte del laboratorio, no es un paso opcional cuando se trabajaron recursos reales.
+- LAB01: estructura minima de proyecto Terraform y primer recurso S3.
+- LAB02: variables para no hardcodear region, cuenta, iniciales y nombres.
+- LAB03: Lambda reutilizando variables ya definidas.
+- LAB04: modulos para organizar infraestructura repetible.
+- LAB05: backend remoto con bucket S3 y tabla DynamoDB para estado y bloqueo.

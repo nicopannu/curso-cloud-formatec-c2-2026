@@ -1,7 +1,0 @@
-# Copiar a terraform.tfvars si se quiere cambiar valores en vivo.
-# No guardar secretos en archivos tfvars versionados.
-
-aws_region   = "us-east-1"
-project_name = "cloudcuyo-iac"
-environment  = "lab"
-owner        = "formatec"
