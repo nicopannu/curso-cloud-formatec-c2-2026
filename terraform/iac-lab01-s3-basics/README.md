@@ -1,6 +1,6 @@
 # LAB01 - Terraform minimo con S3
 
-Este proyecto es intencionalmente simple. Sirve para explicar como se compone un proyecto Terraform antes de introducir variables, outputs, modulos o backend remoto.
+Este proyecto muestra la estructura minima de Terraform para crear un primer recurso en AWS.
 
 ## Objetivo
 
@@ -27,7 +27,7 @@ En este LAB01 no hay:
 - `modules`
 - backend remoto
 
-Eso se agrega en laboratorios posteriores.
+Esos temas se trabajan en los siguientes laboratorios.
 
 ## Nombre del bucket
 
@@ -79,7 +79,7 @@ Ver el plan:
 terraform plan
 ```
 
-Crear recursos solo si el docente autoriza el uso de AWS:
+Crear recursos solo cuando tengas autorizacion para usar AWS:
 
 ```powershell
 terraform apply

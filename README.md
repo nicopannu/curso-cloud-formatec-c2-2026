@@ -20,7 +20,7 @@ Esta branch contiene el material de:
 
 ## Progresion prevista del modulo IaC
 
-La secuencia pedagogica queda separada por capas para no mezclar demasiados conceptos en la primera clase:
+El modulo esta organizado por etapas para incorporar los conceptos de Terraform de forma progresiva:
 
 1. LAB01: proyecto Terraform minimo y primer recurso S3.
 2. LAB02: variables y archivos `tfvars` para parametrizar el proyecto.
@@ -37,7 +37,7 @@ El laboratorio esta pensado para trabajar con:
 - Git para clonar el repositorio.
 - AWS CLI para validar credenciales y cuenta.
 - Terraform para declarar y crear infraestructura.
-- Cuenta AWS de laboratorio o sandbox autorizada por el docente.
+- Cuenta AWS de laboratorio o sandbox autorizada para realizar el lab.
 
 No se incluyen pasos de instalacion del IDE. El foco de preparacion es dejar lista la terminal para usar Git, AWS CLI y Terraform.
 
@@ -89,7 +89,7 @@ terraform version
 
 ## Configurar credenciales AWS
 
-Si el docente entrega credenciales para un perfil de laboratorio:
+Si recibiste credenciales para un perfil de laboratorio:
 
 ```powershell
 aws configure --profile curso
@@ -151,7 +151,7 @@ terraform validate
 terraform plan
 ```
 
-`terraform apply` y `terraform destroy` modifican recursos reales en AWS. Ejecutarlos solo cuando el docente autorice el uso de la cuenta de laboratorio.
+`terraform apply` y `terraform destroy` modifican recursos reales en AWS. Ejecutalos solo cuando tengas autorizacion para usar la cuenta de laboratorio.
 
 ## Idea central de la clase
 

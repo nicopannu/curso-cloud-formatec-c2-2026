@@ -19,7 +19,7 @@ El problema aparece cuando queremos responder preguntas simples:
 - Como revisamos un cambio antes de aplicarlo?
 - Como limpiamos recursos sin olvidarnos nada?
 
-Terraform permite tratar infraestructura como codigo. En este primer laboratorio no buscamos construir una arquitectura compleja. Buscamos entender la estructura minima de un proyecto Terraform y el ciclo de trabajo basico.
+Terraform permite tratar infraestructura como codigo. En este primer laboratorio vas a trabajar con una estructura minima de proyecto y con el ciclo de trabajo basico.
 
 El recurso elegido es un bucket S3 porque es simple, barato, facil de identificar y facil de borrar.
 
@@ -36,7 +36,7 @@ Al finalizar el LAB01, el alumno deberia poder:
 5. Entender que `apply` y `destroy` modifican recursos reales.
 6. Identificar el archivo de estado local como registro de lo que Terraform administra.
 
-Este laboratorio evita deliberadamente variables, outputs, locals, modulos y backend remoto. Esos conceptos se agregan en laboratorios posteriores.
+En este laboratorio vas a trabajar sin variables, outputs, locals, modulos ni backend remoto. Esos conceptos aparecen en los siguientes laboratorios.
 
 ---
 
@@ -59,8 +59,6 @@ Este laboratorio evita deliberadamente variables, outputs, locals, modulos y bac
 - Modulos.
 - Backend remoto S3/DynamoDB.
 - Pipelines CI/CD.
-
-La decision pedagogica es separar conceptos. Primero se entiende el esqueleto. Despues se parametriza.
 
 ---
 
@@ -111,7 +109,7 @@ Cada alumno necesita:
 - Git instalado.
 - AWS CLI instalado.
 - Terraform instalado.
-- Credenciales AWS entregadas o autorizadas por el docente.
+- Credenciales AWS autorizadas para realizar el laboratorio.
 - Permisos para crear y borrar un bucket S3 en la cuenta de laboratorio.
 
 Validaciones iniciales:
@@ -166,7 +164,7 @@ Cerrar y volver a abrir PowerShell.
 
 ## 8. Configurar acceso AWS
 
-Si el docente entrega credenciales para un perfil llamado `curso`:
+Si recibiste credenciales para un perfil llamado `curso`:
 
 ```powershell
 aws configure --profile curso
@@ -421,9 +419,9 @@ Checkpoint oral:
 
 ---
 
-## 15. Apply autorizado por el docente
+## 15. Apply con autorizacion
 
-No ejecutar este paso si el docente no autorizo crear recursos reales.
+No ejecutes este paso si no tenes autorizacion para crear recursos reales.
 
 Si esta autorizado:
 
@@ -483,7 +481,7 @@ Puntos clave:
 - No deberia subirse al repositorio.
 - En equipos de trabajo, se reemplaza por backend remoto.
 
-El backend remoto se vera mas adelante, cuando se agregue S3 + DynamoDB para estado compartido y locking.
+El backend remoto se trabaja mas adelante con S3 + DynamoDB para estado compartido y locking.
 
 ---
 
@@ -507,7 +505,7 @@ Validar que ya no exista:
 aws s3api head-bucket --bucket s3-bucket-485617552563-np
 ```
 
-Si devuelve error de no encontrado o acceso no valido para ese bucket, revisar con el docente. En un entorno de laboratorio, el objetivo es no dejar recursos creados innecesariamente.
+Si devuelve error de no encontrado o acceso no valido para ese bucket, revisa el nombre usado y la cuenta activa. El objetivo es no dejar recursos creados innecesariamente.
 
 ---
 
@@ -517,8 +515,8 @@ Si devuelve error de no encontrado o acceso no valido para ese bucket, revisar c
 |---|---|---|
 | `terraform: command not found` | Terraform no esta instalado o la terminal no recargo PATH | Reabrir PowerShell o reinstalar Terraform |
 | `No valid credential sources found` | Terraform no encuentra credenciales AWS | Revisar `$env:AWS_PROFILE` y `aws sts get-caller-identity` |
-| `BucketAlreadyExists` | El nombre del bucket ya existe globalmente | Cambiar iniciales o agregar un sufijo corto acordado por el docente |
-| `AccessDenied` | El usuario no tiene permisos suficientes | Validar perfil/cuenta con el docente |
+| `BucketAlreadyExists` | El nombre del bucket ya existe globalmente | Cambiar iniciales o agregar un sufijo corto |
+| `AccessDenied` | El usuario no tiene permisos suficientes | Validar que el perfil y la cuenta AWS sean los correctos |
 | `Error acquiring the state lock` | No deberia ocurrir con estado local simple | Revisar si otro proceso Terraform esta corriendo |
 
 ---
@@ -532,7 +530,7 @@ Trabajo individual o en grupos pequenos:
 3. Cambiar el nombre del bucket.
 4. Ejecutar `init`, `fmt`, `validate` y `plan`.
 5. Explicar oralmente que propone el plan.
-6. Si el docente autoriza, ejecutar `apply`.
+6. Si tenes autorizacion para crear recursos, ejecutar `apply`.
 7. Observar el estado local.
 8. Ejecutar `destroy` al terminar.
 
@@ -556,7 +554,7 @@ Para este LAB01 no se propone una entrega formal extensa. La evidencia minima de
 | Comprension de estructura | Distingue version/provider/recurso sin mezclar variables o modulos todavia |
 | Uso de CLI | Ejecuta init, fmt, validate y plan en orden correcto |
 | Lectura del plan | Puede explicar que se va a crear antes del apply |
-| Seguridad operativa | No ejecuta apply/destroy sin autorizacion docente |
+| Seguridad operativa | No ejecuta apply/destroy sin autorizacion para usar AWS |
 | Limpieza | Si crea recursos, tambien ejecuta destroy al final |
 
 ---
@@ -572,4 +570,4 @@ Preguntas para cerrar la clase:
 5. Por que el estado local no alcanza para un equipo de trabajo?
 6. Que problema empieza a aparecer por tener el nombre del bucket hardcodeado?
 
-La ultima pregunta abre el LAB02: variables.
+Esa pregunta conecta este laboratorio con el siguiente: variables.
