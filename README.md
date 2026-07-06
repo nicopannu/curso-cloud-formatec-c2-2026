@@ -18,6 +18,10 @@ Esta branch contiene el material de:
 |---|---|---|---|
 | LAB01 | `guias/guia-iac-lab01-terraform-s3.md` | `terraform/iac-lab01-s3-basics/` | Primer recurso con Terraform: bucket S3 simple, nombres claros, init, fmt, validate, plan, apply, state y destroy |
 | LAB02 | `guias/guia-iac-lab02-terraform-lambda.md` | Creado por el alumno durante la guia | Se suma Lambda e inicia el uso de variables con `terraform.tfvars`, outputs e invoke desde AWS CLI |
+| LAB03 | `guias/guia-iac-lab03-state-outputs-cambios.md` | Continuacion del proyecto LAB02 | Outputs, state, cambios controlados y lectura de planes |
+| LAB04 | `guias/guia-iac-lab04-data-sources-locals-nomenclatura.md` | Creado por el alumno durante la guia | Data sources, locals, nomenclatura y tags comunes |
+| LAB05 | `guias/guia-iac-lab05-modulos-locales.md` | Creado por el alumno durante la guia | Modulos locales, inputs, outputs y reutilizacion |
+| LAB06 | `guias/guia-iac-lab06-backend-remoto-s3-dynamodb.md` | Creado por el alumno durante la guia | Backend remoto con S3, DynamoDB y locking |
 
 ## Progresion prevista del modulo IaC
 
@@ -25,16 +29,18 @@ El modulo esta organizado por etapas para incorporar los conceptos de Terraform 
 
 1. LAB01: primer proyecto Terraform y bucket S3 simple, con valores escritos directamente en los archivos.
 2. LAB02: se suma Lambda y se introducen variables desde `terraform.tfvars`, outputs e invocacion con AWS CLI.
-3. LAB03: reutilizacion de variables y ampliacion de la funcion Lambda.
-4. LAB04: modulos para ordenar y reutilizar infraestructura.
-5. LAB05: backend remoto con S3 y DynamoDB para estado compartido y locking.
+3. LAB03: se profundiza en outputs, state y cambios controlados sobre infraestructura ya creada.
+4. LAB04: se incorporan data sources, locals, nomenclatura y tags comunes.
+5. LAB05: se reorganiza infraestructura con modulos locales.
+6. LAB06: se migra el estado a backend remoto con S3 y DynamoDB para locking.
 
 ## Escenario de trabajo
 
 El laboratorio esta pensado para trabajar con:
 
 - Windows como sistema operativo del alumno.
-- Un IDE con terminal integrada, por ejemplo Visual Studio Code ya instalado por el alumno.
+- Un IDE con terminal integrada, por ejemplo Visual Studio Code o Cursor.
+- Terminal WSL o PowerShell, segun indique el docente.
 - Git para clonar el repositorio.
 - AWS CLI para validar credenciales y cuenta.
 - Terraform para declarar y crear infraestructura.
@@ -115,6 +121,12 @@ Para usar ese perfil con Terraform en la terminal actual:
 $env:AWS_PROFILE="curso"
 ```
 
+En WSL o Linux:
+
+```bash
+export AWS_PROFILE=curso
+```
+
 Verificar:
 
 ```powershell
@@ -135,6 +147,10 @@ Abrir la carpeta en el IDE y seguir la guia correspondiente:
 
 - LAB01: `guias/guia-iac-lab01-terraform-s3.md`
 - LAB02: `guias/guia-iac-lab02-terraform-lambda.md`
+- LAB03: `guias/guia-iac-lab03-state-outputs-cambios.md`
+- LAB04: `guias/guia-iac-lab04-data-sources-locals-nomenclatura.md`
+- LAB05: `guias/guia-iac-lab05-modulos-locales.md`
+- LAB06: `guias/guia-iac-lab06-backend-remoto-s3-dynamodb.md`
 
 Para LAB01, entrar al proyecto ya incluido:
 
@@ -163,7 +179,7 @@ terraform plan
 
 Si la infraestructura se crea a mano, no es repetible. Si no es repetible, no es confiable.
 
-El LAB01 muestra el flujo minimo de Terraform con un bucket S3. El LAB02 agrega Lambda y empieza a separar los valores variables en `terraform.tfvars` para que el proyecto sea mas claro y reutilizable.
+El LAB01 muestra el flujo minimo de Terraform con un bucket S3. El LAB02 agrega Lambda y empieza a separar valores variables en `terraform.tfvars`. Los laboratorios siguientes trabajan cambios, state, data sources, locals, modulos y backend remoto.
 
 ---
 
