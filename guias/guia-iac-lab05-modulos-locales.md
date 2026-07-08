@@ -131,7 +131,7 @@ terraform/iac-lab05-modulos/
 
 ---
 
-## 6. Crear `.gitignore`
+## 7. Crear `.gitignore`
 
 ```powershell
 New-Item .gitignore
@@ -148,7 +148,7 @@ terraform.tfvars
 
 ---
 
-## 7. Crear archivos base del root module
+## 8. Crear archivos base del root module
 
 Crear `versions.tf`:
 
@@ -187,7 +187,7 @@ provider "aws" {
 
 ---
 
-## 8. Crear variables del root module
+## 9. Crear variables del root module
 
 Crear `variables.tf`:
 
@@ -213,8 +213,8 @@ variable "environment" {
   type        = string
 }
 
-variable "student_initials" {
-  description = "Iniciales del alumno o grupo."
+variable "student_identity" {
+  description = "Identidad del alumno o grupo para nomenclatura."
   type        = string
 }
 ```
@@ -231,12 +231,12 @@ Contenido ejemplo:
 aws_region       = "us-east-1"
 project          = "formatec"
 environment      = "lab"
-student_initials = "np"
+student_identity = "tu-identidad"
 ```
 
 ---
 
-## 9. Crear locals del root module
+## 10. Crear locals del root module
 
 Crear `locals.tf`:
 
@@ -248,12 +248,12 @@ Contenido:
 
 ```hcl
 locals {
-  name_prefix = "${var.project}-${var.environment}-${var.student_initials}"
+  name_prefix = "${var.project}-${var.environment}-${var.student_identity}"
 
   common_tags = {
     Project     = var.project
     Environment = var.environment
-    Owner       = var.student_initials
+    Owner       = var.student_identity
     Course      = "formatec"
     ManagedBy   = "terraform"
   }
@@ -262,7 +262,7 @@ locals {
 
 ---
 
-## 10. Crear el modulo `s3-basic`
+## 11. Crear el modulo `s3-basic`
 
 Crear `modules/s3-basic/variables.tf`:
 
@@ -328,7 +328,7 @@ Checkpoint:
 
 ---
 
-## 11. Usar el modulo desde `main.tf`
+## 12. Usar el modulo desde `main.tf`
 
 Crear `main.tf` en la raiz del laboratorio:
 
@@ -358,7 +358,7 @@ El mismo modulo se usa dos veces con nombres distintos.
 
 ---
 
-## 12. Crear outputs del root module
+## 13. Crear outputs del root module
 
 Crear `outputs.tf`:
 
@@ -390,7 +390,7 @@ output "bucket_arns" {
 
 ---
 
-## 13. Inicializar y validar
+## 14. Inicializar y validar
 
 ```powershell
 terraform init -backend=false
@@ -406,7 +406,7 @@ Success! The configuration is valid.
 
 ---
 
-## 14. Revisar el plan
+## 15. Revisar el plan
 
 ```powershell
 terraform plan
@@ -428,7 +428,7 @@ Checkpoint:
 
 ---
 
-## 15. Crear recursos
+## 16. Crear recursos
 
 Ejecutar solo con autorizacion:
 
@@ -450,7 +450,7 @@ terraform output
 
 ---
 
-## 16. Agregar una tercera instancia
+## 17. Agregar una tercera instancia
 
 Editar `main.tf` y agregar:
 
@@ -493,7 +493,7 @@ terraform apply
 
 ---
 
-## 17. Limpieza
+## 18. Limpieza
 
 Destruir recursos:
 
@@ -509,18 +509,18 @@ yes
 
 ---
 
-## 18. Troubleshooting
+## 19. Troubleshooting
 
 | Problema | Causa probable | Accion sugerida |
 |---|---|---|
 | `Module not installed` | Falta ejecutar `terraform init` despues de crear/modificar modulo | Ejecutar `terraform init` |
-| BucketAlreadyExists | Nombre ya usado globalmente | Cambiar `student_initials` o `environment` |
+| BucketAlreadyExists | Nombre ya usado globalmente | Cambiar `student_identity` o `environment` |
 | Output de modulo no existe | El child module no declara ese output | Revisar `modules/s3-basic/outputs.tf` |
 | Plan confuso | Hay varias instancias del mismo modulo | Revisar nombres `module.bucket_logs`, `module.bucket_data`, etc. |
 
 ---
 
-## 19. Entregables
+## 20. Entregables
 
 Entregar:
 
@@ -533,26 +533,3 @@ Entregar:
 7. Confirmacion de limpieza.
 
 ---
-
-## 20. Criterios de evaluacion
-
-| Criterio | Esperado |
-|---|---|
-| Estructura | El alumno separa root module y child module. |
-| Inputs | El modulo recibe valores por variables. |
-| Outputs | El modulo devuelve datos utiles. |
-| Reutilizacion | El mismo modulo se usa mas de una vez. |
-| Plan | El alumno interpreta que recursos crea cada instancia. |
-| Limpieza | Los buckets se eliminan al finalizar. |
-
----
-
-## 21. Cierre para discusion
-
-Responder:
-
-1. Que problema resuelve un modulo?
-2. Que parte del codigo quedo reusable?
-3. Que decisiones siguen estando en el root module?
-4. Que riesgo hay si un modulo oculta demasiados detalles?
-5. Cuando conviene crear un modulo y cuando conviene mantener codigo directo?

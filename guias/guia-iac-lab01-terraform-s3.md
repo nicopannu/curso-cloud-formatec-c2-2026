@@ -284,7 +284,7 @@ Declara el recurso:
 
 ```hcl
 resource "aws_s3_bucket" "lab" {
-  bucket = "s3-bucket-485617552563-np"
+  bucket = "s3-bucket-tu-account-id-tu-identidad"
 }
 ```
 
@@ -312,7 +312,7 @@ s3-bucket-NUMERO_DE_CUENTA-INICIALES
 Ejemplo:
 
 ```text
-s3-bucket-485617552563-np
+s3-bucket-tu-account-id-tu-identidad
 ```
 
 Reglas practicas para nombres S3:
@@ -450,7 +450,7 @@ aws s3 ls
 O buscar el bucket especifico:
 
 ```powershell
-aws s3api head-bucket --bucket s3-bucket-485617552563-np
+aws s3api head-bucket --bucket s3-bucket-tu-account-id-tu-identidad
 ```
 
 Reemplazar el nombre por el que haya usado el alumno.
@@ -502,7 +502,7 @@ yes
 Validar que ya no exista:
 
 ```powershell
-aws s3api head-bucket --bucket s3-bucket-485617552563-np
+aws s3api head-bucket --bucket s3-bucket-tu-account-id-tu-identidad
 ```
 
 Si devuelve error de no encontrado o acceso no valido para ese bucket, revisa el nombre usado y la cuenta activa. El objetivo es no dejar recursos creados innecesariamente.
@@ -532,25 +532,3 @@ Entregar:
 5. Confirmacion de limpieza con `terraform destroy`.
 
 ---
-
-## 20. Criterios de evaluacion
-
-| Criterio | Esperado |
-|---|---|
-| Estructura Terraform | El alumno identifica `versions.tf`, `providers.tf` y `main.tf`. |
-| Nomenclatura | El bucket usa un nombre claro, unico y valido para S3. |
-| Planificacion | El alumno revisa el plan antes de aplicar. |
-| Comprension | El alumno diferencia `init`, `validate`, `plan`, `apply`, `state` y `destroy`. |
-| Limpieza | Los recursos creados se eliminan al finalizar. |
-
----
-
-## 21. Cierre para discusion
-
-Preguntas para cerrar el LAB01:
-
-1. Que problema resuelve Terraform frente a crear el bucket manualmente?
-2. Que parte del proyecto todavia esta escrita de forma fija?
-3. Que valor convendria parametrizar en el LAB02?
-4. Por que el estado local no alcanza para trabajo en equipo?
-5. Que deberia pasar antes de ejecutar `apply` en una cuenta compartida?

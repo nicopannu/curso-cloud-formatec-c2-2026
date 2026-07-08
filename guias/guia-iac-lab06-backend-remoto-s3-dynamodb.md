@@ -234,14 +234,14 @@ Contenido ejemplo:
 
 ```hcl
 aws_region        = "us-east-1"
-state_bucket_name = "tfstate-formatec-485617552563-np"
-lock_table_name   = "tflock-formatec-np"
+state_bucket_name = "tfstate-formatec-tu-account-id-tu-identidad"
+lock_table_name   = "tflock-formatec-tu-identidad"
 ```
 
 Cambiar:
 
-- `485617552563` por el ID de cuenta que te devuelva AWS.
-- `np` por tus iniciales o las del grupo.
+- `tu-account-id` por el ID de cuenta que te devuelva AWS.
+- `tu-identidad` por tus iniciales, apellido corto o identificador del grupo, en minusculas y sin espacios.
 
 ---
 
@@ -434,10 +434,10 @@ Contenido ejemplo:
 ```hcl
 terraform {
   backend "s3" {
-    bucket         = "tfstate-formatec-485617552563-np"
+    bucket         = "tfstate-formatec-tu-account-id-tu-identidad"
     key            = "m3-c1/lab06/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "tflock-formatec-np"
+    dynamodb_table = "tflock-formatec-tu-identidad"
     encrypt        = true
   }
 }
@@ -491,7 +491,7 @@ Contenido ejemplo:
 
 ```hcl
 aws_region  = "us-east-1"
-bucket_name = "backend-lab-app-485617552563-np"
+bucket_name = "backend-lab-app-tu-account-id-tu-identidad"
 ```
 
 Cambiar el nombre del bucket por uno unico.
@@ -686,25 +686,3 @@ Entregar:
 7. Confirmacion de limpieza de app y backend.
 
 ---
-
-## 21. Criterios de evaluacion
-
-| Criterio | Esperado |
-|---|---|
-| Backend bootstrap | El alumno crea bucket S3 y tabla DynamoDB para soporte. |
-| Backend remoto | El proyecto de app usa backend S3 correctamente. |
-| Locking | El alumno explica para que sirve DynamoDB en este contexto. |
-| Seguridad basica | El bucket de state bloquea acceso publico y usa cifrado. |
-| Limpieza | App y backend se eliminan al finalizar. |
-
----
-
-## 22. Cierre para discusion
-
-Responder:
-
-1. Por que el state local no alcanza para trabajo en equipo?
-2. Que datos sensibles podria contener un state?
-3. Que problema resuelve DynamoDB en este lab?
-4. Por que el backend se configura antes de usar el proyecto?
-5. Que recursos deberian protegerse mas: la app o el backend de state?

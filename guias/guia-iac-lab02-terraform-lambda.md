@@ -263,8 +263,8 @@ variable "lambda_name" {
   type        = string
 }
 
-variable "student_initials" {
-  description = "Iniciales del alumno o grupo."
+variable "student_identity" {
+  description = "Identidad del alumno o grupo para nomenclatura."
   type        = string
 }
 ```
@@ -290,20 +290,20 @@ Contenido ejemplo:
 
 ```hcl
 aws_region       = "us-east-1"
-student_initials = "np"
-lambda_name      = "lambda-hola-np"
+student_identity = "tu-identidad"
+lambda_name      = "lambda-hola-tu-identidad"
 ```
 
 Cada alumno debe cambiar:
 
-- `student_initials`: por sus iniciales o las del grupo.
+- `student_identity`: por su identidad o identificador del grupo.
 - `lambda_name`: por un nombre unico para su funcion.
 
 Ejemplo para un grupo con iniciales `ab`:
 
 ```hcl
 aws_region       = "us-east-1"
-student_initials = "ab"
+student_identity = "ab"
 lambda_name      = "lambda-hola-ab"
 ```
 
@@ -392,7 +392,7 @@ resource "aws_lambda_function" "hola" {
 
   environment {
     variables = {
-      STUDENT_INITIALS = var.student_initials
+      STUDENT_INITIALS = var.student_identity
     }
   }
 }
@@ -675,7 +675,7 @@ Si el log group no existe, AWS va a devolver un error de no encontrado. En ese c
 
 | Problema | Causa probable | Accion sugerida |
 |---|---|---|
-| Terraform pide un valor interactivo | Falta una variable en `terraform.tfvars` | Revisar `aws_region`, `student_initials` y `lambda_name` |
+| Terraform pide un valor interactivo | Falta una variable en `terraform.tfvars` | Revisar `aws_region`, `student_identity` y `lambda_name` |
 | Terraform no toma un cambio de variable | El archivo no se llama exactamente `terraform.tfvars` o esta en otra carpeta | Verificar nombre y ubicacion del archivo |
 | `Archive creation error` | No existe `function/lambda_function.py` o `build/` | Revisar estructura de carpetas |
 | `AccessDenied` al crear IAM | El usuario no tiene permisos IAM | Validar permisos de la cuenta de laboratorio |
@@ -697,26 +697,3 @@ Entregar:
 6. Confirmacion de limpieza con `terraform destroy`.
 
 ---
-
-## 24. Criterios de evaluacion
-
-| Criterio | Esperado |
-|---|---|
-| Estructura del proyecto | El proyecto contiene archivos Terraform separados por responsabilidad. |
-| Uso de variables | Las variables estan declaradas en `variables.tf` y sus valores en `terraform.tfvars`. |
-| Planificacion | El alumno revisa el plan antes de aplicar. |
-| Lambda funcional | La funcion se crea e invoca correctamente. |
-| Outputs | Los outputs permiten recuperar nombre y ARN de la Lambda. |
-| Limpieza | Los recursos creados se eliminan al finalizar. |
-
----
-
-## 25. Cierre para discusion
-
-Preguntas para cerrar el LAB02:
-
-1. Que cambio respecto del LAB01 S3?
-2. Que decisiones quedaron ahora escritas en archivos?
-3. Que ventajas tiene revisar un plan antes de crear recursos?
-4. Que riesgo aparece si `terraform.tfvars` contiene valores sensibles?
-5. Que problema queda pendiente si el estado sigue siendo local?

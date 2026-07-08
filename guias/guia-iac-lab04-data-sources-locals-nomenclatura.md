@@ -131,7 +131,7 @@ terraform/iac-lab04-data-locals/
 
 ---
 
-## 6. Crear `.gitignore`
+## 7. Crear `.gitignore`
 
 ```powershell
 New-Item .gitignore
@@ -148,7 +148,7 @@ terraform.tfvars
 
 ---
 
-## 7. Crear `versions.tf`
+## 8. Crear `versions.tf`
 
 ```powershell
 New-Item versions.tf
@@ -171,7 +171,7 @@ terraform {
 
 ---
 
-## 8. Crear `providers.tf`
+## 9. Crear `providers.tf`
 
 ```powershell
 New-Item providers.tf
@@ -187,7 +187,7 @@ provider "aws" {
 
 ---
 
-## 9. Crear `variables.tf`
+## 10. Crear `variables.tf`
 
 ```powershell
 New-Item variables.tf
@@ -211,15 +211,15 @@ variable "environment" {
   type        = string
 }
 
-variable "student_initials" {
-  description = "Iniciales del alumno o grupo."
+variable "student_identity" {
+  description = "Identidad del alumno o grupo para nomenclatura."
   type        = string
 }
 ```
 
 ---
 
-## 10. Crear `terraform.tfvars`
+## 11. Crear `terraform.tfvars`
 
 ```powershell
 New-Item terraform.tfvars
@@ -231,14 +231,14 @@ Contenido ejemplo:
 aws_region       = "us-east-1"
 project          = "formatec"
 environment      = "lab"
-student_initials = "np"
+student_identity = "tu-identidad"
 ```
 
-Cambiar `student_initials` por tus iniciales o las del grupo.
+Cambiar `student_identity` por tu identidad o identificador del grupo.
 
 ---
 
-## 11. Crear `data.tf`
+## 12. Crear `data.tf`
 
 ```powershell
 New-Item data.tf
@@ -266,7 +266,7 @@ Checkpoint:
 
 ---
 
-## 12. Crear `locals.tf`
+## 13. Crear `locals.tf`
 
 ```powershell
 New-Item locals.tf
@@ -276,14 +276,14 @@ Contenido:
 
 ```hcl
 locals {
-  name_prefix = "${var.project}-${var.environment}-${var.student_initials}"
+  name_prefix = "${var.project}-${var.environment}-${var.student_identity}"
 
   bucket_name = "${local.name_prefix}-${data.aws_caller_identity.current.account_id}"
 
   common_tags = {
     Project     = var.project
     Environment = var.environment
-    Owner       = var.student_initials
+    Owner       = var.student_identity
     Course      = "formatec"
     ManagedBy   = "terraform"
   }
@@ -305,7 +305,7 @@ Checkpoint:
 
 ---
 
-## 13. Crear `main.tf`
+## 14. Crear `main.tf`
 
 ```powershell
 New-Item main.tf
@@ -325,7 +325,7 @@ El bucket ya no tiene un nombre escrito directamente. El nombre se calcula con `
 
 ---
 
-## 14. Crear `outputs.tf`
+## 15. Crear `outputs.tf`
 
 ```powershell
 New-Item outputs.tf
@@ -357,7 +357,7 @@ output "common_tags" {
 
 ---
 
-## 15. Inicializar y validar
+## 16. Inicializar y validar
 
 ```powershell
 terraform init -backend=false
@@ -373,7 +373,7 @@ Success! The configuration is valid.
 
 ---
 
-## 16. Revisar el plan
+## 17. Revisar el plan
 
 ```powershell
 terraform plan
@@ -394,7 +394,7 @@ Checkpoint:
 
 ---
 
-## 17. Crear el recurso
+## 18. Crear el recurso
 
 Ejecutar solo con autorizacion:
 
@@ -428,7 +428,7 @@ aws s3api head-bucket --bucket NOMBRE_DEL_BUCKET
 
 ---
 
-## 18. Probar un cambio de nomenclatura
+## 19. Probar un cambio de nomenclatura
 
 Editar `terraform.tfvars`:
 
@@ -454,7 +454,7 @@ Checkpoint:
 
 ---
 
-## 19. Limpieza
+## 20. Limpieza
 
 Volver `terraform.tfvars` al valor que se aplico, si lo cambiaste solo para observar el plan.
 
@@ -472,18 +472,18 @@ yes
 
 ---
 
-## 20. Troubleshooting
+## 21. Troubleshooting
 
 | Problema | Causa probable | Accion sugerida |
 |---|---|---|
 | Bucket name invalido | El nombre calculado tiene caracteres no permitidos | Usar minusculas, numeros y guiones en variables |
-| BucketAlreadyExists | El nombre ya existe globalmente | Cambiar `student_initials` o `environment` |
+| BucketAlreadyExists | El nombre ya existe globalmente | Cambiar `student_identity` o `environment` |
 | `data.aws_caller_identity` falla | Credenciales AWS no configuradas | Ejecutar `aws sts get-caller-identity` |
 | Plan propone reemplazar el bucket | Cambio el nombre final del recurso | Leer plan y no aplicar si no corresponde |
 
 ---
 
-## 21. Entregables
+## 22. Entregables
 
 Entregar:
 
@@ -495,25 +495,3 @@ Entregar:
 6. Confirmacion de limpieza.
 
 ---
-
-## 22. Criterios de evaluacion
-
-| Criterio | Esperado |
-|---|---|
-| Data sources | El alumno usa cuenta y region actuales sin hardcodearlas. |
-| Locals | El alumno calcula nombres y tags desde un punto central. |
-| Nomenclatura | El bucket tiene un nombre claro y trazable. |
-| Plan | El alumno identifica efectos de cambiar valores. |
-| Limpieza | El recurso creado se elimina al finalizar. |
-
----
-
-## 23. Cierre para discusion
-
-Responder:
-
-1. Cuando conviene usar una variable?
-2. Cuando conviene usar un local?
-3. Cuando conviene usar un data source?
-4. Que riesgo tiene cambiar una convencion de nombres despues de crear recursos?
-5. Por que los tags ayudan a operar infraestructura?

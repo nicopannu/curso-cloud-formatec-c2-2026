@@ -35,7 +35,7 @@ En `main.tf` el nombre esta escrito directamente:
 
 ```hcl
 resource "aws_s3_bucket" "lab" {
-  bucket = "s3-bucket-485617552563-np"
+  bucket = "s3-bucket-tu-account-id-tu-identidad"
 }
 ```
 
@@ -48,7 +48,7 @@ s3-bucket-NUMERO_DE_CUENTA-INICIALES
 Ejemplo:
 
 ```text
-s3-bucket-485617552563-np
+s3-bucket-tu-account-id-tu-identidad
 ```
 
 S3 exige nombres globalmente unicos. Si el nombre ya existe, AWS va a rechazar la creacion del bucket.

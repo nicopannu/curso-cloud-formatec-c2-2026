@@ -23,6 +23,109 @@ Esta branch contiene el material de:
 | LAB05 | `guias/guia-iac-lab05-modulos-locales.md` | Creado por el alumno durante la guia | Modulos locales, inputs, outputs y reutilizacion |
 | LAB06 | `guias/guia-iac-lab06-backend-remoto-s3-dynamodb.md` | Creado por el alumno durante la guia | Backend remoto con S3, DynamoDB y locking |
 
+## Repositorio personal de laboratorios
+
+Cada alumno debe crear un repositorio personal para conservar sus entregables de laboratorio del curso.
+
+Nombre recomendado del repositorio:
+
+```text
+curso-cloud-formatec-nombreapellido-c2-2026
+```
+
+Reemplazar `nombreapellido` por la identidad del alumno, en minusculas y sin espacios.
+
+Ejemplo:
+
+```text
+curso-cloud-formatec-juanperez-c2-2026
+```
+
+### Crear el repositorio en GitHub
+
+1. Ingresar a GitHub con la cuenta personal.
+2. Abrir el menu `+` y elegir `New repository`.
+3. En `Repository name`, escribir el nombre del repositorio personal:
+
+```text
+curso-cloud-formatec-nombreapellido-c2-2026
+```
+
+4. Elegir visibilidad `Public` o `Private`, segun indique el docente.
+5. No agregar credenciales ni archivos sensibles al repositorio.
+6. Se puede crear el repositorio vacio. Tambien es valido marcar `Add a README file` si el alumno quiere dejar una descripcion inicial.
+7. Presionar `Create repository`.
+8. Copiar la URL del repositorio para clonarlo en la computadora de trabajo.
+
+Ejemplo de URL HTTPS:
+
+```text
+https://github.com/<usuario>/curso-cloud-formatec-nombreapellido-c2-2026.git
+```
+
+### Branch de entregables
+
+Cada entrega debe realizarse en una branch con la misma nomenclatura que la branch del laboratorio del curso.
+
+Para esta clase, la branch del material del curso es:
+
+```text
+m3-c1-lab
+```
+
+Por lo tanto, en el repositorio personal del alumno la branch de entrega tambien debe llamarse:
+
+```text
+m3-c1-lab
+```
+
+Esta regla permite revisar los entregables por modulo y clase sin mezclar trabajos de laboratorios distintos.
+
+### Estructura esperada
+
+La branch `m3-c1-lab` debe contener una carpeta por laboratorio:
+
+```text
+curso-cloud-formatec-nombreapellido-c2-2026/
+├── lab01/
+├── lab02/
+├── lab03/
+├── lab04/
+├── lab05/
+└── lab06/
+```
+
+Cada carpeta `lab0x/` debe contener los archivos Terraform, notas breves y evidencias solicitadas en la guia correspondiente.
+
+No subir credenciales, claves de acceso, archivos `.env`, perfiles de AWS, carpetas `.terraform/`, archivos `terraform.tfstate`, archivos `.tfstate.backup`, backups locales ni paquetes generados como `.zip`.
+
+### Flujo inicial sugerido
+
+Crear el repositorio en GitHub, copiar su URL y luego ejecutar:
+
+```powershell
+git clone URL_DEL_REPOSITORIO_PERSONAL
+cd curso-cloud-formatec-nombreapellido-c2-2026
+git checkout -b m3-c1-lab
+mkdir lab01 lab02 lab03 lab04 lab05 lab06
+```
+
+Al finalizar cada laboratorio, guardar el trabajo dentro de la carpeta correspondiente y registrar los cambios:
+
+```powershell
+git status
+git add lab01
+git commit -m "Agregar entrega LAB01 M3 C1"
+```
+
+Repetir el mismo criterio para `lab02`, `lab03`, `lab04`, `lab05` y `lab06`.
+
+El link de entrega debe apuntar al repositorio personal y a la branch correspondiente, por ejemplo:
+
+```text
+https://github.com/<usuario>/curso-cloud-formatec-nombreapellido-c2-2026/tree/m3-c1-lab
+```
+
 ## Progresion prevista del modulo IaC
 
 El modulo esta organizado por etapas para incorporar los conceptos de Terraform de forma progresiva:
@@ -161,7 +264,7 @@ cd terraform/iac-lab01-s3-basics
 Antes de planificar, editar `main.tf` y cambiar el nombre del bucket por uno propio siguiendo el patron:
 
 ```text
-s3-bucket-NUMERO_DE_CUENTA-INICIALES
+s3-bucket-tu-account-id-tu-identidad
 ```
 
 Flujo inicial:

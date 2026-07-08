@@ -283,12 +283,12 @@ Resultado esperado:
 
 ## 11. Cambiar una variable
 
-Editar `terraform.tfvars` y cambiar el valor de `student_initials`.
+Editar `terraform.tfvars` y cambiar el valor de `student_identity`.
 
 Ejemplo:
 
 ```hcl
-student_initials = "np2"
+student_identity = "tu-identidad-2"
 ```
 
 Ejecutar:
@@ -308,7 +308,7 @@ Importante: si cambias `lambda_name`, Terraform puede necesitar reemplazar recur
 
 Checkpoint:
 
-- Que cambio genera modificar `student_initials`?
+- Que cambio genera modificar `student_identity`?
 - Que cambio genera modificar `lambda_name`?
 - Que diferencia hay entre actualizar una funcion y reemplazarla?
 
@@ -388,25 +388,3 @@ Entregar:
 6. Confirmacion de limpieza si se ejecuto `destroy`.
 
 ---
-
-## 16. Criterios de evaluacion
-
-| Criterio | Esperado |
-|---|---|
-| Outputs | El alumno usa outputs para obtener datos reales del despliegue. |
-| State | El alumno identifica recursos administrados por Terraform. |
-| Plan | El alumno interpreta si el cambio crea, modifica o reemplaza. |
-| Validacion | La Lambda responde con el mensaje actualizado. |
-| Limpieza | Los recursos se eliminan al finalizar si fueron creados. |
-
----
-
-## 17. Cierre para discusion
-
-Responder:
-
-1. Que informacion vive en los archivos `.tf`?
-2. Que informacion vive en `terraform.tfstate`?
-3. Que informacion vive realmente en AWS?
-4. Por que no conviene aplicar un plan sin leerlo?
-5. Que problema aparece si alguien modifica la Lambda desde consola AWS?
