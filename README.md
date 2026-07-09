@@ -51,7 +51,9 @@ curso-cloud-formatec-juanperez-c2-2026
 curso-cloud-formatec-nombreapellido-c2-2026
 ```
 
-4. Elegir visibilidad `Public` o `Private`, segun indique el docente.
+4. Elegir visibilidad `Public` o `Private`.
+   - Si el repositorio es `Public`, el docente puede revisarlo con el link de entrega.
+   - Si el repositorio es `Private`, invitar al docente como colaborador usando este mail: `nicolaspannucio@gmail.com`.
 5. No agregar credenciales ni archivos sensibles al repositorio.
 6. Se puede crear el repositorio vacio. Tambien es valido marcar `Add a README file` si el alumno quiere dejar una descripcion inicial.
 7. Presionar `Create repository`.
