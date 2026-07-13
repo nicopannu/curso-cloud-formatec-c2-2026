@@ -447,6 +447,8 @@ Cambiar `bucket` y `dynamodb_table` por los valores creados en la Parte A.
 
 Importante: el bloque `backend` no usa variables normales. Por eso los valores se escriben directamente en `backend.tf` para este lab.
 
+En versiones actuales de Terraform, `dynamodb_table` puede mostrar el warning `Deprecated Parameter`. El mecanismo sigue funcionando y se usa en este laboratorio para observar el locking con DynamoDB. Para proyectos nuevos, Terraform recomienda el locking nativo de S3 mediante `use_lockfile = true`; no mezcles ambos enfoques durante este ejercicio.
+
 Crear `providers.tf`:
 
 ```powershell
@@ -645,6 +647,12 @@ cd ../01-backend-bootstrap
 
 Antes de destruir backend, verificar que no queden recursos de prueba que dependan de ese state.
 
+Guardar el nombre del bucket antes del primer intento de destruccion:
+
+```powershell
+$STATE_BUCKET = terraform output -raw state_bucket_name
+```
+
 Ejecutar:
 
 ```powershell
@@ -657,7 +665,67 @@ Confirmar con:
 yes
 ```
 
-Si el bucket de state no se puede borrar porque tiene objetos/versiones, revisar el contenido del bucket desde consola AWS o AWS CLI. El objetivo final es no dejar recursos de laboratorio activos.
+Como el bucket tiene versionado, el primer `terraform destroy` puede borrar la tabla y la configuracion del bucket, pero fallar al eliminar el bucket con `BucketNotEmpty`. En ese caso, eliminar todas las versiones y delete markers antes de reintentar.
+
+Listar las versiones existentes:
+
+```powershell
+aws s3api list-object-versions --bucket $STATE_BUCKET
+```
+
+Eliminar versiones del state:
+
+```powershell
+$VERSIONS = aws s3api list-object-versions `
+  --bucket $STATE_BUCKET `
+  --query 'Versions[].{Key:Key,VersionId:VersionId}' `
+  --output json | ConvertFrom-Json
+
+if ($VERSIONS.Count -gt 0) {
+  $DELETE_VERSIONS = @{
+    Objects = @($VERSIONS)
+    Quiet   = $true
+  } | ConvertTo-Json -Depth 5 -Compress
+
+  aws s3api delete-objects `
+    --bucket $STATE_BUCKET `
+    --delete $DELETE_VERSIONS
+}
+```
+
+Eliminar delete markers si existen:
+
+```powershell
+$DELETE_MARKERS = aws s3api list-object-versions `
+  --bucket $STATE_BUCKET `
+  --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' `
+  --output json | ConvertFrom-Json
+
+if ($DELETE_MARKERS.Count -gt 0) {
+  $DELETE_MARKER_REQUEST = @{
+    Objects = @($DELETE_MARKERS)
+    Quiet   = $true
+  } | ConvertTo-Json -Depth 5 -Compress
+
+  aws s3api delete-objects `
+    --bucket $STATE_BUCKET `
+    --delete $DELETE_MARKER_REQUEST
+}
+```
+
+Reintentar la destruccion:
+
+```powershell
+terraform destroy
+```
+
+Confirmar con `yes` y validar que el bucket ya no exista:
+
+```powershell
+aws s3api head-bucket --bucket $STATE_BUCKET
+```
+
+La limpieza fue correcta si AWS responde que el bucket no existe.
 
 ---
 

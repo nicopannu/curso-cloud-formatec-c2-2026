@@ -167,8 +167,10 @@ Get-Content response.json
 Resultado esperado inicial:
 
 ```json
-{"statusCode":200,"body":"hola desde lambda"}
+{"statusCode":200,"body":"hola desde lambda actualizado"}
 ```
+
+Este mensaje corresponde al cambio de codigo aplicado al final del LAB02. Si usaste un proyecto equivalente sin completar ese cambio, el `body` puede seguir mostrando `hola desde lambda`; confirma que invocaste la funcion indicada por `$FUNCTION_NAME` antes de continuar.
 
 Si el resultado no coincide, revisar:
 

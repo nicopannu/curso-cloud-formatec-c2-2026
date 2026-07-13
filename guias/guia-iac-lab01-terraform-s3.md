@@ -68,9 +68,10 @@ La secuencia del modulo IaC queda asi:
 
 1. **LAB01:** proyecto Terraform minimo y primer recurso S3.
 2. **LAB02:** se suma Lambda y se introducen variables desde `terraform.tfvars`.
-3. **LAB03:** reutilizacion de variables y ampliacion de la funcion Lambda.
-4. **LAB04:** modulos para separar responsabilidades y reutilizar infraestructura.
-5. **LAB05:** backend remoto con S3 y DynamoDB para estado compartido y bloqueo.
+3. **LAB03:** outputs, state y cambios controlados sobre la funcion Lambda.
+4. **LAB04:** data sources, locals, nomenclatura y tags comunes.
+5. **LAB05:** modulos locales para separar responsabilidades y reutilizar infraestructura.
+6. **LAB06:** backend remoto con S3 y DynamoDB para estado compartido y bloqueo.
 
 Esta guia cubre solo el LAB01.
 

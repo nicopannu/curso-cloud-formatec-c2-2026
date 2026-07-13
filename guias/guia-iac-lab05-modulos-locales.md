@@ -476,8 +476,11 @@ Ejecutar:
 
 ```powershell
 terraform fmt
+terraform init
 terraform plan
 ```
+
+`terraform init` actualiza la instalacion de modulos del root module para incluir `module.bucket_reports`. Sin esta reinicializacion, Terraform puede responder `Module not installed`.
 
 Checkpoint:
 
