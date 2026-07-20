@@ -1,0 +1,48 @@
+---
+- name: Configurar el control node de CloudCuyo
+  hosts: control
+  connection: local
+  become: true
+
+  vars:
+    cloudcuyo_user: cloudcuyo
+    cloudcuyo_root: /opt/cloudcuyo
+
+  tasks:
+    - name: Instalar herramientas operativas del control node
+      ansible.builtin.apt:
+        name:
+          - curl
+          - git
+          - jq
+          - tree
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Crear usuario técnico de CloudCuyo
+      ansible.builtin.user:
+        name: "{{ cloudcuyo_user }}"
+        comment: "Usuario técnico CloudCuyo"
+        create_home: true
+        shell: /bin/bash
+        state: present
+
+    - name: Crear directorio operativo
+      ansible.builtin.file:
+        path: "{{ cloudcuyo_root }}"
+        state: directory
+        owner: "{{ cloudcuyo_user }}"
+        group: "{{ cloudcuyo_user }}"
+        mode: "0755"
+
+    - name: Registrar configuración del control node
+      ansible.builtin.copy:
+        dest: "{{ cloudcuyo_root }}/control-node.conf"
+        owner: "{{ cloudcuyo_user }}"
+        group: "{{ cloudcuyo_user }}"
+        mode: "0644"
+        content: |
+          managed_by=ansible
+          role=control-node
+          course=formatec-m3-c2

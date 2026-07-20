@@ -1,0 +1,9 @@
+aws_region       = "us-east-1"
+project          = "cloudcuyo"
+environment      = "lab"
+student_identity = "tu-identidad"
+student_cidr     = "203.0.113.10/32"
+instance_type    = "t3.micro"
+
+control_public_key_path = "~/.ssh/formatec-control.pub"
+managed_public_key_path = "~/.ssh/formatec-managed.pub"

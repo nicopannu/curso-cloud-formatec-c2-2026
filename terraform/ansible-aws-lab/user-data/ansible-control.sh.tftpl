@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+exec > >(tee /var/log/cloudcuyo-bootstrap.log | logger -t user-data -s 2>/dev/console) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y ansible git curl jq python3 python3-apt
+
+install -d -m 0755 /opt/cloudcuyo
+printf 'bootstrap_complete=true\n' > /opt/cloudcuyo/bootstrap.env
+chown root:root /opt/cloudcuyo/bootstrap.env
+chmod 0644 /opt/cloudcuyo/bootstrap.env
+
+ansible --version

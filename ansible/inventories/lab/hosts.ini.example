@@ -1,0 +1,10 @@
+[control]
+localhost ansible_connection=local
+
+[web]
+web01 ansible_host=10.30.10.10
+web02 ansible_host=10.30.10.11
+
+[web:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/formatec-managed

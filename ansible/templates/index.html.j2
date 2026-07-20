@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>{{ cloudcuyo_page_title }}</title>
+</head>
+<body>
+  <h1>{{ cloudcuyo_page_title }}</h1>
+  <p>Host de inventario: <strong>{{ inventory_hostname }}</strong></p>
+  <p>Hostname del sistema: <strong>{{ ansible_hostname }}</strong></p>
+  <p>IP privada: <strong>{{ ansible_default_ipv4.address }}</strong></p>
+  <p>Estado deseado aplicado por Ansible.</p>
+</body>
+</html>

@@ -1,0 +1,57 @@
+---
+- name: Configurar servidores web de CloudCuyo
+  hosts: web
+  become: true
+
+  handlers:
+    - name: Recargar nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+  tasks:
+    - name: Instalar Nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Crear usuario técnico de CloudCuyo
+      ansible.builtin.user:
+        name: "{{ cloudcuyo_user }}"
+        comment: "Usuario técnico CloudCuyo"
+        create_home: true
+        shell: /bin/bash
+        state: present
+
+    - name: Crear directorio de aplicación
+      ansible.builtin.file:
+        path: "{{ cloudcuyo_root }}"
+        state: directory
+        owner: "{{ cloudcuyo_user }}"
+        group: "{{ cloudcuyo_user }}"
+        mode: "0755"
+
+    - name: Aplicar configuración de seguridad de Nginx
+      ansible.builtin.template:
+        src: ../templates/cloudcuyo-security.conf.j2
+        dest: /etc/nginx/conf.d/cloudcuyo-security.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Recargar nginx
+
+    - name: Publicar página de estado
+      ansible.builtin.template:
+        src: ../templates/index.html.j2
+        dest: /var/www/html/index.html
+        owner: "{{ cloudcuyo_user }}"
+        group: www-data
+        mode: "0644"
+
+    - name: Asegurar que Nginx esté iniciado y habilitado
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true

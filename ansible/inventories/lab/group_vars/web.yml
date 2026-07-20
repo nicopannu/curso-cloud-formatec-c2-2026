@@ -1,0 +1,4 @@
+---
+cloudcuyo_user: cloudcuyo
+cloudcuyo_root: /opt/cloudcuyo
+cloudcuyo_page_title: "CloudCuyo - Servidor gestionado por Ansible"
