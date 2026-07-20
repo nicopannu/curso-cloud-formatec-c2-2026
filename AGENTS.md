@@ -21,7 +21,7 @@ Las guías de `guias/` definen el orden, alcance, checkpoints y entregables. Est
 5. Terraform sólo puede leer claves públicas. Ninguna clave privada debe entrar al state o User Data.
 6. El acceso SSH de los managed nodes debe aceptar origen únicamente desde el Security Group del control node.
 7. Mantener las guías en español y dirigidas al alumno.
-8. Cada LAB debe incluir narrativa, objetivos, arquitectura, actividades, checkpoints, entregables, evaluación y limpieza.
+8. Cada LAB debe incluir narrativa, objetivos, arquitectura, actividades, checkpoints, entregables y limpieza. Las guías de M3-C2 no incluyen criterios de evaluación salvo pedido explícito.
 9. No usar scripts `shell` monolíticos cuando exista un módulo idempotente de Ansible.
 10. Validar primera y segunda ejecución, drift, HTTP y destrucción antes de afirmar que el lab funciona end-to-end.
 

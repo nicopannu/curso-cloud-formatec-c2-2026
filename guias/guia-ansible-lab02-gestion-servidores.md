@@ -32,16 +32,11 @@ Al finalizar podrás:
 
 ## 3. Arquitectura
 
-```text
-Ansible control node
-  |
-  | inventory + playbook + clave managed
-  | SSH privado
-  +------------------+
-  v                  v
-web01              web02
-Nginx              Nginx
-```
+![Arquitectura del laboratorio: el control node usa Ansible para configurar web01 y web02](../assets/diagramas/m3-c2-ansible-terraform-aws.png)
+
+[Ver imagen en SVG](../assets/diagramas/m3-c2-ansible-terraform-aws.svg) · [Abrir fuente editable en Draw.io](../assets/diagramas/m3-c2-ansible-terraform-aws.drawio)
+
+En LAB02 el recorrido principal es el flujo verde del diagrama: el controller lee el inventario y se conecta por SSH a las IP privadas de `web01` y `web02`.
 
 Terraform continúa siendo dueño del ciclo de vida de EC2 y red. Ansible es dueño de la configuración del sistema operativo y Nginx.
 
@@ -70,13 +65,27 @@ Terraform continúa siendo dueño del ciclo de vida de EC2 y red. Ansible es due
 - Clave `formatec-managed` copiada al controller con modo `0600`.
 - Repositorio en la misma revisión tanto en notebook como controller.
 
-Desde la notebook:
+Desde la notebook, confirma nuevamente el perfil y los outputs.
+
+### Bash o WSL
 
 ```bash
 export AWS_PROFILE=curso
+export AWS_REGION=us-east-1
 cd curso-cloud-formatec-c2-2026/terraform/ansible-aws-lab
 terraform output
 ```
+
+### PowerShell
+
+```powershell
+$env:AWS_PROFILE = "curso"
+$env:AWS_REGION = "us-east-1"
+Set-Location curso-cloud-formatec-c2-2026\terraform\ansible-aws-lab
+terraform output
+```
+
+**Por qué se hace así:** LAB02 reutiliza la infraestructura de LAB01. Los outputs confirman que el state local todavía contiene el controller y los managed nodes correctos.
 
 ## Actividades
 
@@ -84,16 +93,50 @@ Las actividades siguientes conectan los outputs de Terraform con el inventario y
 
 ## 6. Generar el inventario desde Terraform
 
-Desde la raíz del repositorio en la notebook:
+Desde la raíz del repositorio en la notebook, genera el inventario.
+
+### Bash o WSL
 
 ```bash
 ./scripts/render-inventory.sh
 cat ansible/inventories/lab/hosts.ini
 ```
 
-El script lee el state local y utiliza las IP privadas de `managed_private_ips`. No copies el state al controller.
+### PowerShell
 
-Obtener la IP del controller y copiar el inventario:
+```powershell
+$managed = terraform -chdir=terraform/ansible-aws-lab `
+  output -json managed_private_ips | ConvertFrom-Json
+
+$inventory = @"
+[control]
+localhost ansible_connection=local
+
+[web]
+web01 ansible_host=$($managed.web01)
+web02 ansible_host=$($managed.web02)
+
+[web:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/formatec-managed
+"@
+
+$inventoryPath = Join-Path (Get-Location) "ansible\inventories\lab\hosts.ini"
+[System.IO.File]::WriteAllText(
+  $inventoryPath,
+  $inventory,
+  [System.Text.UTF8Encoding]::new($false)
+)
+Get-Content $inventoryPath
+```
+
+El script Bash y la alternativa PowerShell leen el state local y utilizan las IP privadas de `managed_private_ips`. No copies el state al controller.
+
+**Por qué se hace así:** Terraform conoce las IP creadas y Ansible necesita esas IP como destinos. Generar el inventario desde outputs evita transcribir direcciones manualmente. El controller recibe sólo los datos de conexión, no el state completo.
+
+Obtén la IP del controller y copia únicamente el inventario generado.
+
+### Bash o WSL
 
 ```bash
 CONTROL_IP="$(terraform -chdir=terraform/ansible-aws-lab output -raw ansible_control_public_ip)"
@@ -101,6 +144,19 @@ scp -i ~/.ssh/formatec-control \
   ansible/inventories/lab/hosts.ini \
   ubuntu@"$CONTROL_IP":~/curso-cloud-formatec-c2-2026/ansible/inventories/lab/hosts.ini
 ```
+
+### PowerShell
+
+```powershell
+$CONTROL_IP = terraform -chdir=terraform/ansible-aws-lab `
+  output -raw ansible_control_public_ip
+
+scp -i "$HOME\.ssh\formatec-control" `
+  "ansible\inventories\lab\hosts.ini" `
+  "ubuntu@${CONTROL_IP}:~/curso-cloud-formatec-c2-2026/ansible/inventories/lab/hosts.ini"
+```
+
+**Por qué se hace así:** `scp` usa la clave de acceso al controller para transferir un archivo concreto. No se copia `.terraform/` ni el state porque Ansible necesita conocer hosts, no controlar el ciclo de vida de AWS.
 
 ### Checkpoint 1
 
@@ -137,6 +193,10 @@ done
 chmod 600 ~/.ssh/known_hosts
 ```
 
+Estos comandos se ejecutan dentro del controller Ubuntu, aunque hayas usado PowerShell en la notebook.
+
+**Por qué se hace así:** SSH verifica la identidad del servidor mediante su host key. Registrarla evita desactivar `host_key_checking` y permite detectar una identidad inesperada.
+
 ## 8. Validar conectividad
 
 ```bash
@@ -145,6 +205,8 @@ ansible web -m ansible.builtin.setup -a 'filter=ansible_distribution*'
 ```
 
 `ping` valida SSH, autenticación y Python remoto. No valida Nginx ni el puerto HTTP.
+
+**Por qué se hace antes del playbook:** separa problemas de conexión de problemas de configuración. Si `ping` falla, todavía no corresponde investigar las tareas de Nginx.
 
 Si un host aparece `UNREACHABLE`, no ejecutes todavía el playbook: corrige inventario, clave o red.
 
@@ -168,6 +230,8 @@ Identifica:
 
 ¿Por qué es preferible `ansible.builtin.apt` a ejecutar `apt-get` dentro de `shell`? ¿Qué información puede comparar Ansible antes de decidir si cambia algo?
 
+**Por qué se usan módulos FQCN:** nombres como `ansible.builtin.apt` hacen explícita la colección y permiten consultar el estado actual antes de actuar. Un comando `shell` normalmente sólo informa si terminó, no si el estado ya era correcto.
+
 ## 10. Primera ejecución
 
 ```bash
@@ -185,6 +249,8 @@ Resultado esperado:
 - handler ejecutado si cambió su configuración.
 
 Guarda el `PLAY RECAP`.
+
+**Por qué se guarda:** el recap resume cuántos hosts cambiaron, fallaron o quedaron inaccesibles y permite comparar la primera corrida con las siguientes.
 
 ## 11. Verificar desde el controller
 
@@ -218,6 +284,8 @@ Resultado esperado:
 
 Si una tarea cambia siempre, revisa si realmente declara estado o ejecuta una acción imperativa.
 
+**Por qué se ejecuta nuevamente:** una segunda corrida con `changed=0` demuestra que el playbook converge y puede repetirse sin cambios innecesarios.
+
 ## 13. Modo check y diff
 
 Después de tener una configuración base funcional:
@@ -229,6 +297,8 @@ ansible-playbook playbooks/site.yml --check --diff
 Debe anticipar cero cambios.
 
 En una máquina nueva, `--check` puede no completar tareas que dependen de un paquete o directorio que todavía no existe. No reemplaza una prueba real.
+
+**Por qué se usa después de una ejecución real:** con la configuración base presente, `--check --diff` puede comparar archivos y estados sin simular toda la instalación inicial.
 
 ## 14. Simular y reparar drift
 
@@ -254,6 +324,8 @@ ansible-playbook playbooks/site.yml --check --diff --limit web01
 
 La última ejecución debe anticipar cero cambios.
 
+**Por qué se introduce drift:** permite comprobar que Ansible no sólo instala una configuración inicial; también detecta y corrige cambios posteriores.
+
 ## 15. Probar recuperación del servicio
 
 Detén Nginx de forma controlada:
@@ -272,6 +344,8 @@ ansible web01 -m ansible.builtin.uri -a 'url=http://127.0.0.1 status_code=200'
 
 La primera prueba HTTP debe fallar; la segunda debe responder `200`.
 
+**Por qué se prueba por separado:** `ansible ping` puede funcionar aunque Nginx esté detenido. Conectividad del nodo y salud de la aplicación son estados diferentes.
+
 ## 16. Probar el handler
 
 Edita `templates/cloudcuyo-security.conf.j2` y agrega:
@@ -289,6 +363,8 @@ ansible-playbook playbooks/site.yml
 
 Observa que la tarea de configuración cambia y notifica una única recarga de Nginx por host. Una nueva ejecución sin cambios no debe disparar el handler.
 
+**Por qué se usa un handler:** la recarga sólo es necesaria cuando cambia la configuración. Ejecutarla siempre agregaría acciones innecesarias.
+
 Para dejar el repositorio igual que al inicio, elimina la línea agregada y ejecuta el playbook otra vez.
 
 ## 17. Verificar HTTP desde la notebook
@@ -299,13 +375,30 @@ Sal del controller. Desde la raíz del repositorio local:
 terraform -chdir=terraform/ansible-aws-lab output -json managed_public_ips | jq -r '.[]'
 ```
 
-Prueba cada IP pública:
+Prueba cada IP pública.
+
+### Bash o WSL
 
 ```bash
 for ip in $(terraform -chdir=terraform/ansible-aws-lab output -json managed_public_ips | jq -r '.[]'); do
   curl -fsS "http://$ip" | grep -E 'Host de inventario|Hostname del sistema|IP privada'
 done
 ```
+
+### PowerShell
+
+```powershell
+$publicIps = terraform -chdir=terraform/ansible-aws-lab `
+  output -json managed_public_ips | ConvertFrom-Json
+
+$publicIps.PSObject.Properties | ForEach-Object {
+  $response = Invoke-WebRequest -UseBasicParsing -Uri "http://$($_.Value)"
+  "{0}: HTTP {1}" -f $_.Name, $response.StatusCode
+  $response.Content
+}
+```
+
+**Por qué se prueba desde la notebook:** esta llamada recorre la regla HTTP autorizada por `student_cidr`. La prueba interna y la pública verifican caminos de red diferentes.
 
 Esta prueba valida el camino HTTP permitido por `student_cidr`. No demuestra balanceo ni alta disponibilidad.
 
@@ -355,18 +448,9 @@ Guardar en `lab02/`:
 - evidencia de recuperación de Nginx;
 - explicación breve de idempotencia y handler.
 
-## 20. Criterios de evaluación
+## 20. Limpieza
 
-- 20%: inventario y conectividad correctos.
-- 30%: uso adecuado de módulos, variables, templates y handler.
-- 20%: servicio instalado, iniciado y habilitado en ambos nodos.
-- 15%: segunda ejecución idempotente.
-- 10%: drift detectado y reparado.
-- 5%: evidencias seguras y explicación técnica.
-
-## 21. Limpieza
-
-Desde la notebook, no desde el controller:
+Desde la notebook, no desde el controller. Los comandos Terraform son iguales en Bash, WSL y PowerShell:
 
 ```bash
 cd terraform/ansible-aws-lab
@@ -374,13 +458,24 @@ terraform destroy
 terraform state list
 ```
 
+**Por qué se destruye desde la notebook:** allí permanece el state que conoce recursos y dependencias. El controller administra configuración, pero no es dueño de la infraestructura.
+
 `terraform state list` debe quedar vacío.
 
-Opcionalmente elimina las claves temporales locales después de confirmar que no las reutilizas:
+Opcionalmente elimina las claves temporales locales después de confirmar que no las reutilizas.
+
+### Bash o WSL
 
 ```bash
 rm ~/.ssh/formatec-control ~/.ssh/formatec-control.pub
 rm ~/.ssh/formatec-managed ~/.ssh/formatec-managed.pub
 ```
 
-No elimines otras claves del directorio `~/.ssh`.
+### PowerShell
+
+```powershell
+Remove-Item "$HOME\.ssh\formatec-control", "$HOME\.ssh\formatec-control.pub"
+Remove-Item "$HOME\.ssh\formatec-managed", "$HOME\.ssh\formatec-managed.pub"
+```
+
+No elimines otras claves del directorio `~/.ssh` o `$HOME\.ssh`.

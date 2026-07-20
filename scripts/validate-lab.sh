@@ -36,7 +36,7 @@ missing=[p for p in required if not (root/p).is_file()]
 if missing: raise SystemExit('Faltan archivos: '+', '.join(missing))
 for guide in required[2:4]:
     text=(root/guide).read_text()
-    for heading in ['Contexto','Objetivos','Arquitectura','Actividades','Entregables','Criterios de evaluación','Limpieza']:
+    for heading in ['Contexto','Objetivos','Arquitectura','Actividades','Entregables','Limpieza']:
         if heading.lower() not in text.lower():
             raise SystemExit(f'{guide}: falta sección {heading}')
 for path in root.rglob('*'):
