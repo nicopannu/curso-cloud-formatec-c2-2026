@@ -1,0 +1,22 @@
+{
+  "name": "Formatec Cloud - Terraform y AWS",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/terraform:1": {
+      "version": "latest",
+      "tflint": "none",
+      "terragrunt": "none"
+    },
+    "ghcr.io/devcontainers/features/aws-cli:1": {
+      "version": "latest"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "HashiCorp.terraform"
+      ]
+    }
+  },
+  "postCreateCommand": "terraform version && aws --version && git --version"
+}
