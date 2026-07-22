@@ -16,7 +16,6 @@ terraform -chdir="$TF_DIR" init -backend=false -input=false >/dev/null
 terraform -chdir="$TF_DIR" validate
 pass "terraform validate"
 
-bash -n "$ROOT_DIR/scripts/render-inventory.sh"
 bash -n "$ROOT_DIR/scripts/validate-lab.sh"
 bash -n "$TF_DIR/user-data/ansible-control.sh.tftpl"
 pass "sintaxis Bash"
@@ -46,6 +45,28 @@ for guide in guides:
     for heading in ['Contexto','Objetivos','Arquitectura','Actividades','Entregables','Limpieza']:
         if heading.lower() not in text.lower():
             raise SystemExit(f'{guide}: falta sección {heading}')
+
+tf_main=(root/'terraform/ansible-aws-lab/main.tf').read_text()
+module_main=(root/'terraform/ansible-aws-lab/modules/ec2-instance/main.tf').read_text()
+module_vars=(root/'terraform/ansible-aws-lab/modules/ec2-instance/variables.tf').read_text()
+expected_private_ips={
+    'ansible_control':'10.30.10.5',
+    'web01':'10.30.10.10',
+    'web02':'10.30.10.11',
+}
+for module_name, private_ip in expected_private_ips.items():
+    marker=f'module "{module_name}"'
+    block=tf_main.split(marker, 1)[1].split('\n}', 1)[0]
+    if f'private_ip          = "{private_ip}"' not in block:
+        raise SystemExit(f'{module_name}: falta private_ip {private_ip}')
+if 'private_ip                  = var.private_ip' not in module_main:
+    raise SystemExit('El módulo EC2 no asigna var.private_ip')
+if 'variable "private_ip"' not in module_vars:
+    raise SystemExit('El módulo EC2 no declara private_ip')
+lab03=(root/guides[2]).read_text()
+if 'private_ip          = "10.30.10.12"' not in lab03:
+    raise SystemExit('LAB03 no asigna 10.30.10.12 a web03')
+
 for path in root.rglob('*'):
     if path.is_file() and '.terraform' not in path.parts:
         text=path.read_text(errors='ignore').lower()

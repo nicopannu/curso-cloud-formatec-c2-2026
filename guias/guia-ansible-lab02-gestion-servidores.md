@@ -4,7 +4,7 @@
 
 **Duración estimada:** 75 a 90 minutos
 
-**Dependencia:** LAB01 aplicado y control node operativo
+**Dependencia:** LAB01 detenido en el checkpoint posterior a la primera corrida de `control-node.yml`
 
 ---
 
@@ -20,7 +20,7 @@ La pregunta central es:
 
 Al finalizar podrás:
 
-1. Construir un inventario con grupos, aliases y variables de conexión.
+1. Interpretar un inventario con grupos, aliases y variables de conexión.
 2. Validar SSH y Python remoto con el módulo `ping`.
 3. Usar facts para generar contenido específico por host.
 4. Aplicar módulos idempotentes para paquetes, usuarios, archivos y servicios.
@@ -46,7 +46,7 @@ El Security Group managed permite HTTP público desde `student_cidr` y HTTP priv
 
 ### Incluido
 
-- Inventario estático generado desde outputs Terraform.
+- Inventario estático preparado en LAB01 con IPs privadas fijas.
 - `ansible.cfg` y variables de grupo.
 - Módulos `apt`, `user`, `file`, `template` y `service`.
 - Facts, handler, idempotencia y drift.
@@ -64,7 +64,9 @@ El Security Group managed permite HTTP público desde `student_cidr` y HTTP priv
 
 - LAB01 aplicado.
 - Control node accesible.
+- Primera corrida de `control-node.yml` completada.
 - Clave `formatec-managed` copiada al controller con modo `0600`.
+- `inventories/lab/hosts.ini` creado desde `hosts.ini.example` en el controller.
 - Repositorio en la misma revisión tanto en notebook como controller.
 
 Desde la notebook, confirma nuevamente el perfil y los outputs.
@@ -74,8 +76,8 @@ Desde la notebook, confirma nuevamente el perfil y los outputs.
 ```bash
 export AWS_PROFILE=curso
 export AWS_REGION=us-east-1
-cd curso-cloud-formatec-c2-2026/terraform/ansible-aws-lab
-terraform output
+cd curso-cloud-formatec-c2-2026
+terraform -chdir=terraform/ansible-aws-lab output
 ```
 
 ### PowerShell
@@ -83,8 +85,8 @@ terraform output
 ```powershell
 $env:AWS_PROFILE = "curso"
 $env:AWS_REGION = "us-east-1"
-Set-Location curso-cloud-formatec-c2-2026\terraform\ansible-aws-lab
-terraform output
+Set-Location curso-cloud-formatec-c2-2026
+terraform -chdir=terraform/ansible-aws-lab output
 ```
 
 **Por qué se hace así:** LAB02 reutiliza la infraestructura de LAB01. Los outputs confirman que el state local todavía contiene el controller y los managed nodes correctos.
@@ -93,75 +95,35 @@ terraform output
 
 Las actividades siguientes conectan los outputs de Terraform con el inventario y comprueban el estado administrado por Ansible.
 
-## 6. Generar el inventario desde Terraform
+## 6. Verificar el direccionamiento del inventario
 
-Desde la raíz del repositorio en la notebook, genera el inventario.
-
-### Bash o WSL
-
-```bash
-./scripts/render-inventory.sh
-cat ansible/inventories/lab/hosts.ini
-```
-
-### PowerShell
-
-```powershell
-$managed = terraform -chdir=terraform/ansible-aws-lab `
-  output -json managed_private_ips | ConvertFrom-Json
-
-$webHosts = $managed.PSObject.Properties |
-  Sort-Object Name |
-  ForEach-Object { "{0} ansible_host={1}" -f $_.Name, $_.Value }
-
-$inventory = @"
-[control]
-localhost ansible_connection=local
-
-[web]
-$($webHosts -join "`n")
-
-[web:vars]
-ansible_user=ubuntu
-ansible_ssh_private_key_file=~/.ssh/formatec-managed
-"@
-
-$inventoryPath = Join-Path (Get-Location) "ansible\inventories\lab\hosts.ini"
-[System.IO.File]::WriteAllText(
-  $inventoryPath,
-  $inventory,
-  [System.Text.UTF8Encoding]::new($false)
-)
-Get-Content $inventoryPath
-```
-
-El script Bash y la alternativa PowerShell leen el state local y utilizan las IP privadas de `managed_private_ips`. No copies el state al controller.
-
-**Por qué se hace así:** Terraform conoce las IP creadas y Ansible necesita esas IP como destinos. Generar el inventario desde outputs evita transcribir direcciones manualmente. El controller recibe sólo los datos de conexión, no el state completo.
-
-Obtén la IP del controller y copia únicamente el inventario generado.
+Desde la notebook confirma que los outputs Terraform coincidan con el inventario preparado en LAB01.
 
 ### Bash o WSL
 
 ```bash
+terraform -chdir=terraform/ansible-aws-lab output managed_private_ips
 CONTROL_IP="$(terraform -chdir=terraform/ansible-aws-lab output -raw ansible_control_public_ip)"
-scp -i ~/.ssh/formatec-control \
-  ansible/inventories/lab/hosts.ini \
-  ubuntu@"$CONTROL_IP":~/curso-cloud-formatec-c2-2026/ansible/inventories/lab/hosts.ini
 ```
 
 ### PowerShell
 
 ```powershell
+terraform -chdir=terraform/ansible-aws-lab output managed_private_ips
 $CONTROL_IP = terraform -chdir=terraform/ansible-aws-lab `
   output -raw ansible_control_public_ip
-
-scp -i "$HOME\.ssh\formatec-control" `
-  "ansible\inventories\lab\hosts.ini" `
-  "ubuntu@${CONTROL_IP}:~/curso-cloud-formatec-c2-2026/ansible/inventories/lab/hosts.ini"
 ```
 
-**Por qué se hace así:** `scp` usa la clave de acceso al controller para transferir un archivo concreto. No se copia `.terraform/` ni el state porque Ansible necesita conocer hosts, no controlar el ciclo de vida de AWS.
+Resultado esperado:
+
+```text
+web01 = "10.30.10.10"
+web02 = "10.30.10.11"
+```
+
+El archivo `hosts.ini` fue creado en el controller durante LAB01 a partir de `hosts.ini.example` y ya contiene esas direcciones.
+
+**Por qué se hace así:** las IP privadas son deterministas y Terraform continúa siendo la fuente de verdad de la infraestructura. Comparar los outputs con el inventario permite detectar una diferencia antes de conectarse a los managed nodes, sin generar ni copiar nuevamente el archivo.
 
 ### Checkpoint 1
 

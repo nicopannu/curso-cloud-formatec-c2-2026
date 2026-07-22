@@ -24,6 +24,7 @@ Las guías de `guias/` definen el orden, alcance, checkpoints y entregables. Est
 8. Cada LAB debe incluir narrativa, objetivos, arquitectura, actividades, checkpoints, entregables y limpieza. Las guías de M3-C2 no incluyen criterios de evaluación salvo pedido explícito.
 9. No usar scripts `shell` monolíticos cuando exista un módulo idempotente de Ansible.
 10. Validar primera y segunda ejecución, drift, `--limit`, personalización por host, HTTP y destrucción antes de afirmar que el lab funciona end-to-end.
+11. Mantener el direccionamiento privado determinista: controller `10.30.10.5`, web01 `10.30.10.10`, web02 `10.30.10.11` y web03 `10.30.10.12`.
 
 ## Validación local
 
@@ -33,4 +34,4 @@ Las guías de `guias/` definen el orden, alcance, checkpoints y entregables. Est
 
 ## Validación real autorizada
 
-El camino completo incluye: generar claves temporales, `terraform apply`, esperar cloud-init, generar/copiar inventario, ejecutar Ansible local y remoto, comprobar idempotencia, HTTP y drift, y finalmente `terraform destroy` con verificación de limpieza.
+El camino completo incluye: generar claves temporales, `terraform apply`, esperar cloud-init, verificar el inventario fijo, copiar la clave managed, ejecutar Ansible local y remoto, comprobar idempotencia, HTTP y drift, y finalmente `terraform destroy` con verificación de limpieza.

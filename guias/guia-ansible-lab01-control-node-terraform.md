@@ -48,6 +48,16 @@ Lee el diagrama de izquierda a derecha:
 
 Los tres nodos tienen salida a Internet para instalar paquetes. Los managed nodes poseen IP pública para la prueba HTTP de LAB02, pero no aceptan SSH desde Internet.
 
+Terraform asigna direcciones privadas deterministas dentro de `10.30.10.0/24`:
+
+| Nodo | IP privada |
+|---|---|
+| controller | `10.30.10.5` |
+| web01 | `10.30.10.10` |
+| web02 | `10.30.10.11` |
+
+**Por qué se hace así:** este direccionamiento estable permite reutilizar `hosts.ini.example` sin adivinar direcciones ni editar el inventario manualmente. Es una simplificación del laboratorio; en un entorno real se evaluaría DNS privado, service discovery o inventario dinámico.
+
 ### Responsabilidades
 
 | Capa | Responsabilidad |
@@ -63,6 +73,7 @@ Los tres nodos tienen salida a Internet para instalar paquetes. Los managed node
 - Estado Terraform local.
 - Una subnet pública sin NAT Gateway.
 - Un control node y dos managed nodes Ubuntu 24.04.
+- IPs privadas fijas para los tres nodos.
 - Un módulo local EC2 reutilizado tres veces.
 - Dos pares de claves SSH con funciones separadas.
 - Bootstrap y configuración local del controller.
@@ -253,7 +264,7 @@ El plan esperado incluye:
 - una tabla de rutas y asociación;
 - dos Security Groups;
 - dos key pairs con claves públicas;
-- tres instancias EC2.
+- tres instancias EC2 con IPs privadas `10.30.10.5`, `10.30.10.10` y `10.30.10.11`.
 
 ### Checkpoint 2
 
@@ -261,6 +272,7 @@ No apliques hasta verificar:
 
 - cuenta y región correctas;
 - exactamente tres instancias;
+- las IPs privadas fijas coinciden con la tabla de arquitectura;
 - SSH del controller limitado a tu `/32`;
 - SSH de managed nodes referenciando el SG del controller;
 - ausencia de claves privadas en el plan.
@@ -381,6 +393,8 @@ cd ~/curso-cloud-formatec-c2-2026/ansible
 cp inventories/lab/hosts.ini.example inventories/lab/hosts.ini
 ansible-playbook playbooks/control-node.yml
 ```
+
+`hosts.ini.example` ya contiene `web01=10.30.10.10` y `web02=10.30.10.11`. En LAB01 el playbook apunta a `localhost`; en LAB02 esas direcciones se comprobarán nuevamente contra los outputs Terraform antes de administrar los servidores remotos.
 
 Validar:
 

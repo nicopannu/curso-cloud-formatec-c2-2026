@@ -210,6 +210,7 @@ module "web03" {
   ami_id              = data.aws_ami.ubuntu.id
   instance_type       = var.instance_type
   subnet_id           = aws_subnet.public.id
+  private_ip          = "10.30.10.12"
   security_group_ids  = [aws_security_group.managed.id]
   key_name            = aws_key_pair.managed.key_name
   associate_public_ip = true
@@ -241,7 +242,7 @@ output "managed_public_ips" {
 }
 ```
 
-**Por qué se hace así:** `web03` reutiliza la misma AMI, subnet, clave y Security Group que los demás managed nodes. Los outputs incorporan sus IP para que el inventario y las pruebas HTTP puedan descubrirlo sin copiar direcciones manualmente.
+**Por qué se hace así:** `web03` reutiliza la misma AMI, subnet, clave y Security Group que los demás managed nodes. La dirección `10.30.10.12` continúa la convención de IPs privadas fijas del laboratorio. Los outputs incorporan sus IP para comprobar el diseño y alimentar el inventario sin transcribir direcciones manualmente.
 
 Formatea y revisa:
 
@@ -268,7 +269,8 @@ No apliques hasta comprobar:
 2. `web01` y `web02` no serán reemplazados.
 3. `web03` usa el Security Group managed.
 4. `web03` usa el key pair managed.
-5. Los outputs incorporan `web03`.
+5. `web03` usa la IP privada `10.30.10.12`.
+6. Los outputs incorporan `web03`.
 
 Aplica el plan revisado:
 
@@ -279,60 +281,39 @@ terraform output managed_private_ips
 
 **Por qué se aplica el plan guardado:** se ejecuta exactamente el cambio que acabas de revisar. Terraform amplía la infraestructura; Ansible realizará después la configuración del sistema operativo.
 
-## 9. Regenerar y copiar el inventario
+## 9. Agregar web03 al inventario
 
-Desde la raíz del repositorio en la notebook:
+Obtén la IP del controller desde el mismo directorio Terraform y conéctate:
 
 ```bash
-cd ../..
-./scripts/render-inventory.sh
-grep '^web' ansible/inventories/lab/hosts.ini
+CONTROL_IP="$(terraform output -raw ansible_control_public_ip)"
+ssh -i ~/.ssh/formatec-control ubuntu@"$CONTROL_IP"
+cd ~/curso-cloud-formatec-c2-2026/ansible
+```
+
+A partir de la conexión SSH, los comandos se ejecutan en Ubuntu. Agrega `web03` debajo de `web02` si todavía no existe:
+
+```bash
+grep -q '^web03 ' inventories/lab/hosts.ini || \
+  sed -i '/^web02 ansible_host=/a web03 ansible_host=10.30.10.12' \
+  inventories/lab/hosts.ini
+
+grep '^web' inventories/lab/hosts.ini
 ```
 
 Resultado esperado:
 
 ```text
-web01 ansible_host=IP_PRIVADA_1
-web02 ansible_host=IP_PRIVADA_2
-web03 ansible_host=IP_PRIVADA_3
+web01 ansible_host=10.30.10.10
+web02 ansible_host=10.30.10.11
+web03 ansible_host=10.30.10.12
 ```
 
-El generador recorre todos los elementos del output `managed_private_ips`; no tiene una lista fija de dos servidores.
-
-Obtén la IP del controller y copia el inventario actualizado.
-
-### Bash o WSL
-
-```bash
-CONTROL_IP="$(terraform -chdir=terraform/ansible-aws-lab output -raw ansible_control_public_ip)"
-scp -i ~/.ssh/formatec-control \
-  ansible/inventories/lab/hosts.ini \
-  ubuntu@"$CONTROL_IP":~/curso-cloud-formatec-c2-2026/ansible/inventories/lab/hosts.ini
-```
-
-### PowerShell
-
-```powershell
-$CONTROL_IP = terraform -chdir=terraform/ansible-aws-lab `
-  output -raw ansible_control_public_ip
-
-scp -i "$HOME\.ssh\formatec-control" `
-  "ansible\inventories\lab\hosts.ini" `
-  "ubuntu@${CONTROL_IP}:~/curso-cloud-formatec-c2-2026/ansible/inventories/lab/hosts.ini"
-```
-
-**Por qué se copia sólo el inventario:** el controller necesita conocer la IP privada del nuevo host. El state continúa en la notebook porque Terraform sigue siendo responsable del ciclo de vida de AWS.
+**Por qué se hace así:** Terraform creó una EC2 nueva, pero Ansible administra solamente los hosts incluidos en su inventario. Agregar la línea de forma explícita permite ver esa separación de responsabilidades. No hace falta generar ni copiar nuevamente todo el archivo porque las IP privadas son fijas.
 
 ## 10. Preparar la variable de web03
 
-Conéctate nuevamente al controller:
-
-```bash
-ssh -i ~/.ssh/formatec-control ubuntu@"$CONTROL_IP"
-cd ~/curso-cloud-formatec-c2-2026/ansible
-```
-
-Crea las variables de `web03`:
+Ya conectado al controller, crea las variables de `web03`:
 
 ```bash
 cp inventories/lab/host_vars/web03.yml.example inventories/lab/host_vars/web03.yml
@@ -558,11 +539,13 @@ Comprueba el output:
 terraform -chdir=terraform/ansible-aws-lab output -json managed_private_ips
 ```
 
-Después ejecuta nuevamente:
+El output debe incluir:
 
-```bash
-./scripts/render-inventory.sh
+```text
+"web03": "10.30.10.12"
 ```
+
+Después, desde el controller, confirma que `inventories/lab/hosts.ini` contenga `web03 ansible_host=10.30.10.12`. Si falta, repite el paso 9.
 
 ### web03 aparece `UNREACHABLE`
 

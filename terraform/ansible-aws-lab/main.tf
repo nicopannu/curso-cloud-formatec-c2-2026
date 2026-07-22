@@ -15,6 +15,7 @@ module "ansible_control" {
   ami_id              = data.aws_ami.ubuntu.id
   instance_type       = var.instance_type
   subnet_id           = aws_subnet.public.id
+  private_ip          = "10.30.10.5"
   security_group_ids  = [aws_security_group.control.id]
   key_name            = aws_key_pair.control.key_name
   user_data           = templatefile("${path.module}/user-data/ansible-control.sh.tftpl", {})
@@ -29,6 +30,7 @@ module "web01" {
   ami_id              = data.aws_ami.ubuntu.id
   instance_type       = var.instance_type
   subnet_id           = aws_subnet.public.id
+  private_ip          = "10.30.10.10"
   security_group_ids  = [aws_security_group.managed.id]
   key_name            = aws_key_pair.managed.key_name
   associate_public_ip = true
@@ -42,6 +44,7 @@ module "web02" {
   ami_id              = data.aws_ami.ubuntu.id
   instance_type       = var.instance_type
   subnet_id           = aws_subnet.public.id
+  private_ip          = "10.30.10.11"
   security_group_ids  = [aws_security_group.managed.id]
   key_name            = aws_key_pair.managed.key_name
   associate_public_ip = true

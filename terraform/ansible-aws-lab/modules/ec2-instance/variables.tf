@@ -14,6 +14,12 @@ variable "subnet_id" {
   type = string
 }
 
+variable "private_ip" {
+  description = "IP privada fija dentro de la subnet."
+  type        = string
+  default     = null
+}
+
 variable "security_group_ids" {
   type = list(string)
 }
