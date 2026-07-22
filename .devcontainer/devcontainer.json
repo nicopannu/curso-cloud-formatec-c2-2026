@@ -1,0 +1,29 @@
+{
+  "name": "Formatec M3-C2 - Terraform, Ansible y AWS",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/terraform:1": {
+      "version": "latest",
+      "tflint": "none",
+      "terragrunt": "none"
+    },
+    "ghcr.io/devcontainers/features/aws-cli:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers-extra/features/ansible:2": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers-extra/features/apt-packages:1": {
+      "packages": "jq,openssh-client"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "HashiCorp.terraform",
+        "redhat.ansible"
+      ]
+    }
+  },
+  "postCreateCommand": "terraform version && aws --version && ansible --version && ansible-playbook --version && ssh -V && jq --version && git --version"
+}
