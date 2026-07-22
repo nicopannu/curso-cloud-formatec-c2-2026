@@ -389,7 +389,18 @@ getent passwd cloudcuyo
 sudo cat /opt/cloudcuyo/control-node.conf
 ```
 
-Ejecuta el mismo playbook una segunda vez:
+### Checkpoint 3 — primera configuración del controller
+
+En este punto:
+
+- User Data ya completó el bootstrap e instaló Ansible y las herramientas mínimas;
+- `control-node.yml` realizó su primera corrida y completó la configuración del controller;
+- `web01` y `web02` existen, pero todavía no fueron configurados con el playbook remoto;
+- `web03` todavía no existe.
+
+Si la clase continuará con LAB02 en otro momento, puedes detenerte aquí y conservar la infraestructura. No ejecutes todavía `playbooks/site.yml` ni agregues `web03`.
+
+Ejecuta el mismo playbook una segunda vez cuando quieras comprobar idempotencia o continuar el recorrido completo de LAB01:
 
 ```bash
 ansible-playbook playbooks/control-node.yml
