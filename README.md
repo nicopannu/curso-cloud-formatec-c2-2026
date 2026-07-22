@@ -141,17 +141,108 @@ El modulo esta organizado por etapas para incorporar los conceptos de Terraform 
 
 ## Escenario de trabajo
 
-El laboratorio esta pensado para trabajar con:
+Podes realizar los laboratorios por uno de estos caminos:
 
-- Windows como sistema operativo del alumno.
-- Un IDE con terminal integrada, por ejemplo Visual Studio Code o Cursor.
-- Terminal WSL o PowerShell, segun indique el docente.
-- Git para clonar el repositorio.
-- AWS CLI para validar credenciales y cuenta.
-- Terraform para declarar y crear infraestructura.
-- Cuenta AWS de laboratorio o sandbox autorizada para realizar el lab.
+- **Entorno local:** Windows con Visual Studio Code o Cursor y terminal PowerShell o WSL.
+- **Entorno web:** GitHub Codespaces con VS Code Web y terminal Linux desde el navegador.
 
-No se incluyen pasos de instalacion del IDE. El foco de preparacion es dejar lista la terminal para usar Git, AWS CLI y Terraform.
+En ambos casos necesitas Git, AWS CLI, Terraform y una cuenta AWS de laboratorio o sandbox autorizada. Codespaces reemplaza la instalacion local de las herramientas; Terraform sigue creando recursos en la cuenta AWS seleccionada.
+
+## Opcion web con GitHub Codespaces
+
+Esta branch incluye `.devcontainer/devcontainer.json` con Terraform, AWS CLI y la extension oficial de Terraform para VS Code.
+
+### Abrir el laboratorio
+
+1. Abrir <https://github.com/nicopannu/curso-cloud-formatec-c2-2026>.
+2. Seleccionar la branch `m3-c1-lab`.
+3. Presionar **Code** y abrir la pestana **Codespaces**.
+4. Presionar **Create codespace on m3-c1-lab**.
+5. Esperar a que finalice la construccion del entorno.
+
+Tambien podes iniciar directamente el entorno desde este enlace:
+
+<https://codespaces.new/nicopannu/curso-cloud-formatec-c2-2026?ref=m3-c1-lab>
+
+GitHub mostrara la branch `m3-c1-lab` antes de crear el Codespace. Confirmarla y usar la maquina minima disponible para el laboratorio.
+
+Verificar la branch y las herramientas:
+
+```bash
+git branch --show-current
+git --version
+aws --version
+terraform version
+```
+
+La branch esperada es `m3-c1-lab` y Terraform debe cumplir `>= 1.6.0`.
+
+Si una herramienta no aparece, abrir la paleta con `Ctrl+Shift+P` y ejecutar **Codespaces: Rebuild Container**.
+
+### Configurar AWS en Codespaces
+
+Usar preferentemente credenciales temporales. Si el acceso es mediante AWS IAM Identity Center:
+
+```bash
+aws configure sso --profile curso
+aws sso login --profile curso --use-device-code
+export AWS_PROFILE=curso
+aws sts get-caller-identity
+```
+
+Si recibiste `Access Key`, `Secret Key` y `Session Token`, cargarlos desde <https://github.com/settings/codespaces> como secretos autorizados solamente para el repositorio necesario:
+
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_SESSION_TOKEN`
+- `AWS_DEFAULT_REGION` con valor `us-east-1`
+
+Despues de crear o actualizar secretos, detener y reiniciar el Codespace. Verificar sin mostrar valores:
+
+```bash
+aws configure list
+aws sts get-caller-identity
+```
+
+Los secretos se autorizan por repositorio, no por branch. No guardar credenciales en `.devcontainer/`, archivos Terraform, `terraform.tfvars`, `.env`, scripts, capturas ni commits.
+
+### Ejecutar Terraform desde el navegador
+
+Para comenzar LAB01:
+
+```bash
+cd terraform/iac-lab01-s3-basics
+terraform init -backend=false
+terraform fmt
+terraform validate
+terraform plan
+```
+
+`terraform init`, `fmt` y `validate` no crean infraestructura. `plan` muestra los cambios propuestos. `apply` y `destroy` modifican recursos reales y deben ejecutarse solamente con autorizacion.
+
+Antes de aplicar:
+
+```bash
+aws sts get-caller-identity
+terraform plan
+```
+
+Confirmar cuenta, region, nombres y acciones propuestas.
+
+### Guardar y cerrar
+
+El Codespace no reemplaza el repositorio personal de entregas. Seguir la estructura `lab01/` a `lab06/` y la branch `m3-c1-lab` definidas en este README.
+
+Antes de detener o eliminar el entorno:
+
+```bash
+git status
+git add RUTA_DEL_LAB
+git commit -m "Agregar avance del laboratorio"
+git push
+```
+
+No subir `.terraform/`, state, `terraform.tfvars`, credenciales ni paquetes generados. **Stop** detiene el computo y conserva el entorno; **Delete** elimina el Codespace. Hacer commit y push antes de borrarlo.
 
 ## Preparacion en Windows
 
