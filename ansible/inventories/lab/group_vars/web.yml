@@ -2,3 +2,5 @@
 cloudcuyo_user: cloudcuyo
 cloudcuyo_root: /opt/cloudcuyo
 cloudcuyo_page_title: "CloudCuyo - Servidor gestionado por Ansible"
+cloudcuyo_greeting: "Hola desde CloudCuyo"
+cloudcuyo_release: "v1"

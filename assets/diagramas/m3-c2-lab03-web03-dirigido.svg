@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+<title id="title">LAB03: incorporación y configuración dirigida de web03</title>
+<desc id="desc">Terraform agrega web03. El control node mantiene web01 y web02 y ejecuta Ansible con limit web03 sólo sobre el servidor nuevo. Cada servidor muestra un saludo personalizado.</desc>
+<defs>
+ <marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2563eb"/></marker>
+ <marker id="green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#16a34a"/></marker>
+ <marker id="gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#94a3b8"/></marker>
+ <filter id="shadow"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-opacity=".16"/></filter>
+ <style>.title{font:700 28px Arial;fill:#0f172a}.sub{font:16px Arial;fill:#475569}.h{font:700 18px Arial;fill:#0f172a}.t{font:15px Arial;fill:#334155}.s{font:13px Arial;fill:#475569}.e{font:700 14px Arial}.box{filter:url(#shadow)}</style>
+</defs>
+<rect width="1200" height="680" fill="#f8fafc"/>
+<text x="600" y="42" text-anchor="middle" class="title">LAB03 · Agregar web03 y aplicar cambios dirigidos</text>
+<text x="600" y="70" text-anchor="middle" class="sub">Variables por host + --limit web03 + handler sólo cuando cambia Nginx</text>
+
+<g class="box"><rect x="45" y="245" width="235" height="170" rx="18" fill="#fff" stroke="#2563eb" stroke-width="3"/></g>
+<text x="162" y="228" text-anchor="middle" class="h">Notebook</text>
+<text x="162" y="288" text-anchor="middle" class="t">Terraform</text>
+<text x="162" y="318" text-anchor="middle" class="t">outputs + inventario</text>
+<text x="162" y="348" text-anchor="middle" class="t">SSH / SCP</text>
+<text x="162" y="388" text-anchor="middle" class="s">State local</text>
+
+<rect x="335" y="105" width="820" height="520" rx="24" fill="#fff7ed" stroke="#ea580c" stroke-width="3" stroke-dasharray="10 7"/>
+<text x="365" y="138" class="h">AWS · VPC del laboratorio</text>
+
+<g class="box"><rect x="405" y="255" width="240" height="180" rx="18" fill="#ede9fe" stroke="#7c3aed" stroke-width="3"/></g>
+<text x="525" y="240" text-anchor="middle" class="h">Ansible control node</text>
+<text x="525" y="300" text-anchor="middle" class="t">Inventario: web01–web03</text>
+<text x="525" y="330" text-anchor="middle" class="t">playbooks/site.yml</text>
+<rect x="437" y="352" width="176" height="42" rx="9" fill="#dcfce7" stroke="#16a34a"/>
+<text x="525" y="378" text-anchor="middle" class="e" fill="#166534">--limit web03</text>
+<text x="525" y="418" text-anchor="middle" class="s">SSH por IP privada</text>
+
+<g class="box"><rect x="800" y="155" width="285" height="120" rx="17" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2"/></g>
+<text x="942" y="185" text-anchor="middle" class="h">web01 · existente</text>
+<text x="942" y="219" text-anchor="middle" class="t">“Hola desde web-01”</text>
+<text x="942" y="247" text-anchor="middle" class="s">release v1 · sin cambios</text>
+
+<g class="box"><rect x="800" y="300" width="285" height="120" rx="17" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2"/></g>
+<text x="942" y="330" text-anchor="middle" class="h">web02 · existente</text>
+<text x="942" y="364" text-anchor="middle" class="t">“Hola desde web-02”</text>
+<text x="942" y="392" text-anchor="middle" class="s">release v1 · sin cambios</text>
+
+<g class="box"><rect x="775" y="465" width="335" height="135" rx="19" fill="#dcfce7" stroke="#16a34a" stroke-width="4"/></g>
+<text x="942" y="497" text-anchor="middle" class="h">web03 · nuevo</text>
+<text x="942" y="530" text-anchor="middle" class="t">“Hola desde web-03”</text>
+<text x="942" y="558" text-anchor="middle" class="t">release v1 → v2</text>
+<text x="942" y="584" text-anchor="middle" class="s">handler: Recargar nginx</text>
+
+<path d="M280 285 L315 285 L315 610 L740 610 L775 550" fill="none" stroke="#2563eb" stroke-width="4" marker-end="url(#blue)"/>
+<rect x="405" y="625" width="175" height="28" rx="7" fill="#f8fafc"/>
+<text x="492" y="645" text-anchor="middle" class="e" fill="#2563eb">Terraform: +1 EC2</text>
+
+<path d="M645 295 C700 250 735 220 800 215" fill="none" stroke="#94a3b8" stroke-width="3" marker-end="url(#gray)"/>
+<path d="M645 345 C710 345 740 350 800 355" fill="none" stroke="#94a3b8" stroke-width="3" marker-end="url(#gray)"/>
+<text x="715" y="325" text-anchor="middle" class="s">estado existente</text>
+
+<path d="M645 385 C700 420 730 480 775 525" fill="none" stroke="#16a34a" stroke-width="6" marker-end="url(#green)"/>
+<rect x="646" y="438" width="152" height="28" rx="7" fill="#fff7ed"/>
+<text x="722" y="458" text-anchor="middle" class="e" fill="#16a34a">sólo web03</text>
+
+<rect x="375" y="535" width="335" height="60" rx="12" fill="#fff" stroke="#cbd5e1"/>
+<text x="542" y="559" text-anchor="middle" class="s">Gris: nodos existentes sin cambios</text>
+<text x="542" y="581" text-anchor="middle" class="s">Verde: nodo seleccionado y handler dirigido</text>
+</svg>

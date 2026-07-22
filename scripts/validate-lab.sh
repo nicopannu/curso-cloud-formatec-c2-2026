@@ -25,16 +25,23 @@ python3 - "$ROOT_DIR" <<'PY'
 from pathlib import Path
 import sys
 root=Path(sys.argv[1])
-required=[
- 'README.md','AGENTS.md',
+guides=[
  'guias/guia-ansible-lab01-control-node-terraform.md',
  'guias/guia-ansible-lab02-gestion-servidores.md',
+ 'guias/guia-ansible-lab03-cambios-dirigidos-web03.md'
+]
+required=[
+ 'README.md','AGENTS.md',
+ *guides,
  'ansible/playbooks/control-node.yml','ansible/playbooks/site.yml',
- 'ansible/templates/index.html.j2','ansible/templates/cloudcuyo-security.conf.j2'
+ 'ansible/templates/index.html.j2','ansible/templates/cloudcuyo-security.conf.j2',
+ 'ansible/inventories/lab/host_vars/web01.yml.example',
+ 'ansible/inventories/lab/host_vars/web02.yml.example',
+ 'ansible/inventories/lab/host_vars/web03.yml.example'
 ]
 missing=[p for p in required if not (root/p).is_file()]
 if missing: raise SystemExit('Faltan archivos: '+', '.join(missing))
-for guide in required[2:4]:
+for guide in guides:
     text=(root/guide).read_text()
     for heading in ['Contexto','Objetivos','Arquitectura','Actividades','Entregables','Limpieza']:
         if heading.lower() not in text.lower():
@@ -50,7 +57,15 @@ try:
 except ImportError:
     print('AVISO: PyYAML no disponible; se omite parseo YAML.')
 else:
-    for p in [root/'ansible/playbooks/control-node.yml', root/'ansible/playbooks/site.yml', root/'ansible/inventories/lab/group_vars/web.yml']:
+    yaml_files=[
+        root/'ansible/playbooks/control-node.yml',
+        root/'ansible/playbooks/site.yml',
+        root/'ansible/inventories/lab/group_vars/web.yml',
+        root/'ansible/inventories/lab/host_vars/web01.yml.example',
+        root/'ansible/inventories/lab/host_vars/web02.yml.example',
+        root/'ansible/inventories/lab/host_vars/web03.yml.example'
+    ]
+    for p in yaml_files:
         yaml.safe_load(p.read_text())
 print('OK: estructura documental y YAML')
 PY

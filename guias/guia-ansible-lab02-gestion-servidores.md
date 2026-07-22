@@ -40,6 +40,8 @@ En LAB02 el recorrido principal es el flujo verde del diagrama: el controller le
 
 Terraform continúa siendo dueño del ciclo de vida de EC2 y red. Ansible es dueño de la configuración del sistema operativo y Nginx.
 
+El Security Group managed permite HTTP público desde `student_cidr` y HTTP privado desde el Security Group del controller. Esto permite validar la aplicación tanto desde la notebook como desde el nodo que ejecuta Ansible.
+
 ## 4. Alcance
 
 ### Incluido
@@ -108,13 +110,16 @@ cat ansible/inventories/lab/hosts.ini
 $managed = terraform -chdir=terraform/ansible-aws-lab `
   output -json managed_private_ips | ConvertFrom-Json
 
+$webHosts = $managed.PSObject.Properties |
+  Sort-Object Name |
+  ForEach-Object { "{0} ansible_host={1}" -f $_.Name, $_.Value }
+
 $inventory = @"
 [control]
 localhost ansible_connection=local
 
 [web]
-web01 ansible_host=$($managed.web01)
-web02 ansible_host=$($managed.web02)
+$($webHosts -join "`n")
 
 [web:vars]
 ansible_user=ubuntu
@@ -449,6 +454,8 @@ Guardar en `lab02/`:
 - explicación breve de idempotencia y handler.
 
 ## 20. Limpieza
+
+Si continuarás inmediatamente con LAB03, no destruyas todavía la infraestructura. LAB03 reutiliza el controller, `web01`, `web02` y el mismo state para incorporar `web03`.
 
 Desde la notebook, no desde el controller. Los comandos Terraform son iguales en Bash, WSL y PowerShell:
 

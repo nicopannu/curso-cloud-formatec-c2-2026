@@ -11,8 +11,14 @@ command -v jq >/dev/null || { echo "ERROR: jq no está instalado." >&2; exit 1; 
 [[ -f "$TF_DIR/terraform.tfstate" ]] || { echo "ERROR: no existe state local en $TF_DIR." >&2; exit 1; }
 
 outputs="$(terraform -chdir="$TF_DIR" output -json)"
-web01="$(jq -er '.managed_private_ips.value.web01' <<<"$outputs")"
-web02="$(jq -er '.managed_private_ips.value.web02' <<<"$outputs")"
+managed_nodes="$(jq -er '
+  .managed_private_ips.value
+  | to_entries
+  | sort_by(.key)
+  | .[]
+  | "\(.key) ansible_host=\(.value)"
+' <<<"$outputs")"
+[[ -n "$managed_nodes" ]] || { echo "ERROR: managed_private_ips no contiene nodos." >&2; exit 1; }
 
 mkdir -p "$(dirname "$OUTPUT_FILE")"
 cat > "$OUTPUT_FILE" <<EOF
@@ -20,8 +26,7 @@ cat > "$OUTPUT_FILE" <<EOF
 localhost ansible_connection=local
 
 [web]
-web01 ansible_host=$web01
-web02 ansible_host=$web02
+$managed_nodes
 
 [web:vars]
 ansible_user=ubuntu

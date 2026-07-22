@@ -43,6 +43,14 @@ resource "aws_security_group" "managed" {
     cidr_blocks = [var.student_cidr]
   }
 
+  ingress {
+    description     = "HTTP interno desde el control node"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.control.id]
+  }
+
   egress {
     description = "Salida necesaria para instalar paquetes"
     from_port   = 0

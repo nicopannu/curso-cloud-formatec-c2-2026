@@ -47,7 +47,7 @@ variable "managed_public_key_path" {
 }
 
 variable "instance_type" {
-  description = "Tipo de instancia para los tres nodos."
+  description = "Tipo de instancia para los nodos del laboratorio."
   type        = string
   default     = "t3.micro"
 }

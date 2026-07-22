@@ -5,7 +5,7 @@
 - Curso: Arquitectura e Ingeniería Cloud | C2 — Formatec 2026.
 - Módulo: M3-C2 — Gestión de configuración con Ansible.
 - Branch: `m3-c2-lab`.
-- Escenario: CloudCuyo necesita configurar de forma homogénea dos servidores web.
+- Escenario: CloudCuyo comienza con dos servidores web y en LAB03 incorpora `web03` para practicar variables por host y cambios dirigidos.
 - Terraform crea la infraestructura y realiza un bootstrap mínimo; Ansible administra la configuración posterior.
 
 ## Fuente de verdad
@@ -23,7 +23,7 @@ Las guías de `guias/` definen el orden, alcance, checkpoints y entregables. Est
 7. Mantener las guías en español y dirigidas al alumno.
 8. Cada LAB debe incluir narrativa, objetivos, arquitectura, actividades, checkpoints, entregables y limpieza. Las guías de M3-C2 no incluyen criterios de evaluación salvo pedido explícito.
 9. No usar scripts `shell` monolíticos cuando exista un módulo idempotente de Ansible.
-10. Validar primera y segunda ejecución, drift, HTTP y destrucción antes de afirmar que el lab funciona end-to-end.
+10. Validar primera y segunda ejecución, drift, `--limit`, personalización por host, HTTP y destrucción antes de afirmar que el lab funciona end-to-end.
 
 ## Validación local
 
