@@ -1,5 +1,5 @@
 {
-  "name": "Formatec Cloud - Terraform y AWS",
+  "name": "Formatec M3-C4 - Terraform Ansible Docker",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/terraform:1": {
@@ -9,14 +9,23 @@
     },
     "ghcr.io/devcontainers/features/aws-cli:1": {
       "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": true,
+      "dockerDashComposeVersion": "none"
     }
   },
   "customizations": {
     "vscode": {
       "extensions": [
-        "HashiCorp.terraform"
+        "HashiCorp.terraform",
+        "redhat.ansible"
       ]
     }
   },
-  "postCreateCommand": "terraform version && aws --version && git --version"
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y jq && python3 -m pip install --user ansible-core boto3 botocore && echo 'export PATH=$HOME/.local/bin:$PATH' >> ~/.bashrc && terraform version && aws --version && ansible --version && docker version && jq --version"
 }

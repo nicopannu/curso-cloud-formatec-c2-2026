@@ -1,313 +1,332 @@
-# CloudCuyo Migration Lab — Formatec Cloud 2026
+# Formatec Cloud 2026 — M3-C4 CI/CD
 
 Repositorio del curso **Arquitectura e Ingeniería Cloud | C2**.
 
 **Profesor:** Nicolás Pannucio
+**Módulo:** M3 — Clase 4: pipelines CI/CD con GitHub Actions
+**Branch del material:** `m3-c4-lab`
 
-## Cómo está organizado el repositorio
+## El escenario: dos equipos, dos problemas
 
-Cada clase práctica vive en su propia branch. Antes de empezar, elegí la branch indicada por el docente o por la guía del laboratorio.
+**Banco Patacon** opera una solución web en AWS. El trabajo está dividido en dos líneas:
 
-| Branch | Contenido |
-|---|---|
-| `main` | Documentación general y entorno base para trabajar desde GitHub Codespaces |
-| `m2-c1-lab` | Módulo 2 - Clase 1: migración inicial a AWS |
-| `m2-c2-lab` | Módulo 2 - Clase 2: alta disponibilidad, ALB y Auto Scaling |
-| `m2-c3-lab` | Módulo 2 - Clase 3: modernización y descomposición de servicios |
-| `m2-c4-lab` | Módulo 2 - Clase 4: contenedores, Docker Swarm y serverless |
-| `m3-c1-lab` | Módulo 3 - Clase 1: Infrastructure as Code con Terraform |
-| `m3-c2-lab` | Módulo 3 - Clase 2: gestión de configuración con Ansible |
-| `codespace-test` | Branch de prueba del entorno Terraform + AWS CLI en Codespaces |
+### Equipo de infraestructura
 
-## Elegir el entorno de trabajo
+Administra:
 
-Los laboratorios pueden requerir uno de estos caminos:
+- la red AWS;
+- la instancia EC2;
+- los permisos IAM y la conexión por Systems Manager;
+- el bucket temporal usado por Ansible;
+- la instalación y configuración de Nginx.
 
-### Opción A — Entorno local
+Terraform define la infraestructura y Ansible configura el servidor. El repositorio ya contiene un workflow para automatizar este recorrido, pero el pipeline todavía no puede desplegar: el environment `lab`, sus credenciales y las variables del backend no están configurados.
 
-Usá Windows con PowerShell o WSL y el IDE indicado en la guía. Las herramientas se instalan en tu computadora.
+El problema no se resuelve agregando credenciales al código. Primero hay que comprobar que CI funciona sin acceso a AWS, observar dónde se detiene el deploy y habilitar el environment correcto.
 
-### Opción B — Entorno web con GitHub Codespaces
+### Equipo de aplicación
 
-Usá un IDE y una terminal Linux desde el navegador. GitHub ejecuta el entorno en una máquina remota y prepara las herramientas declaradas por la branch.
+Mantiene la página web de Banco Patacon y necesita entregarla como una imagen Docker reproducible. Actualmente el equipo construye y prueba la imagen manualmente. No existe un workflow que garantice que cada cambio:
 
-Codespaces reemplaza la computadora desde la que ejecutás los comandos. No reemplaza:
+- pueda convertirse en una imagen;
+- inicie correctamente como contenedor;
+- responda por HTTP;
+- quede asociado al commit que produjo la ejecución.
 
-- la cuenta AWS del laboratorio;
-- los permisos necesarios para crear recursos;
-- las instrucciones de la guía;
-- la limpieza de recursos;
-- la entrega en tu repositorio personal.
+En esta parte no recibís una aplicación ni un pipeline resueltos. Vas a crear desde cero la página, el Dockerfile y el workflow.
+
+## La misión
+
+Banco Patacon necesita recuperar su pipeline de despliegue de infraestructura y comenzar a construir el pipeline de entrega de su aplicación.
+
+El recorrido completo es:
 
 ```text
-Navegador
-   |
-   v
-GitHub Codespaces: VS Code Web + terminal Linux
-   |
-   +-- Git
-   +-- Terraform / Ansible / herramientas del lab
-   +-- AWS CLI
-   |
-   v
-Cuenta AWS autorizada para el laboratorio
+INFRAESTRUCTURA
+push o pull request
+→ validar Terraform y Ansible sin credenciales
+→ ejecutar plan manual
+→ observar el fallo por credenciales ausentes
+→ configurar environment lab
+→ plan
+→ apply
+→ configurar Nginx por Ansible sobre SSM
+→ comprobar HTTP
+→ repetir plan y obtener No changes
+→ destroy
+
+APLICACIÓN
+crear página Banco Patacon
+→ crear Dockerfile
+→ construir imagen
+→ iniciar contenedor
+→ comprobar HTTP
+→ crear workflow desde cero
+→ repetir build y smoke test en GitHub Actions
+→ asociar la evidencia al commit SHA
+→ introducir un fallo controlado
+→ comprobar que el pipeline bloquea una imagen inválida
+→ corregir y recuperar el pipeline
 ```
 
-## Requisitos para trabajar desde el navegador
+LAB02 construye la primera etapa del pipeline de entrega de la aplicación: **build, ejecución, prueba y trazabilidad de la imagen**. Publicar la imagen en un registry y desplegarla en un ambiente quedan como evolución posterior; este laboratorio no debe confundir una imagen validada con una imagen ya desplegada.
 
-Necesitás:
+## Laboratorios incluidos
 
-- una cuenta personal de GitHub;
-- acceso estable a Internet;
-- la branch correcta del laboratorio;
-- credenciales AWS autorizadas cuando la práctica interactúe con AWS;
-- permisos para los recursos indicados en la guía.
+| Lab | Guía | Objetivo | Punto de partida |
+|---|---|---|---|
+| LAB01 | `guias/guia-cicd-lab01-infra.md` | Recuperar el pipeline de infraestructura y completar plan/apply/destroy | Terraform, Ansible y workflow preparados; environment `lab` sin configurar |
+| LAB02 | `guias/guia-cicd-lab02-imagen-docker.md` | Construir el pipeline de entrega de la imagen Docker | Desde cero: no vienen `app/`, Dockerfile ni workflow de aplicación |
 
-No necesitás instalar localmente VS Code, WSL, Terraform ni AWS CLI cuando la branch ya contiene la configuración de Codespaces correspondiente.
+Completá LAB01 antes de comenzar LAB02. LAB02 no usa AWS ni modifica la infraestructura creada en LAB01.
 
-## Abrir una branch en GitHub Codespaces
+## Mapa de la branch
 
-1. Abrí el repositorio:
-
-   <https://github.com/nicopannu/curso-cloud-formatec-c2-2026>
-
-2. En el selector de branches, elegí la branch indicada para la clase.
-3. Presioná **Code**.
-4. Abrí la pestaña **Codespaces**.
-5. Presioná **Create codespace on `<branch>`**.
-6. Esperá a que finalice la construcción del contenedor.
-
-Para probar el entorno base de Terraform y AWS CLI, usá `codespace-test`:
-
-<https://codespaces.new/nicopannu/curso-cloud-formatec-c2-2026?ref=codespace-test>
-
-Un Codespace queda asociado a la branch seleccionada al momento de crearlo. Verificá la branch antes de empezar:
-
-```bash
-git branch --show-current
+```text
+.
+├── .devcontainer/              # Codespaces con Terraform, AWS CLI, Ansible, Docker y jq
+├── .github/workflows/
+│   └── infra-ci.yml            # Pipeline preparado para LAB01
+├── ansible/                    # Configuración Nginx vía SSM, sin SSH
+├── guias/
+│   ├── guia-cicd-lab01-infra.md
+│   └── guia-cicd-lab02-imagen-docker.md
+├── infra/                      # Root Terraform simple, sin módulos
+└── scripts/                    # Inventario y validación local
 ```
 
-## Verificar las herramientas
+`app/` y `.github/workflows/image-ci.yml` no vienen resueltos. Se crean paso a paso durante LAB02.
 
-Cuando termine la creación, abrí una terminal y ejecutá:
+## 1. Preparar el repositorio personal
 
-```bash
-git --version
-aws --version
-terraform version
+Los workflows deben ejecutarse desde un repositorio donde tengas permisos para hacer push, configurar Actions, crear environments y administrar secrets.
+
+Nombre recomendado:
+
+```text
+curso-cloud-formatec-nombreapellido-c2-2026
 ```
 
-La salida debe mostrar una versión para cada herramienta. En los labs Terraform del curso se requiere Terraform `>= 1.6.0`.
+Reemplazá `nombreapellido` por tu identidad en minúsculas y sin espacios.
 
-Si la branch utiliza otras herramientas, la guía indicará las verificaciones adicionales.
+### Si todavía no tenés el repositorio
 
-### Si Terraform o AWS CLI no aparecen
+1. Ingresá a GitHub.
+2. Abrí `+` → **New repository**.
+3. Usá el nombre recomendado.
+4. Elegí visibilidad pública o privada.
+5. Si es privado, invitá al docente como colaborador mediante `nicolaspannucio@gmail.com`.
+6. No inicialices el repositorio con archivos que contengan credenciales.
+7. Copiá la URL HTTPS.
 
-1. Abrí la paleta con `Ctrl+Shift+P`.
-2. Ejecutá **Codespaces: Rebuild Container**.
-3. Esperá a que termine la reconstrucción.
-4. Volvé a ejecutar los comandos de versión.
-
-No instales herramientas manualmente antes de intentar la reconstrucción. La configuración versionada de la branch debe poder reproducir el entorno.
-
-## Configurar acceso a AWS
-
-Antes de ejecutar Terraform o comandos AWS, comprobá qué identidad estás usando:
+Cloná el repositorio:
 
 ```bash
-aws sts get-caller-identity
+git clone URL_DEL_REPOSITORIO_PERSONAL
+cd curso-cloud-formatec-nombreapellido-c2-2026
 ```
 
-Este comando consulta la identidad y no crea recursos.
+### Si ya usaste el repositorio en clases anteriores
 
-### Camino recomendado: acceso temporal con AWS IAM Identity Center
-
-Cuando el docente entregue acceso por SSO:
+Entrá al repositorio existente y comprobá que no haya cambios pendientes:
 
 ```bash
-aws configure sso --profile curso
-aws sso login --profile curso --use-device-code
-```
-
-AWS mostrará una URL y un código. Abrí la URL en el navegador, ingresá el código y completá la autorización.
-
-Activá el perfil en la terminal:
-
-```bash
-export AWS_PROFILE=curso
-aws sts get-caller-identity
-```
-
-El acceso SSO usa credenciales temporales y evita guardar access keys permanentes en GitHub.
-
-### Alternativa: credenciales temporales mediante Codespaces secrets
-
-Si el laboratorio entrega `Access Key`, `Secret Key` y `Session Token`, guardalos como secretos de Codespaces.
-
-1. Abrí <https://github.com/settings/codespaces>.
-2. En **Codespaces secrets**, presioná **New secret**.
-3. Creá los secretos que correspondan:
-
-| Nombre | Uso |
-|---|---|
-| `AWS_ACCESS_KEY_ID` | Identificador de acceso AWS |
-| `AWS_SECRET_ACCESS_KEY` | Clave secreta AWS |
-| `AWS_SESSION_TOKEN` | Token requerido por credenciales temporales |
-| `AWS_DEFAULT_REGION` | Región del lab, normalmente `us-east-1` |
-
-4. En **Repository access**, autorizá solamente el repositorio necesario.
-5. Guardá los secretos.
-6. Detené y reiniciá el Codespace para cargar los valores nuevos.
-
-Si las credenciales tienen `Session Token`, los tres componentes son obligatorios. Cuando expiren, actualizá los secretos y reiniciá el Codespace.
-
-Verificá la configuración sin mostrar los valores:
-
-```bash
-aws configure list
-aws sts get-caller-identity
-```
-
-No uses `echo`, `env` ni `printenv` para mostrar credenciales.
-
-### Nunca guardar credenciales en el repositorio
-
-No escribas credenciales en:
-
-- `.devcontainer/devcontainer.json`;
-- archivos `.tf`;
-- `terraform.tfvars`;
-- `.env`;
-- scripts;
-- README;
-- capturas de pantalla;
-- commits o historial Git.
-
-Los secretos de Codespaces se autorizan por repositorio, no por branch. Creá Codespaces solamente desde branches confiables y revisá los cambios de `.devcontainer/`, Dockerfiles y scripts de inicio antes de reconstruir el entorno.
-
-## Flujo Terraform desde Codespaces
-
-Entrá en la carpeta indicada por la guía y seguí el flujo normal:
-
-```bash
-terraform init
-terraform fmt
-terraform validate
-terraform plan
-```
-
-Interpretación:
-
-- `terraform init` descarga los providers requeridos por el proyecto;
-- `terraform fmt` normaliza el formato de los archivos;
-- `terraform validate` revisa la configuración local;
-- `terraform plan` consulta el estado necesario y muestra los cambios propuestos;
-- `terraform apply` crea o modifica recursos reales;
-- `terraform destroy` elimina recursos administrados por el proyecto.
-
-No ejecutes `terraform apply` ni `terraform destroy` hasta que la guía o el docente lo autoricen.
-
-Antes de aplicar, comprobá siempre:
-
-```bash
-aws sts get-caller-identity
-terraform plan
-```
-
-Revisá la cuenta AWS, la región, los nombres de recursos y las acciones propuestas.
-
-## Guardar el trabajo
-
-El disco del Codespace no reemplaza Git. Guardá los avances con commits y publicalos antes de detener o borrar el entorno:
-
-```bash
+cd curso-cloud-formatec-nombreapellido-c2-2026
 git status
-git add RUTA_DEL_LAB
-git commit -m "Agregar avance del laboratorio"
-git push
 ```
 
-La guía de cada clase define el repositorio personal, la branch, las carpetas y los entregables esperados. Codespaces no cambia esas reglas.
+No cambies de branch con archivos sin guardar.
 
-Si abriste el Codespace desde el repositorio del curso y no tenés permisos de escritura, no podrás usarlo como repositorio de entrega. Conservá tus entregables en el repositorio personal indicado por la guía antes de borrar el Codespace.
+## 2. Incorporar el starter M3-C4
 
-Nunca publiques:
-
-- credenciales AWS;
-- archivos `.env`;
-- `.terraform/`;
-- `terraform.tfstate` o backups de state;
-- `terraform.tfvars` con datos personales o del entorno;
-- claves `.pem`;
-- paquetes generados que la guía indique excluir.
-
-## Detener y eliminar el Codespace
-
-GitHub contabiliza cómputo mientras el Codespace está activo y almacenamiento mientras el Codespace existe.
-
-- **Stop:** detiene el cómputo y conserva el entorno.
-- **Delete:** elimina el entorno y su almacenamiento.
-
-Al terminar una sesión:
-
-1. Revisá `git status`.
-2. Hacé commit y push del trabajo que debas conservar.
-3. Detené el Codespace.
-4. Cuando ya no lo necesites, eliminá el Codespace.
-
-Usá la máquina mínima indicada por el curso y evitá crear varios Codespaces para la misma práctica. Consultá el consumo en la configuración de facturación de GitHub, porque las cuotas pueden cambiar.
-
-## Troubleshooting rápido
-
-### `Unable to locate credentials`
-
-Las credenciales no están cargadas. Configurá SSO o Codespaces secrets y reiniciá el entorno.
-
-### `The security token included in the request is expired`
-
-Las credenciales temporales expiraron. Renoválas, actualizá los secretos y reiniciá el Codespace.
-
-### `terraform: command not found`
-
-Ejecutá **Codespaces: Rebuild Container**. Si continúa, verificá que la branch seleccionada incluya `.devcontainer/devcontainer.json`.
-
-### Terraform no encuentra providers
-
-Ejecutá dentro del proyecto:
+Agregá el repositorio del curso como remote `upstream`:
 
 ```bash
-terraform init
+git remote add upstream https://github.com/nicopannu/curso-cloud-formatec-c2-2026.git
 ```
 
-La instalación de Terraform no incluye automáticamente los providers de cada lab.
+Si `upstream` ya existe, verificá su URL:
 
-### Estoy en la branch incorrecta
+```bash
+git remote get-url upstream
+```
+
+Descargá la branch del curso y creá tu branch de trabajo:
+
+```bash
+git fetch upstream m3-c4-lab
+git switch -c m3-c4-lab --track upstream/m3-c4-lab
+```
+
+Publicala en tu repositorio personal:
+
+```bash
+git push -u origin m3-c4-lab
+```
 
 Verificá:
 
 ```bash
 git branch --show-current
+git remote -v
 git status
 ```
 
-No cambies de branch con archivos sin guardar. Hacé commit o guardá los cambios de acuerdo con la guía.
+Resultado esperado:
 
-### El Codespace se detuvo
+```text
+m3-c4-lab
+```
 
-Volvé a iniciarlo desde la pestaña **Codespaces** del repositorio. Detenerlo no borra el trabajo, pero eliminarlo sí puede borrar cambios que no hayas publicado.
+**Por qué se hace así:** `upstream` conserva la referencia al material del curso y `origin` apunta a tu entrega. Los workflows se ejecutan en tu repositorio, donde podés configurar environments y secrets sin modificar el repositorio docente.
 
-## Alcance de soporte por branch
+## 3. Habilitar el dispatch manual
 
-La configuración del entorno debe acompañar a la branch del laboratorio. Las futuras branches pueden agregar o quitar herramientas según el contenido de la clase, por ejemplo Terraform, AWS CLI, Ansible, Python, Docker CLI o extensiones del IDE.
+GitHub sólo muestra **Run workflow** para workflows disponibles en la default branch del repositorio.
 
-Antes de comenzar, revisá siempre:
+En tu repositorio personal:
 
-1. branch correcta;
-2. herramientas disponibles;
-3. identidad AWS;
-4. instrucciones específicas de la guía;
-5. reglas de entrega y limpieza.
+1. Abrí **Settings**.
+2. Entrá en **Branches**.
+3. En **Default branch**, seleccioná `m3-c4-lab`.
+4. Confirmá el cambio.
+5. Abrí **Actions** y verificá que aparezca `Infra CI/CD - Banco Patacon LAB01`.
 
----
+Al terminar la clase podés restaurar `main` como default branch si tu repositorio la utiliza para otros materiales.
 
-Proyecto educativo — Formatec Cloud Course 2026
+## 4. Elegir el entorno de trabajo
+
+### Opción A — GitHub Codespaces
+
+En tu repositorio personal:
+
+1. Seleccioná `m3-c4-lab`.
+2. Presioná **Code**.
+3. Abrí **Codespaces**.
+4. Elegí **Create codespace on m3-c4-lab**.
+5. Esperá la construcción del devcontainer.
+
+El material docente también puede abrirse en modo de consulta desde:
+
+<https://codespaces.new/nicopannu/curso-cloud-formatec-c2-2026?ref=m3-c4-lab>
+
+Para hacer push y ejecutar tus workflows, trabajá en el Codespace de tu repositorio personal.
+
+Verificá herramientas:
+
+```bash
+git branch --show-current
+git --version
+terraform version
+aws --version
+ansible --version
+docker version
+jq --version
+```
+
+### Opción B — Entorno local
+
+Necesitás:
+
+- Git;
+- Terraform `>= 1.6`;
+- AWS CLI;
+- Python 3;
+- Ansible;
+- Docker para LAB02.
+
+LAB01 ejecuta el deploy desde GitHub-hosted runners. No guardes credenciales AWS en archivos locales del proyecto.
+
+## 5. Validar el starter
+
+Desde la raíz:
+
+```bash
+./scripts/validate-lab.sh
+```
+
+El script revisa estructura, contratos, Terraform e inventario sin ejecutar:
+
+```text
+terraform plan
+terraform apply
+terraform destroy
+aws ...
+```
+
+`init`, `fmt` y `validate` no crean infraestructura. Las operaciones reales ocurren únicamente en el job manual de GitHub Actions.
+
+## 6. Recorrido esperado
+
+### LAB01
+
+```text
+push inicial
+→ CI sin credenciales
+→ plan manual falla por secrets ausentes
+→ configurar environment lab
+→ plan exitoso
+→ apply Terraform
+→ Ansible configura Nginx por SSM
+→ smoke test HTTP
+→ segundo plan: No changes
+→ destroy
+```
+
+### LAB02
+
+```text
+crear index.html
+→ crear Dockerfile
+→ build local
+→ run + curl
+→ crear image-ci.yml
+→ build en GitHub runner
+→ smoke test
+→ artifact de metadata asociado al SHA
+```
+
+## 7. Seguridad
+
+Nunca publiques:
+
+- Access Keys o Secret Keys;
+- session tokens;
+- archivos `.env`;
+- `.terraform/`;
+- `terraform.tfstate` o backups;
+- planes `tfplan`;
+- inventarios generados;
+- credenciales copiadas en YAML, Terraform, documentación o capturas.
+
+Los secrets de GitHub se configuran desde **Settings → Environments**. No se escriben dentro del workflow.
+
+## 8. Guardar el trabajo
+
+Revisá siempre antes de commitear:
+
+```bash
+git status
+git diff
+```
+
+Después de cada checkpoint:
+
+```bash
+git add RUTAS_DEL_LAB
+git commit -m "Completar checkpoint M3 C4"
+git push
+```
+
+El link de entrega debe apuntar a:
+
+```text
+https://github.com/<usuario>/curso-cloud-formatec-nombreapellido-c2-2026/tree/m3-c4-lab
+```
+
+No hagas merge a `main` hasta completar el cleanup de LAB01 y conservar las evidencias solicitadas.
+
+## Guías
+
+- [LAB01 — Pipeline de infraestructura](guias/guia-cicd-lab01-infra.md)
+- [LAB02 — Pipeline de imagen Docker desde cero](guias/guia-cicd-lab02-imagen-docker.md)

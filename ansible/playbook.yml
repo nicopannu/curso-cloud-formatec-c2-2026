@@ -1,0 +1,32 @@
+---
+- name: Configurar web Banco Patacon
+  hosts: banco_patacon
+  become: true
+  gather_facts: true
+
+  handlers:
+    - name: Reiniciar nginx
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
+
+  tasks:
+    - name: Instalar Nginx
+      ansible.builtin.dnf:
+        name: nginx
+        state: present
+
+    - name: Publicar página Banco Patacon
+      ansible.builtin.template:
+        src: templates/index.html.j2
+        dest: /usr/share/nginx/html/index.html
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reiniciar nginx
+
+    - name: Habilitar e iniciar Nginx
+      ansible.builtin.service:
+        name: nginx
+        enabled: true
+        state: started

@@ -1,0 +1,4 @@
+---
+collections:
+  - name: community.aws
+    version: ">=10.0.0"

@@ -17,7 +17,15 @@ ENV/
 .terraform/
 *.tfstate
 *.tfstate.*
-.terraform.lock.hcl
+*.tfplan
+tfplan
+tf-outputs.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
 
 # IDE
 .vscode/
@@ -44,6 +52,15 @@ Thumbs.db
 # AWS
 aws-ids.sh
 aws-ids.ps1
+.aws/
+.env
+.env.*
+*.tfvars
+*.tfvars.json
+
+# Generated lab files
+ansible/inventory.generated.yml
+ansible/inventory.generated.yaml
 
 # OVAs exportados
 *.ova

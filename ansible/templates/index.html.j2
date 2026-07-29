@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Banco Patacon</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 3rem; background: #f4f7fb; color: #162033; }
+    main { max-width: 760px; padding: 2rem; background: white; border-radius: 16px; box-shadow: 0 8px 24px #0002; }
+    h1 { color: #0066cc; }
+    code { background: #eef3f8; padding: .2rem .4rem; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Banco Patacon</h1>
+    <p>Infraestructura desplegada por Terraform y configurada por Ansible vía AWS Systems Manager.</p>
+    <p>Host: <code>{{ inventory_hostname }}</code></p>
+    <p>Estado: servicio Nginx activo para M3-C4 LAB01.</p>
+  </main>
+</body>
+</html>
