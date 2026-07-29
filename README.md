@@ -20,9 +20,9 @@ Administra:
 - el bucket temporal usado por Ansible;
 - la instalación y configuración de Nginx.
 
-Terraform define la infraestructura y Ansible configura el servidor. El repositorio ya contiene un workflow para automatizar este recorrido, pero el pipeline todavía no puede desplegar: el environment `lab`, sus credenciales y las variables del backend no están configurados.
+Terraform define la infraestructura y Ansible configura el servidor. El repositorio ya contiene un workflow dividido en cuatro stages, pero sólo puede iniciarse manualmente y todavía no puede desplegar: el environment `lab`, sus credenciales y las variables del backend no están configurados.
 
-El problema no se resuelve agregando credenciales al código. Primero hay que comprobar que CI funciona sin acceso a AWS, observar dónde se detiene el deploy y habilitar el environment correcto.
+El problema no se resuelve agregando credenciales al código. Primero hay que comprobar que los stages de CI funcionan sin acceso a AWS, observar dónde se detiene CD, agregar validación automática en push y habilitar el environment correcto. El deploy debe seguir siendo manual.
 
 ### Equipo de aplicación
 
@@ -43,14 +43,17 @@ El recorrido completo es:
 
 ```text
 INFRAESTRUCTURA
-push o pull request
-→ validar Terraform y Ansible sin credenciales
-→ ejecutar plan manual
+workflow_dispatch con operation=plan
+→ CI Terraform sin credenciales
+→ CI Ansible sin credenciales
+→ CD Terraform espera la cadena completa de CI
 → observar el fallo por credenciales ausentes
+→ agregar on.push para m3-c4-lab
+→ comprobar que push ejecuta sólo los dos CI
 → configurar environment lab
-→ plan
-→ apply
-→ configurar Nginx por Ansible sobre SSM
+→ CD Terraform plan
+→ CD Terraform apply
+→ CD Ansible configura Nginx sobre SSM
 → comprobar HTTP
 → repetir plan y obtener No changes
 → destroy
@@ -75,7 +78,7 @@ LAB02 construye la primera etapa del pipeline de entrega de la aplicación: **bu
 
 | Lab | Guía | Objetivo | Punto de partida |
 |---|---|---|---|
-| LAB01 | `guias/guia-cicd-lab01-infra.md` | Recuperar el pipeline de infraestructura y completar plan/apply/destroy | Terraform, Ansible y workflow preparados; environment `lab` sin configurar |
+| LAB01 | `guias/guia-cicd-lab01-infra.md` | Completar el flujo CI Terraform/Ansible → CD Terraform/Ansible | Workflow inicialmente manual; falta `on.push` y el environment `lab` no está configurado |
 | LAB02 | `guias/guia-cicd-lab02-imagen-docker.md` | Construir el pipeline de entrega de la imagen Docker | Desde cero: no vienen `app/`, Dockerfile ni workflow de aplicación |
 
 Completá LAB01 antes de comenzar LAB02. LAB02 no usa AWS ni modifica la infraestructura creada en LAB01.
@@ -261,13 +264,16 @@ aws ...
 ### LAB01
 
 ```text
-push inicial
-→ CI sin credenciales
-→ plan manual falla por secrets ausentes
+plan manual
+→ CI Terraform
+→ CI Ansible
+→ CD Terraform falla por secrets ausentes
+→ agregar on.push
+→ push ejecuta CI Terraform → CI Ansible
 → configurar environment lab
-→ plan exitoso
-→ apply Terraform
-→ Ansible configura Nginx por SSM
+→ CD Terraform plan exitoso
+→ CD Terraform apply
+→ CD Ansible configura Nginx por SSM
 → smoke test HTTP
 → segundo plan: No changes
 → destroy

@@ -1,20 +1,21 @@
 # M3-C4 LAB01 — CI/CD de infraestructura para Banco Patacon
 
 **Módulo:** M3-C4 — Pipelines CI/CD con GitHub Actions
-**Duración estimada:** 60 a 75 minutos
+**Duración estimada:** 75 a 90 minutos
 **Branch:** `m3-c4-lab`
 **Environment de GitHub:** `lab`
 **Región:** `us-east-1`
 
 ---
 
-En este laboratorio vas a trabajar como parte del equipo cloud de **Banco Patacon**. El banco quiere que una infraestructura pequeña se valide automáticamente en cada cambio y que los despliegues manuales queden controlados por un environment de GitHub llamado `lab`.
+En este laboratorio vas a trabajar como parte del equipo cloud de **Banco Patacon**. El pipeline separa CI Terraform, CI Ansible, CD Terraform y CD Ansible para que puedas seguir visualmente cómo avanza cada operación. Al comienzo sólo se ejecuta de forma manual: tu trabajo será recuperar el deploy y agregar validación automática en cada push sin automatizar el despliegue.
 
 El objetivo no es escribir Terraform desde cero. El objetivo es entender qué hace un pipeline de infraestructura, dónde falla cuando faltan credenciales, cómo se corrige la configuración, cómo se despliega y cómo se comprueba que no quedan cambios pendientes.
 
 ## Objetivos
 
-- Ejecutar CI en `push` y `pull_request` sin credenciales AWS.
+- Distinguir los cuatro stages del pipeline: CI Terraform, CI Ansible, CD Terraform y CD Ansible.
+- Agregar `on.push` para que la branch valide cambios sin credenciales AWS.
 - Validar formato, inicialización local y sintaxis de Terraform y Ansible.
 - Usar `workflow_dispatch` con `operation`: `plan`, `apply` o `destroy`.
 - Configurar el environment `lab` con secrets y vars.
@@ -27,19 +28,16 @@ El objetivo no es escribir Terraform desde cero. El objetivo es entender qué ha
 
 ```mermaid
 flowchart LR
-  Dev[Alumno] --> GH[GitHub Actions]
-  GH --> CI[CI sin credenciales]
-  GH --> Deploy[deploy environment lab]
-  Deploy --> TF[Terraform root infra]
-  TF --> VPC[VPC y subnet pública]
-  TF --> EC2[EC2 Amazon Linux 2023]
-  TF --> S3A[Bucket temporal Ansible]
-  EC2 --> SSM[IAM Instance Profile SSM]
-  Deploy --> Ansible[Ansible community.aws.aws_ssm]
-  Ansible --> Nginx[Nginx Banco Patacon]
-  Browser[Navegador/curl] --> HTTP[HTTP público puerto 80]
-  HTTP --> EC2
+  Manual[workflow_dispatch] --> CITF[1 · CI Terraform]
+  Push[push agregado por el alumno] --> CITF
+  CITF --> CIA[2 · CI Ansible]
+  CIA --> CDTF[3 · CD Terraform]
+  CDTF -->|sólo apply| CDA[4 · CD Ansible + HTTP]
+  CDTF --> AWS[VPC + EC2 + IAM + S3]
+  CDA -->|SSM sin SSH| Nginx[Nginx Banco Patacon]
 ```
+
+En un push, `CD Terraform` y `CD Ansible` quedan omitidos porque ambos están condicionados a `workflow_dispatch`. El deploy nunca ocurre automáticamente.
 
 ## Alcance obligatorio
 
@@ -49,6 +47,8 @@ flowchart LR
 - Permitir sólo HTTP 80 de entrada en el security group.
 - No usar SSH, key pair ni credenciales dentro del repositorio.
 - Ejecutar Ansible por `community.aws.aws_ssm`.
+- Conservar `plan`, `apply` y `destroy` como operaciones manuales.
+- Agregar un trigger `push` limitado a `m3-c4-lab` para ejecutar solamente CI.
 - Ejecutar `destroy` al terminar.
 
 ## Alcance opcional
@@ -124,53 +124,109 @@ En GitHub:
 
 Identificá en `.github/workflows/infra-ci.yml`:
 
-- los triggers `push`, `pull_request` y `workflow_dispatch`;
-- el job `ci`, que no usa secrets;
-- el job `deploy`, que depende de CI mediante `needs`;
-- el environment `lab`;
-- las operaciones `plan`, `apply` y `destroy`.
+- el único trigger inicial: `workflow_dispatch`;
+- `ci-terraform`, con `fmt`, `init -backend=false` y `validate`;
+- `ci-ansible`, con instalación de colecciones y `syntax-check`;
+- `cd-terraform`, que depende de ambos jobs de CI;
+- `cd-ansible`, que depende de CD Terraform y sólo se ejecuta durante `apply`;
+- el environment `lab` usado por los dos jobs de CD;
+- las operaciones manuales `plan`, `apply` y `destroy`.
+
+Problema inicial: un cambio enviado por push no ejecuta ninguna validación. El workflow sólo puede iniciarse desde **Run workflow**.
 
 **Por qué se revisa antes de ejecutar:** un workflow es código con permisos y efectos. Confirmá qué eventos lo activan y qué comandos ejecuta antes de entregarle credenciales.
 
-## Actividad 2 — Observar el CI sin credenciales
-
-1. Abrí el run generado por el push inicial de `m3-c4-lab`.
-2. Entrá en el job **CI sin credenciales**.
-3. Abrí cada step y revisá su salida.
-4. Confirmá que el job `deploy` no se ejecutó durante el push.
-
-Qué observar:
-
-- `terraform init -backend=false` no necesita bucket ni credenciales.
-- `terraform validate` revisa la configuración, pero no crea recursos.
-- `ansible-playbook --syntax-check` revisa sintaxis, pero no se conecta a la instancia.
-
-Checkpoint: el CI debe quedar en verde antes de ejecutar un despliegue manual.
-
-**Por qué se hace así:** los cambios se validan antes de recibir permisos sobre AWS. Un push o pull request puede comprobar formato y sintaxis sin acceder a la cuenta cloud.
-
-## Actividad 3 — Ejecutar el primer plan y ver el fallo esperado
+## Actividad 2 — Ejecutar el pipeline manual y ver el fallo esperado
 
 1. Entrá en **Actions**.
-2. Seleccioná el workflow **Infra CI/CD - Banco Patacon LAB01**.
+2. Seleccioná **Infra CI/CD - Banco Patacon LAB01**.
 3. Presioná **Run workflow**.
 4. Elegí `operation = plan`.
 5. Ejecutá el workflow.
 
-Resultado esperado de la primera ejecución:
+Seguí el grafo de jobs:
 
-- El job `CI sin credenciales` termina correctamente.
-- El job `deploy` usa el environment `lab`.
-- Si el environment todavía no tiene credenciales, el workflow falla naturalmente en `aws-actions/configure-aws-credentials`.
-- No hace falta agregar un step artificial para fallar.
+```text
+1 · CI Terraform
+→ 2 · CI Ansible
+→ 3 · CD Terraform
+```
 
 Qué observar:
 
-- El error indica que faltan `AWS_ACCESS_KEY_ID` y/o `AWS_SECRET_ACCESS_KEY`.
-- El deploy depende de CI mediante `needs: ci`; una configuración inválida no llega a AWS.
-- Todavía no se ejecuta Terraform contra AWS.
+- CI Ansible comienza sólo cuando CI Terraform terminó correctamente.
+- `terraform init -backend=false` no necesita bucket ni credenciales.
+- `terraform validate` revisa la configuración, pero no crea recursos.
+- `ansible-playbook --syntax-check` revisa sintaxis, pero no se conecta a la instancia.
+- Ambos CI deben quedar en verde.
+- CD Terraform comienza sólo después de completar la cadena CI Terraform → CI Ansible.
+- Sin secrets, CD Terraform falla naturalmente en **Configure AWS credentials**.
+- CD Ansible no se ejecuta porque la operación elegida fue `plan`.
 
-Guardá el enlace del run fallido. Es evidencia de que el pipeline no posee credenciales por defecto.
+Guardá el enlace del run. Debe mostrar con claridad que CI puede pasar sin acceso a AWS y que CD no puede usar la cuenta hasta configurar el environment.
+
+### Checkpoint 2
+
+- CI Terraform: verde.
+- CI Ansible: verde.
+- CD Terraform: rojo en credenciales.
+- CD Ansible: omitido.
+
+## Actividad 3 — Agregar CI automático en push
+
+El deploy debe seguir siendo manual. Sólo vas a automatizar los dos stages de CI.
+
+Editá el inicio de `.github/workflows/infra-ci.yml` y agregá `push` antes de `workflow_dispatch`:
+
+```yaml
+on:
+  push:
+    branches:
+      - m3-c4-lab
+    paths:
+      - ".github/workflows/infra-ci.yml"
+      - "infra/**"
+      - "ansible/**"
+      - "scripts/**"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Operación Terraform"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+```
+
+Guardá y publicá el cambio:
+
+```bash
+git add .github/workflows/infra-ci.yml
+git commit -m "Agregar CI automático para M3 C4"
+git push
+```
+
+Abrí el run generado por el push. El grafo esperado es:
+
+```text
+1 · CI Terraform     verde
+        ↓
+2 · CI Ansible       verde
+        ↓
+3 · CD Terraform     omitido
+        ↓
+4 · CD Ansible       omitido
+```
+
+**Por qué:** los jobs de CD conservan `if: github.event_name == 'workflow_dispatch'`. Agregar `push` mejora el feedback de CI, pero no convierte el despliegue en automático.
+
+### Checkpoint 3
+
+- El push inicia el workflow.
+- Los dos stages de CI pasan sin secrets.
+- Ningún stage de CD accede a AWS.
 
 ## Actividad 4 — Configurar el environment lab
 
@@ -206,7 +262,7 @@ No copies los valores de los secrets en capturas ni logs. GitHub no vuelve a mos
 
 1. Volvé al workflow fallido.
 2. Presioná **Re-run jobs** o ejecutá un nuevo `workflow_dispatch` con `operation = plan`.
-3. Revisá la salida de Terraform.
+3. Revisá el grafo y el step **Terraform plan** dentro de `3 · CD Terraform`.
 
 Qué observar:
 
@@ -216,6 +272,8 @@ Qué observar:
 - Los nombres derivan de `STUDENT_IDENTITY` y del account id.
 
 Checkpoint: el plan debe terminar en verde y no debe crear recursos todavía.
+
+`4 · CD Ansible + HTTP` debe quedar omitido: un plan no crea una instancia para configurar.
 
 Antes del apply revisá:
 
@@ -229,11 +287,23 @@ Antes del apply revisá:
 ## Actividad 6 — Ejecutar apply y configurar Nginx
 
 1. Ejecutá el workflow manual con `operation = apply`.
-2. Revisá el plan antes de que se aplique.
-3. Cuando termine Terraform, el workflow instala `session-manager-plugin`, Ansible y la colección `community.aws`.
-4. El script `scripts/render_inventory.py` genera un inventario desde los outputs de Terraform.
-5. Ansible se conecta por SSM y configura Nginx.
-6. El workflow hace una comprobación HTTP pública.
+2. Observá la secuencia: CI Terraform termina, luego CI Ansible y recién después comienza CD Terraform.
+3. En `3 · CD Terraform`, revisá **3.6 · Terraform plan previo al deploy** y **3.7 · Terraform deploy**.
+4. Cuando CD Terraform termina, comienza `4 · CD Ansible + HTTP` en un runner nuevo.
+5. CD Ansible vuelve a inicializar el backend para leer los outputs del state remoto.
+6. Instala `session-manager-plugin`, Ansible y la colección `community.aws`.
+7. `scripts/render_inventory.py` genera un inventario desde los outputs de Terraform.
+8. Ansible se conecta por SSM y configura Nginx.
+9. El último step hace una comprobación HTTP pública.
+
+Grafo esperado:
+
+```text
+1 · CI Terraform
+→ 2 · CI Ansible
+→ 3 · CD Terraform
+→ 4 · CD Ansible + HTTP
+```
 
 Qué observar:
 
@@ -248,10 +318,13 @@ Abrí el step de Ansible y guardá el `PLAY RECAP`. Debe mostrar `failed=0` y `u
 
 **Por qué Terraform y Ansible están separados:** Terraform administra VPC, IAM, S3 y EC2. Ansible administra paquetes, archivos y servicios dentro de la instancia.
 
+**Por qué CD Ansible vuelve a inicializar Terraform:** cada job usa un runner efímero diferente. El segundo runner no recibe el directorio `.terraform` ni los outputs del anterior; reconstruye el contexto leyendo el mismo backend remoto.
+
 ## Actividad 7 — Confirmar idempotencia de infraestructura
 
 1. Ejecutá nuevamente `workflow_dispatch` con `operation = plan`.
-2. Revisá la salida.
+2. Revisá el step **Terraform plan** en `3 · CD Terraform`.
+3. Confirmá que CD Ansible quede omitido.
 
 Resultado esperado:
 
@@ -266,8 +339,9 @@ Si aparecen cambios, revisá qué recurso cambió y si fue modificado fuera de T
 ## Actividad 8 — Cleanup
 
 1. Ejecutá `workflow_dispatch` con `operation = destroy`.
-2. Verificá que Terraform elimine los recursos del target.
-3. Confirmá que el bucket de backend remoto no se borra.
+2. Verificá que los steps **3.6 · Terraform plan para destroy** y **3.7 · Terraform destroy** eliminen los recursos del target.
+3. Confirmá que `4 · CD Ansible + HTTP` quede omitido.
+4. Confirmá que el bucket de backend remoto no se borra.
 
 El destroy limpia los recursos declarados en `infra/`, incluido el bucket temporal usado por Ansible. El bucket S3 de backend no está declarado como recurso y debe quedar intacto.
 
@@ -310,6 +384,8 @@ No borres el bucket de backend compartido si fue provisto para el curso.
 ## Entregables
 
 - Captura o enlace del CI en verde.
+- Commit donde agregaste `on.push` para `m3-c4-lab`.
+- Captura del push ejecutando CI Terraform y CI Ansible con ambos stages de CD omitidos.
 - Captura o enlace del primer `plan` fallando por credenciales faltantes.
 - Captura o enlace del `plan` exitoso.
 - Captura o enlace del `apply` exitoso con comprobación HTTP.
@@ -321,11 +397,11 @@ No borres el bucket de backend compartido si fue provisto para el curso.
 
 | Criterio | Puntos |
 |---|---:|
-| CI en push/PR sin credenciales ejecuta Terraform fmt/init/validate y Ansible syntax-check | 20 |
+| Agrega `on.push` para `m3-c4-lab`; CI Terraform y CI Ansible pasan sin activar CD | 20 |
 | Environment `lab` configurado correctamente con secrets y vars | 15 |
 | Primer plan falla naturalmente por falta de credenciales antes de configurar secrets | 10 |
 | Plan exitoso usa backend S3 preexistente con lockfile | 15 |
 | Apply crea la arquitectura mínima solicitada sin SSH ni key pair | 15 |
-| Ansible configura Nginx por SSM y la comprobación HTTP pasa | 15 |
+| CD Ansible corre como stage separado, configura Nginx por SSM y HTTP pasa | 15 |
 | Segundo plan muestra `No changes` | 5 |
 | Destroy limpia los recursos del lab y se presentan entregables claros | 5 |

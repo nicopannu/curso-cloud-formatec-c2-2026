@@ -1,22 +1,6 @@
 name: Infra CI/CD - Banco Patacon LAB01
 
 on:
-  push:
-    paths:
-      - ".github/workflows/infra-ci.yml"
-      - "infra/**"
-      - "ansible/**"
-      - "scripts/**"
-      - "guias/**"
-      - "README.md"
-  pull_request:
-    paths:
-      - ".github/workflows/infra-ci.yml"
-      - "infra/**"
-      - "ansible/**"
-      - "scripts/**"
-      - "guias/**"
-      - "README.md"
   workflow_dispatch:
     inputs:
       operation:
@@ -42,78 +26,83 @@ env:
   ANSIBLE_CONFIG: ansible/ansible.cfg
 
 jobs:
-  ci:
-    name: CI sin credenciales
+  ci-terraform:
+    name: 1 · CI Terraform
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout
+      - name: 1.1 · Descargar repositorio
         uses: actions/checkout@v7
 
-      - name: Setup Terraform
+      - name: 1.2 · Preparar Terraform
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
-      - name: Terraform fmt
+      - name: 1.3 · Terraform fmt
         working-directory: infra
         run: terraform fmt -check -recursive
 
-      - name: Terraform init sin backend
+      - name: 1.4 · Terraform init sin backend
         working-directory: infra
         run: terraform init -backend=false
 
-      - name: Terraform validate
+      - name: 1.5 · Terraform validate
         working-directory: infra
         run: terraform validate
 
-      - name: Instalar Ansible para syntax-check
+  ci-ansible:
+    name: 2 · CI Ansible
+    needs: ci-terraform
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 2.1 · Descargar repositorio
+        uses: actions/checkout@v7
+
+      - name: 2.2 · Instalar Ansible
         run: |
           python3 -m pip install --user ansible-core
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Instalar colecciones Ansible
+      - name: 2.3 · Instalar colecciones Ansible
         run: ansible-galaxy collection install -r ansible/requirements.yml
 
-      - name: Ansible syntax-check
+      - name: 2.4 · Ansible syntax-check
         run: ansible-playbook --syntax-check ansible/playbook.yml
 
-  deploy:
-    name: deploy ${{ inputs.operation }}
-    needs: ci
+  cd-terraform:
+    name: 3 · CD Terraform
+    needs: ci-ansible
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     environment: lab
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       TF_VAR_student_identity: ${{ vars.STUDENT_IDENTITY }}
     steps:
-      - name: Checkout
+      - name: 3.1 · Descargar repositorio
         uses: actions/checkout@v7
 
-      - name: Setup Terraform
+      - name: 3.2 · Preparar Terraform
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
-      - name: Configure AWS credentials
+      - name: 3.3 · Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
-      - name: Verificar identidad AWS
+      - name: 3.4 · Verificar identidad AWS
         run: aws sts get-caller-identity
 
-      - name: Terraform fmt
-        working-directory: infra
-        run: terraform fmt -check -recursive
-
-      - name: Terraform init con backend S3
+      - name: 3.5 · Terraform init con backend S3
         working-directory: infra
         run: |
           terraform init \
@@ -122,59 +111,86 @@ jobs:
             -backend-config="region=${{ vars.AWS_REGION || 'us-east-1' }}" \
             -backend-config="use_lockfile=true"
 
-      - name: Terraform validate
-        working-directory: infra
-        run: terraform validate
-
-      - name: Terraform plan
+      - name: 3.6 · Terraform plan
         if: inputs.operation == 'plan'
         working-directory: infra
         run: terraform plan
 
-      - name: Terraform apply plan
+      - name: 3.6 · Terraform plan previo al deploy
         if: inputs.operation == 'apply'
         working-directory: infra
         run: terraform plan -out=tfplan
 
-      - name: Terraform apply
+      - name: 3.7 · Terraform deploy
         if: inputs.operation == 'apply'
         working-directory: infra
         run: terraform apply -auto-approve tfplan
 
-      - name: Terraform destroy plan
+      - name: 3.6 · Terraform plan para destroy
         if: inputs.operation == 'destroy'
         working-directory: infra
         run: terraform plan -destroy -out=tfplan
 
-      - name: Terraform destroy
+      - name: 3.7 · Terraform destroy
         if: inputs.operation == 'destroy'
         working-directory: infra
         run: terraform apply -auto-approve tfplan
 
-      - name: Instalar Session Manager Plugin
-        if: inputs.operation == 'apply'
+  cd-ansible:
+    name: 4 · CD Ansible + HTTP
+    needs: cd-terraform
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'apply'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: lab
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TF_VAR_student_identity: ${{ vars.STUDENT_IDENTITY }}
+    steps:
+      - name: 4.1 · Descargar repositorio
+        uses: actions/checkout@v7
+
+      - name: 4.2 · Preparar Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: 4.3 · Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: 4.4 · Terraform init para leer outputs
+        working-directory: infra
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ vars.TF_STATE_KEY }}" \
+            -backend-config="region=${{ vars.AWS_REGION || 'us-east-1' }}" \
+            -backend-config="use_lockfile=true"
+
+      - name: 4.5 · Instalar Session Manager Plugin
         run: |
           curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o /tmp/session-manager-plugin.deb
           sudo dpkg -i /tmp/session-manager-plugin.deb
 
-      - name: Instalar Ansible
-        if: inputs.operation == 'apply'
+      - name: 4.6 · Instalar Ansible
         run: |
           python3 -m pip install --user --upgrade ansible-core boto3 botocore
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Instalar colecciones Ansible
-        if: inputs.operation == 'apply'
+      - name: 4.7 · Instalar colecciones Ansible
         run: ansible-galaxy collection install -r ansible/requirements.yml
 
-      - name: Generar inventario desde outputs
-        if: inputs.operation == 'apply'
+      - name: 4.8 · Generar inventario desde outputs
         run: |
           terraform -chdir=infra output -json > tf-outputs.json
           python3 scripts/render_inventory.py tf-outputs.json ansible/inventory.generated.yml
 
-      - name: Esperar registro de EC2 en Systems Manager
-        if: inputs.operation == 'apply'
+      - name: 4.9 · Esperar registro SSM
         run: |
           INSTANCE_ID="$(terraform -chdir=infra output -raw instance_id)"
           for attempt in {1..30}; do
@@ -192,12 +208,10 @@ jobs:
           echo "La instancia no quedó Online en Systems Manager" >&2
           exit 1
 
-      - name: Ejecutar Ansible por SSM
-        if: inputs.operation == 'apply'
+      - name: 4.10 · Ejecutar Ansible por SSM
         run: ansible-playbook -i ansible/inventory.generated.yml ansible/playbook.yml
 
-      - name: Comprobar HTTP público
-        if: inputs.operation == 'apply'
+      - name: 4.11 · Comprobar HTTP público
         run: |
           PUBLIC_IP="$(terraform -chdir=infra output -raw public_ip)"
           curl --fail --retry 10 --retry-delay 12 --retry-connrefused "http://${PUBLIC_IP}/"
