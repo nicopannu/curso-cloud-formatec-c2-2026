@@ -42,7 +42,7 @@ En un push, `CD Terraform` y `CD Ansible` quedan omitidos porque ambos están co
 ## Alcance obligatorio
 
 - Mantener un único root Terraform en `infra/`.
-- Usar backend S3 preexistente configurado por CLI, con `use_lockfile=true`.
+- Crear o reutilizar un backend S3 protegido y configurarlo por CLI con `use_lockfile=true`.
 - Crear VPC, subnet pública, internet gateway, tabla de rutas, security group, IAM role/profile, bucket temporal privado y una única instancia EC2.
 - Permitir sólo HTTP 80 de entrada en el security group.
 - No usar SSH, key pair ni credenciales dentro del repositorio.
@@ -64,7 +64,7 @@ En un push, `CD Terraform` y `CD Ansible` quedan omitidos porque ambos están co
 - `m3-c4-lab` seleccionada como default branch durante el lab.
 - Branch abierta en Codespaces o en un entorno local equivalente.
 - Terraform, AWS CLI, Ansible, Python y jq disponibles.
-- Un bucket S3 de backend ya creado en la cuenta AWS del laboratorio.
+- Permisos para crear o reutilizar un bucket S3 privado en la cuenta AWS del laboratorio.
 - Credenciales AWS autorizadas para crear los recursos del lab.
 
 No crees credenciales en archivos del repositorio. Usá secrets del environment de GitHub.
@@ -228,7 +228,96 @@ Abrí el run generado por el push. El grafo esperado es:
 - Los dos stages de CI pasan sin secrets.
 - Ningún stage de CD accede a AWS.
 
-## Actividad 4 — Configurar el environment lab
+## Actividad 4 — Crear y verificar el backend S3
+
+El backend debe existir antes de que el workflow ejecute `terraform init`. No puede ser creado por el mismo root Terraform que intenta guardar su state dentro de ese bucket.
+
+Desde Codespaces, CloudShell o una terminal con las credenciales autorizadas del laboratorio:
+
+```bash
+export AWS_REGION="us-east-1"
+export STUDENT_IDENTITY="tuusuario"
+
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+export TF_STATE_BUCKET="formatec-tfstate-${ACCOUNT_ID}-${STUDENT_IDENTITY}"
+
+echo "Cuenta: $ACCOUNT_ID"
+echo "Región: $AWS_REGION"
+echo "Bucket backend: $TF_STATE_BUCKET"
+```
+
+Reemplazá `tuusuario` por la misma identidad que usarás en `STUDENT_IDENTITY`. Usá sólo minúsculas, números y guion.
+
+Comprobá si el bucket ya existe en tu cuenta:
+
+```bash
+if aws s3api head-bucket --bucket "$TF_STATE_BUCKET" 2>/dev/null; then
+  echo "El bucket ya existe"
+else
+  aws s3api create-bucket \
+    --bucket "$TF_STATE_BUCKET" \
+    --region "$AWS_REGION"
+fi
+```
+
+El comando anterior corresponde a `us-east-1`, la región definida para el laboratorio.
+
+Protegé el backend:
+
+```bash
+aws s3api put-bucket-versioning \
+  --bucket "$TF_STATE_BUCKET" \
+  --versioning-configuration Status=Enabled
+
+aws s3api put-bucket-encryption \
+  --bucket "$TF_STATE_BUCKET" \
+  --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+
+aws s3api put-public-access-block \
+  --bucket "$TF_STATE_BUCKET" \
+  --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+```
+
+Verificá la configuración:
+
+```bash
+aws s3api get-bucket-versioning --bucket "$TF_STATE_BUCKET"
+aws s3api get-bucket-encryption --bucket "$TF_STATE_BUCKET"
+aws s3api get-public-access-block --bucket "$TF_STATE_BUCKET"
+```
+
+Resultado esperado:
+
+- versionado `Enabled`;
+- cifrado `AES256`;
+- las cuatro opciones de acceso público en `true`.
+
+Guardá el valor mostrado por:
+
+```bash
+echo "$TF_STATE_BUCKET"
+```
+
+Lo usarás como variable `TF_STATE_BUCKET` del environment `lab`.
+
+Este laboratorio usa locking nativo de S3 mediante:
+
+```text
+use_lockfile=true
+```
+
+No crees una tabla DynamoDB ni agregues `dynamodb_table`: no forma parte del backend de este starter.
+
+### Checkpoint 4
+
+- La identidad STS corresponde a la cuenta autorizada.
+- El bucket existe en `us-east-1`.
+- Versionado, cifrado y bloqueo de acceso público están activos.
+- El nombre exacto del bucket está guardado para GitHub.
+
+## Actividad 5 — Configurar el environment lab
 
 En GitHub, abrí **Settings → Environments → New environment** y creá:
 
@@ -258,7 +347,7 @@ No copies los valores de los secrets en capturas ni logs. GitHub no vuelve a mos
 
 **Por qué se usa un environment:** concentra la configuración del destino `lab` y evita escribir datos sensibles en el YAML. El environment no despliega nada por sí mismo.
 
-## Actividad 5 — Reintentar plan
+## Actividad 6 — Reintentar plan
 
 1. Volvé al workflow fallido.
 2. Presioná **Re-run jobs** o ejecutá un nuevo `workflow_dispatch` con `operation = plan`.
@@ -284,7 +373,7 @@ Antes del apply revisá:
 - ingress HTTP 80 y ausencia de SSH 22;
 - bucket temporal distinto del bucket de backend.
 
-## Actividad 6 — Ejecutar apply y configurar Nginx
+## Actividad 7 — Ejecutar apply y configurar Nginx
 
 1. Ejecutá el workflow manual con `operation = apply`.
 2. Observá la secuencia: CI Terraform termina, luego CI Ansible y recién después comienza CD Terraform.
@@ -320,7 +409,7 @@ Abrí el step de Ansible y guardá el `PLAY RECAP`. Debe mostrar `failed=0` y `u
 
 **Por qué CD Ansible vuelve a inicializar Terraform:** cada job usa un runner efímero diferente. El segundo runner no recibe el directorio `.terraform` ni los outputs del anterior; reconstruye el contexto leyendo el mismo backend remoto.
 
-## Actividad 7 — Confirmar idempotencia de infraestructura
+## Actividad 8 — Confirmar idempotencia de infraestructura
 
 1. Ejecutá nuevamente `workflow_dispatch` con `operation = plan`.
 2. Revisá el step **Terraform plan** en `3 · CD Terraform`.
@@ -336,7 +425,7 @@ Si aparecen cambios, revisá qué recurso cambió y si fue modificado fuera de T
 
 **Por qué se repite:** un plan sin diferencias demuestra convergencia de infraestructura. No demuestra que Nginx responda; esa evidencia proviene del smoke test.
 
-## Actividad 8 — Cleanup
+## Actividad 9 — Cleanup
 
 1. Ejecutá `workflow_dispatch` con `operation = destroy`.
 2. Verificá que los steps **3.6 · Terraform plan para destroy** y **3.7 · Terraform destroy** eliminen los recursos del target.
@@ -361,7 +450,11 @@ Revisá que el environment se llame exactamente `lab` y que tenga los secrets `A
 
 ### Terraform dice que el backend no existe
 
-Revisá `TF_STATE_BUCKET`, `TF_STATE_KEY` y `AWS_REGION`. El bucket de backend debe existir antes del lab.
+Revisá `TF_STATE_BUCKET`, `TF_STATE_KEY` y `AWS_REGION`. Repetí la verificación de la Actividad 4 y confirmá que el nombre guardado en GitHub coincide exactamente con `echo "$TF_STATE_BUCKET"`.
+
+### Terraform intenta usar DynamoDB
+
+El starter actual usa `use_lockfile=true` y no requiere tabla DynamoDB. Revisá que tu branch y workflow estén actualizados y que no exista una configuración heredada con `dynamodb_table`. Si cambió la configuración del backend, reinicializá con `terraform init -reconfigure` en un entorno controlado antes de reintentar.
 
 ### STUDENT_IDENTITY no pasa la validación
 
@@ -379,10 +472,11 @@ Esperá a que Nginx termine de iniciar y reintentá. Si sigue fallando, revisá 
 
 El lab crea recursos que pueden generar costo: una instancia EC2, almacenamiento EBS, tráfico y buckets S3. Ejecutá `destroy` al terminar y verificá que no queden recursos del prefijo del laboratorio.
 
-No borres el bucket de backend compartido si fue provisto para el curso.
+No borres el bucket de backend durante el cleanup de LAB01. Es infraestructura previa al root `infra/` y puede conservar versiones del state. Su eliminación, si corresponde, se realiza por separado al terminar el curso.
 
 ## Entregables
 
+- Salida o captura de la verificación del backend con versionado, cifrado y bloqueo de acceso público activos, sin exponer credenciales.
 - Captura o enlace del CI en verde.
 - Commit donde agregaste `on.push` para `m3-c4-lab`.
 - Captura del push ejecutando CI Terraform y CI Ansible con ambos stages de CD omitidos.
@@ -400,7 +494,7 @@ No borres el bucket de backend compartido si fue provisto para el curso.
 | Agrega `on.push` para `m3-c4-lab`; CI Terraform y CI Ansible pasan sin activar CD | 20 |
 | Environment `lab` configurado correctamente con secrets y vars | 15 |
 | Primer plan falla naturalmente por falta de credenciales antes de configurar secrets | 10 |
-| Plan exitoso usa backend S3 preexistente con lockfile | 15 |
+| Crea o verifica el backend S3 protegido y el plan usa locking nativo con `use_lockfile=true` | 15 |
 | Apply crea la arquitectura mínima solicitada sin SSH ni key pair | 15 |
 | CD Ansible corre como stage separado, configura Nginx por SSM y HTTP pasa | 15 |
 | Segundo plan muestra `No changes` | 5 |
