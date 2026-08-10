@@ -296,7 +296,7 @@ jobs:
     steps:
       # Orden 1: el runner comienza vacío; primero necesita descargar el repositorio.
       - name: 1. Descargar repositorio
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       # Orden 2: confirmamos qué herramienta ejecutará el build antes de usarla.
       - name: 2. Verificar Docker
@@ -347,7 +347,7 @@ jobs:
 
       # Orden 7: guardamos evidencia pequeña; no subimos la imagen Docker completa.
       - name: 7. Publicar metadata como artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: image-metadata-${{ github.sha }}
           path: image-metadata.txt
