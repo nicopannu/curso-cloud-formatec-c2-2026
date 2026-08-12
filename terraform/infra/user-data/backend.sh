@@ -16,7 +16,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 logging.basicConfig(
-    stream=sys.stdout,
+    filename='/opt/banco-patacon-api/app.log',
     level=logging.INFO,
     format='%(message)s'
 )
@@ -94,10 +94,9 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCO
       "files": {
         "collect_list": [
           {
-            "file_path": "/var/log/messages",
+            "file_path": "/opt/banco-patacon-api/app.log",
             "log_group_name": "/aws/backend/app",
-            "log_stream_name": "{instance_id}",
-            "timestamp_format": "%b %d %H:%M:%S"
+            "log_stream_name": "{instance_id}"
           }
         ]
       }
