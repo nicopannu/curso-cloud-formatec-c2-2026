@@ -108,7 +108,7 @@ chmod +x scripts/generar-trafico.sh
 ./scripts/generar-trafico.sh <FRONTEND_URL> <BACKEND_URL> 120
 ```
 
-Esto va a generar requests normales y picos de error durante 2 minutos. Mientras corre, volvé a CloudWatch y actualizá los log groups para ver nuevas líneas entrando.
+Esto genera requests normales al frontend y backend, y cada ~30 segundos manda 5 requests al endpoint `/server-error` del frontend (que devuelve HTTP 500 a propósito) para simular picos de error. Mientras corre, volvé a CloudWatch y actualizá los log groups para ver nuevas líneas entrando.
 
 ---
 
@@ -119,19 +119,13 @@ Un metric filter extrae una métrica numérica desde los logs. Cada vez que una 
 ### Filter 1 — Errores 5xx del frontend
 
 1. CloudWatch → Log groups → `/aws/frontend/access` → pestaña **Metric filters** → **Create metric filter**.
-2. Patrón de filtro: `[ip, user, timestamp, request, status, ...]` — pero para simplificar, usá un patrón simple. Probá con el patrón que detecte status codes en el rango 500-599. Los logs de nginx tienen el status code como cuarto campo entre espacios. Un patrón que funciona:
+2. El formato del access log de nginx tiene el status code como séptimo campo separado por espacios. El patrón que detecta códigos 500 a 599 es:
 
    ```
-    [,,, status=5*,...]
+   [ip, user, timestamp, tz, request, status=5*, bytes, referer, agent]
    ```
 
-   O si preferís un patrón más directo, usá `" 500 "` como prueba inicial. Después generalizá.
-
-   Si el formato del log es el estándar de nginx, el status code aparece después de la URL. Probá filtrar con `Logs Insights` primero para ver el formato exacto: seleccioná el log group y ejecutá:
-
-   ```
-   fields @timestamp, @message | limit 20
-   ```
+   Pegá ese patrón en el campo de filtro y usá **Test pattern** para verificar que matchea líneas con status 5xx. Si el frontend acaba de arrancar y todavía no recibió errores, el script de tráfico los va a generar (endpoint `/server-error` devuelve 500).
 
 3. Una vez que el patrón matchea correctamente (probalo con **Test pattern**), avanzá.
 4. **Metric details:**

@@ -28,11 +28,11 @@ while [ $(( $(date +%s) - START )) -lt $DURATION_SECONDS ]; do
       -o /dev/null -w "[$(date +%H:%M:%S)] backend OK  %{http_code}\n"
   fi
 
-  # ── Picos de error (cada ~30 segundos, ~5 requests 404 al frontend) ──
+  # ── Picos de error (cada ~30 segundos, ~5 requests 500 al frontend) ──
   if [ $((ITER % 30)) -eq 0 ]; then
     echo "[$(date +%H:%M:%S)] >>> PICO DE ERRORES <<<"
     for i in $(seq 1 5); do
-      curl -s -o /dev/null -w "[$(date +%H:%M:%S)] frontend 404 %{http_code}\n" "$FRONTEND/pagina-inexistente-$i"
+      curl -s -o /dev/null -w "[$(date +%H:%M:%S)] frontend 500 %{http_code}\n" "$FRONTEND/server-error"
       sleep 0.2
     done
   fi

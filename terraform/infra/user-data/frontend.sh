@@ -33,6 +33,14 @@ HTML
 
 systemctl enable nginx --now
 
+# Endpoint que genera 500 para pruebas de monitoreo
+cat > /etc/nginx/default.d/error.conf << 'NGXERR'
+location /server-error {
+    return 500 "Error interno simulado para pruebas de monitoreo";
+}
+NGXERR
+systemctl reload nginx
+
 # CloudWatch agent
 dnf install -y amazon-cloudwatch-agent
 
