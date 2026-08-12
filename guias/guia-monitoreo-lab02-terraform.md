@@ -1,15 +1,15 @@
-# M3-C5 LAB03 — Monitoreo como código con Terraform
+# M3-C5 LAB02 — Monitoreo como código con Terraform
 
 **Módulo:** M3-C5 — Monitoreo proactivo
 **Duración estimada:** ~60 minutos (tarea individual)
 **Branch:** `m3-c5-lab`
-**Dependencia:** LAB02 completado
+**Dependencia:** LAB01 completado
 
 ---
 
 ## Contexto
 
-En LAB02 recorriste CloudWatch desde la consola: exploraste logs, creaste metric filters, armaste un dashboard y configuraste alarmas. Todo a mano, paso por paso.
+En LAB01 recorriste CloudWatch desde la consola: exploraste logs, creaste metric filters, armaste un dashboard y configuraste alarmas. Todo a mano, paso por paso.
 
 Ahora vas a declarar todo eso con Terraform. El objetivo no es solo que funcione: es que quede versionado, sea repetible, y pueda aplicarse en cualquier cuenta sin depender de tu memoria.
 
@@ -42,7 +42,7 @@ Los recursos de monitoreo se suman a la infraestructura existente sin modificarl
 
 ## Prerrequisitos
 
-- Infraestructura de LAB02 desplegada (frontend + backend con logs en CloudWatch).
+- Infraestructura de LAB01 desplegada (frontend + backend con logs en CloudWatch).
 - Terraform ≥ 1.5.
 - AWS CLI configurado con las mismas credenciales del curso.
 - Leída la guía `specs/guia-de-specs.md`.

@@ -1,9 +1,9 @@
-# M3-C5 LAB02 — Monitoreo en vivo: logs, métricas y alarmas
+# M3-C5 LAB01 — Monitoreo en vivo: logs, métricas y alarmas
 
 **Módulo:** M3-C5 — Monitoreo proactivo
 **Duración estimada:** ~50 minutos (guiado en clase)
 **Branch:** `m3-c5-lab`
-**Dependencia:** LAB01 completado
+**Dependencia:** infraestructura desplegada (el profesor dispara el deploy)
 
 ---
 

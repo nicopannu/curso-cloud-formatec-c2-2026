@@ -10,9 +10,8 @@ Repositorio del curso **Arquitectura e Ingeniería Cloud | C2**.
 
 | # | Guía | Formato | Foco | AWS |
 |---|---|---|---|---|
-| LAB01 | `guias/guia-monitoreo-lab01-dataset.md` | Individual/grupal | Análisis de incidente, SLI/SLO, diseño de dashboards y alertas | ❌ |
-| LAB02 | `guias/guia-monitoreo-lab02-consola.md` | En clase (vivo) | CloudWatch: logs, metric filters, dashboard, alarmas por consola | ✅ |
-| LAB03 | `guias/guia-monitoreo-lab03-terraform.md` | Tarea individual | Monitoreo como código con Terraform | ✅ |
+| LAB01 | `guias/guia-monitoreo-lab01-consola.md` | En clase (vivo) | CloudWatch: logs, metric filters, dashboard, alarmas por consola | ✅ |
+| LAB02 | `guias/guia-monitoreo-lab02-terraform.md` | Tarea individual | Monitoreo como código con Terraform | ✅ |
 
 ## Arquitectura
 
@@ -34,10 +33,8 @@ m3-c5-lab/
 ├── specs/                        # Guía de cómo escribir specs
 ├── terraform/infra/              # Infraestructura (frontend + backend)
 │   └── user-data/                # Scripts de bootstrap
-├── scripts/generar-trafico.sh    # Simulador de tráfico para LAB02
-├── guias/                        # Guías de los 3 labs
-├── datos/                        # Dataset del incidente (LAB01)
-├── plantillas/                   # Matriz SLI/SLO/alertas (LAB01)
+├── scripts/generar-trafico.sh    # Simulador de tráfico para LAB01
+├── guias/                        # Guías de los 2 labs
 └── material-docente/             # Guion de clase + slides outline
 ```
 
