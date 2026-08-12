@@ -87,6 +87,9 @@ Codespaces: <https://codespaces.new/nicopannu/curso-cloud-formatec-c2-2026?ref=m
 
 - Las credenciales de AWS se cargan como secrets de GitHub Actions; nunca se commitean.
 - No commitear `.terraform/`, `terraform.tfstate` ni backups.
+- El state remoto usa el bucket compartido entregado para el curso mediante la variable `TF_STATE_BUCKET`.
+- Ese bucket es infraestructura compartida y **nunca se elimina** con `terraform destroy` de un lab.
+- Cada despliegue usa una key aislada: `m3-c5/<student_identity>/infra.tfstate`.
 - El workflow usa `workflow_dispatch`: `apply` y `destroy` son acciones explícitas.
 - Al finalizar LAB01, eliminar dashboards, alarmas, metric filters y toda la infraestructura creada.
 - No borrar recursos compartidos de otras clases.

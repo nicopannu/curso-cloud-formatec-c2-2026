@@ -170,7 +170,7 @@ terraform -chdir=terraform/infra validate
 git diff -- .github/workflows/deploy-infra.yml
 ```
 
-El repositorio de la clase debe tener configurada la variable `TF_STATE_BUCKET` con el bucket S3 autorizado para el state. No escribas ese nombre dentro del código si el profesor no lo indicó.
+El repositorio de la clase debe tener configurada la variable `TF_STATE_BUCKET` con el bucket S3 autorizado para el state. El nombre lo entrega el docente y no debe escribirse dentro del código. El `destroy` elimina los recursos del lab, **no elimina el bucket de state**.
 
 El profesor ejecuta **Actions → Deploy infrastructure → Run workflow → apply**, completando también `student_identity` con el identificador elegido para la clase.
 

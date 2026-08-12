@@ -95,6 +95,8 @@ El workflow debe recibir `student_identity` para evitar colisiones entre ejecuci
 
 Terraform debe usar un backend S3 preexistente y protegido. El workflow pasa bucket, key y región durante `terraform init`; nunca se crea ni se destruye ese bucket como parte del lab. La key del state debe ser estable por identidad, por ejemplo `m3-c5/<student_identity>/infra.tfstate`.
 
+El bucket compartido lo entrega el docente para cada cuenta. No lo hardcodees en el workflow: usá `TF_STATE_BUCKET` como variable del Environment `lab`.
+
 El workflow debe incluir `concurrency` por identidad, con `cancel-in-progress: false`.
 
 ### Seguridad operativa
@@ -102,6 +104,7 @@ El workflow debe incluir `concurrency` por identidad, con `cancel-in-progress: f
 - Agregar `timeout-minutes` al job.
 - No crear SNS, dashboards, alarmas ni metric filters desde el workflow.
 - No incluir cleanup destructivo fuera de la acción `destroy` elegida manualmente.
+- `destroy` elimina únicamente los recursos del state del deployment; nunca el bucket S3 ni otros states.
 - El README y la guía deben explicar que `destroy` es obligatorio al terminar.
 
 ---
