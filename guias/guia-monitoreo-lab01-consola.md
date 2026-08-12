@@ -193,9 +193,11 @@ Desde una terminal:
 ```bash
 curl <FRONTEND_URL>
 curl <BACKEND_URL>/health
+curl -o /dev/null -w '%{http_code}\n' <FRONTEND_URL>/server-error
 ```
 
-El frontend debe devolver la página de Banco Patacon. El backend debe devolver un estado `ok`.
+El frontend debe devolver la página de estado de Banco Patacon. El backend debe devolver un estado `ok`.
+El endpoint `/server-error` debe devolver HTTP `500`; se usa únicamente para generar un evento controlado durante la práctica.
 
 Si el servicio todavía no responde, esperá el bootstrap de EC2 y repetí. No avances a CloudWatch sin comprobar primero que la aplicación está viva.
 
@@ -352,7 +354,7 @@ Eliminá desde la consola los dashboards, alarmas y metric filters creados duran
 
 Después, el profesor ejecuta el workflow con acción `destroy`.
 
-Verificá que no queden EC2s, security groups, instance profiles ni log groups del lab.
+Verificá que no queden EC2s, security groups ni instance profiles del lab. Los log groups `/aws/frontend/access` y `/aws/backend/app` son compartidos por la arquitectura y no deben eliminarse indiscriminadamente. Conservá esos grupos; solo eliminá streams o grupos si el docente confirma que fueron creados exclusivamente para esta práctica.
 
 ---
 

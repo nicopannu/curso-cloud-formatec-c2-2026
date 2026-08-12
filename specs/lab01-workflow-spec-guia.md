@@ -66,7 +66,7 @@ El workflow debe mostrar al finalizar los outputs de Terraform, especialmente:
 - Usar las credenciales precargadas en GitHub Actions para la cuenta del curso.
 - No escribir AK/SAK en el repositorio.
 - No imprimir valores de secrets.
-- Usar `aws-actions/configure-aws-credentials@v4` con los secrets definidos por el curso.
+- Usar `aws-actions/configure-aws-credentials@v4` con los secrets `AWS_ACCESS_KEY_ID` y `AWS_SECRET_ACCESS_KEY` del Environment `lab`.
 - Incluir `permissions: contents: read`.
 - No usar OIDC en esta primera versión salvo que el profesor cambie explícitamente el diseño.
 
