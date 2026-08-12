@@ -4,6 +4,7 @@
 terraform {
   required_version = ">= 1.5"
 
+  # El workflow completa bucket/key/region durante terraform init.
   backend "s3" {}
 
   required_providers {
@@ -26,13 +27,6 @@ data "aws_ssm_parameter" "al2023_ami" {
 
 data "aws_vpc" "default" {
   default = true
-}
-
-data "aws_subnets" "default" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
-  }
 }
 
 # ─── IAM ───
@@ -111,11 +105,12 @@ resource "aws_security_group" "backend" {
 # ─── EC2 — Frontend (nginx) ───
 
 resource "aws_instance" "frontend" {
-  ami                    = data.aws_ssm_parameter.al2023_ami.value
-  instance_type          = "t3.micro"
-  iam_instance_profile   = aws_iam_instance_profile.ec2_cloudwatch.name
-  vpc_security_group_ids = [aws_security_group.frontend.id]
-  user_data              = file("${path.module}/user-data/frontend.sh")
+  ami                         = data.aws_ssm_parameter.al2023_ami.value
+  instance_type               = "t3.micro"
+  associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2_cloudwatch.name
+  vpc_security_group_ids      = [aws_security_group.frontend.id]
+  user_data                   = file("${path.module}/user-data/frontend.sh")
 
   root_block_device {
     volume_size = 8
@@ -128,11 +123,12 @@ resource "aws_instance" "frontend" {
 # ─── EC2 — Backend (Flask) ───
 
 resource "aws_instance" "backend" {
-  ami                    = data.aws_ssm_parameter.al2023_ami.value
-  instance_type          = "t3.micro"
-  iam_instance_profile   = aws_iam_instance_profile.ec2_cloudwatch.name
-  vpc_security_group_ids = [aws_security_group.backend.id]
-  user_data              = file("${path.module}/user-data/backend.sh")
+  ami                         = data.aws_ssm_parameter.al2023_ami.value
+  instance_type               = "t3.micro"
+  associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2_cloudwatch.name
+  vpc_security_group_ids      = [aws_security_group.backend.id]
+  user_data                   = file("${path.module}/user-data/backend.sh")
 
   root_block_device {
     volume_size = 8

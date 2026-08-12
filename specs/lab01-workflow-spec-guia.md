@@ -91,7 +91,11 @@ Usar `-input=false` y aprobación no interactiva dentro del workflow. El workflo
 
 ### Identidad de recursos
 
-El workflow debe recibir o definir un `student_identity`/`deployment_id` para evitar colisiones entre ejecuciones. El valor debe ser visible en el nombre de los recursos y consistente entre `apply` y `destroy`.
+El workflow debe recibir `student_identity` para evitar colisiones entre ejecuciones. El valor debe ser visible en el nombre de los recursos y consistente entre `apply` y `destroy`.
+
+Terraform debe usar un backend S3 preexistente y protegido. El workflow pasa bucket, key y región durante `terraform init`; nunca se crea ni se destruye ese bucket como parte del lab. La key del state debe ser estable por identidad, por ejemplo `m3-c5/<student_identity>/infra.tfstate`.
+
+El workflow debe incluir `concurrency` por identidad, con `cancel-in-progress: false`.
 
 ### Seguridad operativa
 
