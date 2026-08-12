@@ -1,270 +1,408 @@
-# M3-C5 LAB01 — Monitoreo en vivo: logs, métricas y alarmas
+# M3-C5 LAB01 — Del spec al monitoreo por consola
 
 **Módulo:** M3-C5 — Monitoreo proactivo
-**Duración estimada:** ~50 minutos (guiado en clase)
+**Duración estimada:** 90 minutos (guiado en clase)
 **Branch:** `m3-c5-lab`
-**Dependencia:** infraestructura desplegada (el profesor dispara el deploy)
+**Formato:** construcción guiada + operación en AWS
 
 ---
 
 ## Contexto
 
-En LAB01 analizaste un incidente de Banco Patacon a partir de un dataset: calculaste tasas de error, definiste SLI/SLO, diseñaste dashboards y propusiste alertas. Todo sobre papel.
+Banco Patacon tiene un frontend web y un backend que procesa transferencias. El código de infraestructura ya está declarado con Terraform, pero todavía falta una forma repetible de desplegarlo.
 
-Ahora vas a hacer eso mismo sobre un sistema real. Banco Patacon tiene su frontend y backend corriendo en EC2, con logs fluyendo a CloudWatch. Tu tarea es recorrer el camino inverso al incidente: ver los logs, crear métricas, armar un dashboard, configurar alarmas y simular un mini-incidente para verlas dispararse.
+En este laboratorio vas a construir, con ayuda de un agente, un workflow manual de GitHub Actions a partir de un spec. Cuando el workflow esté listo, lo vas a ejecutar para desplegar la infraestructura. Recién después vas a comenzar el recorrido de monitoreo:
 
-Todo se hace desde la consola de AWS. Sin Terraform, sin código. El objetivo es entender qué hace cada pieza antes de declararla como código en el próximo lab.
+```text
+spec
+→ plan del agente
+→ workflow de GitHub Actions
+→ Terraform apply
+→ frontend + backend operando
+→ tráfico
+→ logs
+→ métricas
+→ dashboard
+→ alarmas
+```
+
+El workflow es el punto de continuidad con la clase anterior. El objetivo principal del lab es monitorear el sistema desplegado, no aprender sintaxis de GitHub Actions en profundidad.
 
 ---
 
-## Arquitectura
+## Arquitectura objetivo
 
-El profesor ya desplegó la infraestructura:
+```mermaid
+flowchart LR
+  SPEC[Spec] --> AGENT[Agente en Plan Mode]
+  AGENT --> WF[GitHub Actions]
+  WF --> TF[Terraform infra]
+  TF --> FE[EC2 Frontend nginx]
+  TF --> BE[EC2 Backend Flask]
+  FE --> FLOG[/aws/frontend/access]
+  BE --> BLOG[/aws/backend/app]
+  FLOG --> CW[CloudWatch]
+  BLOG --> CW
+  CW --> MF[Metric filters]
+  CW --> DASH[Dashboard]
+  CW --> ALARM[Alarmas]
+```
 
-```
-EC2 frontend (nginx)                    EC2 backend (Flask)
-  │                                        │
-  │  /var/log/nginx/access.log             │  stdout JSON logs
-  ▼                                        ▼
-CloudWatch agent ─────────────▶  CloudWatch agent
-  │                                        │
-  ▼                                        ▼
-/aws/frontend/access              /aws/backend/app
-  │                                        │
-  └────────────────┬───────────────────────┘
-                   ▼
-           CloudWatch Logs
-                   │
-           ┌───────┼──────────┐
-           ▼       ▼          ▼
-     Metric Filters  Dashboard  Alarmas
-```
+### Componentes
+
+| Componente | Responsabilidad |
+|---|---|
+| Terraform | Declara frontend, backend, IAM y bootstrap del CloudWatch Agent |
+| GitHub Actions | Ejecuta `fmt`, `init`, `validate`, `plan`, `apply` o `destroy` |
+| Frontend | Nginx con página de estado de Banco Patacon; endpoint `/server-error` para simular HTTP 500 |
+| Backend | API Flask con `/health` y `/transferir`; registra eventos JSON |
+| CloudWatch Logs | Recibe access logs del frontend y logs de aplicación del backend |
+| Consola CloudWatch | En LAB01 crea metric filters, dashboard y alarmas manualmente |
 
 ---
 
 ## Objetivos
 
-- Explorar logs reales en CloudWatch.
-- Crear metric filters para extraer métricas desde logs.
-- Construir un dashboard que responda preguntas operativas.
-- Configurar alarmas que cambien de estado ante condiciones reales.
-- Simular tráfico que genere errores y observar la reacción de las alarmas.
-- Investigar un pico de errores usando Logs Insights.
-
----
-
-## Alcance
-
-En este lab hacés todo desde la consola AWS. No escribís Terraform ni YAML. No configurás SNS ni canales de notificación (las alarmas cambian de estado en la consola, sin notificar a nadie). No modificás la infraestructura.
+- Escribir y revisar un spec técnico para un workflow.
+- Usar Plan Mode para pedirle a un agente una propuesta antes de editar.
+- Construir un workflow manual que despliegue Terraform.
+- Verificar una arquitectura real antes de monitorearla.
+- Generar tráfico y observar logs.
+- Crear por consola metric filters, dashboard y alarmas.
+- Interpretar un incidente simulado.
 
 ---
 
 ## Prerrequisitos
 
-- Branch `m3-c5-lab`.
-- Acceso a la consola AWS con permisos de CloudWatch.
-- URLs del frontend y backend (las comparte el profesor).
-- Terminal con `curl` para generar tráfico.
+- Repositorio abierto en Cursor.
+- Archivo `specs/guia-de-specs.md` leído.
+- Archivo `specs/lab01-workflow-spec-guia.md` disponible.
+- Terraform en `terraform/infra/` entendido a nivel general.
+- Acceso al repositorio de GitHub.
+- La cuenta del curso y sus credenciales de Actions están preparadas por el profesor.
+
+No agregues credenciales al repositorio. No ejecutes `terraform apply` desde tu máquina salvo que el profesor lo indique.
 
 ---
 
-## Actividad 1 — Verificar los servicios (3 min)
+## Actividad 1 — Leer el contexto y la arquitectura (5 min)
 
-El profesor te da dos URLs. Verificá que ambas respondan:
+Antes de usar el agente, explorá:
+
+```text
+README.md
+specs/guia-de-specs.md
+specs/lab01-workflow-spec-guia.md
+terraform/infra/main.tf
+terraform/infra/variables.tf
+terraform/infra/outputs.tf
+```
+
+Identificá:
+
+- qué recursos crea Terraform;
+- qué logs debería producir cada instancia;
+- qué outputs necesitás para probar el sistema;
+- qué recursos todavía no existen: metric filters, dashboard y alarmas.
+
+### Checkpoint 1
+
+Podés explicar esta diferencia:
+
+> Terraform ya declara la infraestructura. El workflow todavía debe declarar cómo se ejecuta Terraform. El monitoreo se construirá después, desde la consola.
+
+---
+
+## Actividad 2 — Construir el spec del workflow (10 min)
+
+Abrí `specs/lab01-workflow-spec-guia.md`.
+
+El documento no es el workflow terminado. Es una guía para construirlo. Revisá que incluya:
+
+- trigger manual;
+- acciones `apply` y `destroy`;
+- credenciales desde GitHub Secrets;
+- directorio `terraform/infra`;
+- validación antes de aplicar;
+- outputs al finalizar;
+- ausencia de recursos de monitoreo en el workflow.
+
+Completá o ajustá el spec con las decisiones de la clase: nombre de secrets, región, identidad de despliegue y mecanismo para conservar el mismo identificador en `apply` y `destroy`.
+
+---
+
+## Actividad 3 — Pedir un plan al agente (10 min)
+
+En Cursor Plan Mode, usá el prompt incluido al final de `specs/lab01-workflow-spec-guia.md`.
+
+El agente debe responder con:
+
+1. archivos que va a crear o modificar;
+2. pasos del workflow;
+3. secrets e inputs;
+4. riesgos o ambigüedades;
+5. validaciones.
+
+No aceptes la implementación todavía. Revisá el plan con estas preguntas:
+
+- ¿El workflow se ejecuta solo manualmente?
+- ¿Distingue `apply` de `destroy`?
+- ¿Valida Terraform antes de crear recursos?
+- ¿Usa `actions/checkout@v4`, `setup-terraform@v3` y credenciales configuradas correctamente?
+- ¿Evita crear dashboards o alarmas antes de tiempo?
+
+Cuando el plan sea correcto, pedile al agente que implemente únicamente lo aprobado.
+
+### Checkpoint 2
+
+El archivo `.github/workflows/deploy-infra.yml` existe, pero todavía no lo ejecutes si no revisaste su diff.
+
+---
+
+## Actividad 4 — Validar y ejecutar el workflow (10 min)
+
+Revisá el workflow y validá Terraform:
+
+```bash
+terraform -chdir=terraform/infra init -backend=false
+terraform -chdir=terraform/infra validate
+git diff -- .github/workflows/deploy-infra.yml
+```
+
+El repositorio de la clase debe tener configurada la variable `TF_STATE_BUCKET` con el bucket S3 autorizado para el state. No escribas ese nombre dentro del código si el profesor no lo indicó.
+
+El profesor ejecuta **Actions → Deploy infrastructure → Run workflow → apply**, completando también `student_identity` con el identificador elegido para la clase.
+
+Observá:
+
+- checkout;
+- configuración de credenciales;
+- `terraform fmt`, `init`, `validate` y `plan`;
+- `terraform apply`;
+- outputs de frontend y backend.
+
+Guardá las URLs que aparecen en los outputs.
+
+---
+
+## Actividad 5 — Verificar la arquitectura desplegada (5 min)
+
+Desde una terminal:
 
 ```bash
 curl <FRONTEND_URL>
 curl <BACKEND_URL>/health
 ```
 
-El frontend devuelve la página de estado de Banco Patacon. El backend devuelve `{"status":"ok"}`.
+El frontend debe devolver la página de Banco Patacon. El backend debe devolver un estado `ok`.
+
+Si el servicio todavía no responde, esperá el bootstrap de EC2 y repetí. No avances a CloudWatch sin comprobar primero que la aplicación está viva.
+
+### Checkpoint 3
+
+Tenés evidencia de:
+
+- frontend HTTP 200;
+- backend `/health` exitoso;
+- outputs de Terraform guardados;
+- dos EC2s activas.
 
 ---
 
-## Actividad 2 — Explorar los logs (5 min)
+## Actividad 6 — Generar tráfico e inspeccionar logs (10 min)
 
-Abrí la consola AWS y navegá a **CloudWatch → Log groups**.
-
-Vas a encontrar dos log groups:
-
-| Log group | Contenido | Formato |
-|---|---|---|
-| `/aws/frontend/access` | Logs de acceso de nginx | Cada línea es un request HTTP |
-| `/aws/backend/app` | Logs de la API Flask | Cada línea es un objeto JSON |
-
-Abrí cada uno y explorá algunas líneas. Identificá:
-
-- En el frontend: el campo de status code (200, 404, etc.).
-- En el backend: campos `status`, `endpoint`, `duration_ms`.
-
----
-
-## Actividad 3 — Generar tráfico (3 min)
-
-Para que los logs tengan datos recientes, generá tráfico con el script incluido en el repositorio:
+Ejecutá:
 
 ```bash
 chmod +x scripts/generar-trafico.sh
 ./scripts/generar-trafico.sh <FRONTEND_URL> <BACKEND_URL> 120
 ```
 
-Esto genera requests normales al frontend y backend, y cada ~30 segundos manda 5 requests al endpoint `/server-error` del frontend (que devuelve HTTP 500 a propósito) para simular picos de error. Mientras corre, volvé a CloudWatch y actualizá los log groups para ver nuevas líneas entrando.
+El script genera tráfico normal y, cada aproximadamente 30 segundos, cinco requests a `/server-error`, que devuelve HTTP 500. El backend produce transferencias exitosas y errores simulados.
+
+En paralelo, abrí **CloudWatch → Log groups**:
+
+| Log group | Qué observar |
+|---|---|
+| `/aws/frontend/access` | método, path, status code y tamaño de respuesta |
+| `/aws/backend/app` | JSON con `status`, `endpoint`, `monto` y `duration_ms` |
+
+### Checkpoint 4
+
+Podés señalar en un log real:
+
+- un request correcto;
+- un request fallido;
+- el campo que luego usará el metric filter.
 
 ---
 
-## Actividad 4 — Crear metric filters (8 min)
+## Actividad 7 — Crear métricas desde logs (10 min)
 
-Un metric filter extrae una métrica numérica desde los logs. Cada vez que una línea coincide con un patrón, la métrica se incrementa.
+Desde **CloudWatch → Log groups → Metric filters**:
 
-### Filter 1 — Errores 5xx del frontend
+### Frontend 5xx
 
-1. CloudWatch → Log groups → `/aws/frontend/access` → pestaña **Metric filters** → **Create metric filter**.
-2. El formato del access log de nginx tiene el status code como séptimo campo separado por espacios. El patrón que detecta códigos 500 a 599 es:
+Usá el patrón que detecta status 500–599 en el access log:
 
-   ```
-   [ip, user, timestamp, tz, request, status=5*, bytes, referer, agent]
-   ```
+```text
+[ip, user, timestamp, tz, request, status=5*, bytes, referer, agent]
+```
 
-   Pegá ese patrón en el campo de filtro y usá **Test pattern** para verificar que matchea líneas con status 5xx. Si el frontend acaba de arrancar y todavía no recibió errores, el script de tráfico los va a generar (endpoint `/server-error` devuelve 500).
+Creá la métrica:
 
-3. Una vez que el patrón matchea correctamente (probalo con **Test pattern**), avanzá.
-4. **Metric details:**
-   - Filter name: `Frontend5xx`
-   - Metric namespace: `BancoPatacon/Monitoreo`
-   - Metric name: `Frontend5xx`
-   - Metric value: `1`
-   - Unit: `Count`
+- namespace: `BancoPatacon/Monitoreo`;
+- name: `Frontend5xx`;
+- value: `1`;
+- unit: `Count`.
 
-### Filter 2 — Errores del backend
+### Backend errores
 
-Repetí el proceso para `/aws/backend/app`. Los logs del backend son JSON. Buscá líneas que contengan `"status":"error"`.
+Sobre `/aws/backend/app`, usá un patrón JSON que encuentre:
 
-- Filter name: `BackendErrores`
-- Metric namespace: `BancoPatacon/Monitoreo`
-- Metric name: `BackendErrores`
-- Metric value: `1`
-- Unit: `Count`
+```text
+{ $.status = "error" }
+```
 
-### Checkpoint
+Creá `BackendErrores` en el mismo namespace, con valor `1` y unidad `Count`.
 
-- Dos metric filters creados.
-- Namespace `BancoPatacon/Monitoreo` visible en **CloudWatch → Metrics → Custom namespaces**.
+Probá ambos patrones con **Test pattern** antes de guardar.
+
+### Checkpoint 5
+
+En **CloudWatch → Metrics → Custom namespaces** aparecen `Frontend5xx` y `BackendErrores`.
 
 ---
 
-## Actividad 5 — Construir un dashboard (8 min)
+## Actividad 8 — Dashboard y alarmas (15 min)
 
-CloudWatch → **Dashboards → Create dashboard**. Nombre: `BancoPatacon-<tu-identidad>`.
+Creá un dashboard `BancoPatacon-<tu-identidad>` con cuatro widgets:
 
-Agregá 4 widgets. Para cada uno, elegí el tipo de gráfico que mejor represente la métrica:
+1. `AWS/EC2 → NetworkIn`, filtrado por `InstanceId` del frontend, Sum, 5 minutos: volumen de red del frontend.
+2. `BancoPatacon/Monitoreo → Frontend5xx`, Sum, 5 minutos.
+3. `BancoPatacon/Monitoreo → BackendErrores`, Sum, 5 minutos.
+4. `AWS/EC2 → CPUUtilization`, Average, 5 minutos, frontend y backend.
 
-| Widget | Métrica | Estadística | Período | Tipo |
-|---|---|---|---|---|
-| Requests frontend | `AWS/EC2 → NetworkIn` (filtrar por instancia frontend) | Sum | 5 min | Línea |
-| Errores 5xx frontend | `BancoPatacon/Monitoreo → Frontend5xx` | Sum | 5 min | Barra |
-| Errores backend | `BancoPatacon/Monitoreo → BackendErrores` | Sum | 5 min | Barra |
-| CPU | `AWS/EC2 → CPUUtilization` (ambas instancias) | Average | 5 min | Línea |
+Usá las métricas para responder preguntas, no para llenar espacio:
 
-Ajustá el rango de tiempo a **últimas 3 horas**. Guardá el dashboard.
+- ¿hay tráfico?
+- ¿hay errores visibles?
+- ¿hay errores en la API?
+- ¿hay saturación?
 
----
+Creá dos alarmas, sin SNS:
 
-## Actividad 6 — Configurar alarmas (6 min)
+| Alarma | Condición | Evaluación | Missing data |
+|---|---|---|---|
+| Frontend5xxAlarm | `Frontend5xx >= 5` | 2 de 2 períodos de 5 min | `notBreaching` |
+| BackendErroresAlarm | `BackendErrores >= 1` | 1 de 1 período de 5 min | `notBreaching` |
 
-CloudWatch → **Alarms → Create alarm**.
+### Checkpoint 6
 
-### Alarma 1 — Errores del frontend
-
-- **Métrica:** `BancoPatacon/Monitoreo → Frontend5xx`, estadística `Sum`
-- **Período:** 5 minutos
-- **Condición:** `Static`, `Greater/Equal`, umbral `5`
-- **Datapoints to alarm:** 2 de 2
-- **Missing data treatment:** `Treat missing data as not breaching`
-- **Nombre:** `Frontend5xxAlarm`
-- Sin acciones SNS.
-
-### Alarma 2 — Errores del backend
-
-- **Métrica:** `BancoPatacon/Monitoreo → BackendErrores`, estadística `Sum`
-- **Período:** 5 minutos
-- **Condición:** `Static`, `Greater/Equal`, umbral `1`
-- **Datapoints to alarm:** 1 de 1
-- **Missing data treatment:** `Treat missing data as not breaching`
-- **Nombre:** `BackendErroresAlarm`
+El dashboard existe y ambas alarmas están en `OK` o `INSUFFICIENT_DATA` antes del incidente.
 
 ---
 
-## Actividad 7 — Simular un incidente (10 min)
+## Actividad 9 — Simular e investigar un incidente (10 min)
 
-Ejecutá el script de tráfico con duración más larga para tener varios períodos de 5 minutos con datos:
+Ejecutá el tráfico durante 10 minutos:
 
 ```bash
 ./scripts/generar-trafico.sh <FRONTEND_URL> <BACKEND_URL> 600
 ```
 
-El script alterna tráfico normal con picos de error (requests a páginas inexistentes en el frontend, transferencias que fallan en el backend).
+Observá:
 
-Mientras corre, observá en tiempo real:
+- los picos de `Frontend5xx`;
+- los errores de `BackendErrores`;
+- el cambio de estado de las alarmas;
+- los timestamps de los eventos en Logs Insights.
 
-1. **Dashboard:** los widgets de errores deberían mostrar barras más altas durante los picos.
-2. **Alarmas:** después de 10 minutos (2 períodos de evaluación), la alarma del frontend debería pasar a `ALARM`. La del backend puede disparar antes porque tiene umbral más bajo.
-3. **Logs Insights:** ejecutá consultas para investigar los picos:
+Consultá el frontend:
 
-   ```
-   fields @timestamp, @message
-   | filter @message like /404/
-   | sort @timestamp desc
-   | limit 20
-   ```
+```text
+fields @timestamp, @message
+| filter @message like /500/
+| sort @timestamp desc
+| limit 20
+```
 
----
+Consultá el backend:
 
-## Actividad 8 — Interpretar (5 min)
+```text
+fields @timestamp, @message
+| filter @message like /"status": "error"/
+| sort @timestamp desc
+| limit 20
+```
 
-Respondé en tu entregable:
+Respondé:
 
-1. ¿Cuánto tardó la alarma del frontend en pasar a `ALARM` desde que empezaron los errores? ¿Por qué?
-2. ¿Qué diferencia observás entre una alarma con `Treat missing data as not breaching` y una sin ese setting?
-3. Si tuvieras que agregar un canal de notificación, ¿a quién le llegaría y por qué medio?
-4. ¿Qué información te dan los logs que el dashboard no muestra?
-
----
-
-## Troubleshooting
-
-### No veo los log groups
-
-El CloudWatch agent puede tardar unos minutos en crear los log groups después del deploy. Si no aparecen, esperá 2-3 minutos y refrescá.
-
-### El patrón del metric filter no matchea
-
-Abrí algunas líneas del log group y copiá una línea real. Pegala en **Test pattern**. Si el formato no es el esperado, ajustá el patrón. Lo importante es que matchee correctamente las líneas con error.
-
-### La alarma queda en INSUFFICIENT_DATA
-
-Si no hay tráfico, la métrica no recibe datos. Esperá a que el script genere tráfico. Con `Treat missing data as not breaching`, la alarma trata la falta de datos como "OK" (no hay problema).
-
-### El dashboard no muestra datos
-
-Revisá que el rango de tiempo incluya los minutos en que corriste el script. Si usaste "últimas 3 horas" debería alcanzar. También verificá que el namespace `BancoPatacon/Monitoreo` exista en Custom metrics.
+1. ¿Qué señal detectó primero el problema?
+2. ¿Por qué la alarma backend tiene una evaluación más rápida?
+3. ¿Qué diferencia hay entre alarma y alerta operativa?
+4. ¿Qué información aportan los logs que no aparece en el dashboard?
 
 ---
 
-## Cleanup
+## Actividad 10 — Cleanup (5 min)
 
-Eliminá desde la consola solo lo que creaste durante el lab:
+Eliminá desde la consola los dashboards, alarmas y metric filters creados durante el lab.
 
-1. **Dashboard:** CloudWatch → Dashboards → `BancoPatacon-<tu-identidad>` → Delete
-2. **Alarmas:** CloudWatch → Alarms → seleccionar las dos → Actions → Delete
-3. **Metric filters:** CloudWatch → Log groups → seleccionar cada log group → Metric filters → seleccionar → Delete
+Después, el profesor ejecuta el workflow con acción `destroy`.
 
-La infraestructura (EC2s) se destruye con `terraform destroy` al finalizar la clase. No elimines recursos compartidos.
+Verificá que no queden EC2s, security groups, instance profiles ni log groups del lab.
 
 ---
 
 ## Entregables
 
-- Captura del dashboard con las 4 métricas durante un pico de errores.
-- Captura de una alarma en estado `ALARM`.
-- Resultado de una consulta de Logs Insights durante el incidente.
-- Respuestas de la Actividad 8.
+- URL del workflow ejecutado y outputs de Terraform.
+- Evidencia de frontend y backend funcionando.
+- Captura de logs frontend y backend.
+- Captura del dashboard con métricas.
+- Captura de una alarma en `ALARM` durante el incidente.
+- Una consulta de Logs Insights y su interpretación.
+- Confirmación del cleanup.
+
+---
+
+## Próximo paso: LAB02
+
+En LAB01 configuraste el monitoreo desde la consola para entender cada pieza. En LAB02 vas a escribir un spec de monitoreo y después vas a declarar esos mismos metric filters, dashboard y alarmas con Terraform.
+
+La comparación central será:
+
+```text
+LAB01: consola → resultado visible
+LAB02: spec → agente/plan → Terraform → resultado repetible
+```
+
+---
+
+## Troubleshooting
+
+### El workflow falla antes de Terraform
+
+Revisá secrets, región, branch y permisos de Actions. No agregues credenciales al código.
+
+### No aparece un log group
+
+Esperá el bootstrap de EC2 y generá tráfico. El CloudWatch Agent crea el log group cuando comienza a enviar el archivo configurado.
+
+### El metric filter no encuentra coincidencias
+
+Copiá una línea real del log y probá el patrón en **Test pattern**. No adivines la posición de los campos.
+
+### La alarma queda en `INSUFFICIENT_DATA`
+
+Generá tráfico y esperá el período de evaluación. `notBreaching` evita que la ausencia de datos dispare la alarma.
+
+### No se ve el pico en el dashboard
+
+Ajustá el rango temporal y verificá que la región sea `us-east-1`. Las métricas de logs pueden tardar unos minutos.
+
+### Cleanup
+
+No borres recursos compartidos. Usá el identificador del lab para distinguir lo creado en esta clase.

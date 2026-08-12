@@ -138,9 +138,9 @@ resource "aws_cloudwatch_log_metric_filter" "frontend_5xx" {
 }
 ```
 
-Para el patrón, usá el que probaste en LAB02. Si no lo recordás, volvé a la consola, abrí el log group y buscá una línea con error 5xx. El patrón debe matchear el status code.
+Para el patrón, usá el que probaste en LAB01. Si no lo recordás, volvé a la consola, abrí el log group y buscá una línea con error 5xx. El patrón debe matchear el status code.
 
-Probá el patrón desde la consola (**Test pattern** en el metric filter del LAB02) antes de copiarlo a Terraform.
+Probá el patrón desde la consola (**Test pattern** en el metric filter del LAB01) antes de copiarlo a Terraform.
 
 ### Filter 2 — Backend errores
 
@@ -198,7 +198,7 @@ Para las métricas de los filtros (widgets 2 y 3), usá:
 ["BancoPatacon/Monitoreo", "Frontend5xx", { "stat": "Sum", "period": 300 }]
 ```
 
-**Obtené las dimensiones correctas para filtrar por instancia.** Las métricas de EC2 (`NetworkIn`, `CPUUtilization`) necesitan la dimensión `InstanceId`. Podés obtener el instance ID desde la consola o desde los outputs de Terraform de la infraestructura.
+**Filtrá las métricas de EC2 por instancia.** `NetworkIn` y `CPUUtilization` necesitan la dimensión `InstanceId`. Usá los IDs de las instancias desplegadas por LAB01; podés obtenerlos desde la consola EC2. No presentes la suma de todas las instancias como si fuera únicamente el frontend.
 
 ---
 
