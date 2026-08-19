@@ -5,6 +5,13 @@ set -e
 # Nginx
 dnf install -y nginx
 
+# Contrato estable para CloudWatch Logs y el metric filter de errores 5xx.
+cat > /etc/nginx/conf.d/cloudcuyo-log.conf << 'NGXLOG'
+log_format cloudcuyo '$remote_addr - $remote_user [$time_local] "$request" '
+                     '$status $body_bytes_sent "$http_referer" "$http_user_agent"';
+access_log /var/log/nginx/access.log cloudcuyo;
+NGXLOG
+
 cat > /usr/share/nginx/html/index.html << 'HTML'
 <!doctype html>
 <html lang="es">

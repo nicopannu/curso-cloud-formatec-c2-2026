@@ -124,7 +124,7 @@ Hacete estas preguntas:
 |---|---|
 | "Crear un metric filter que emita la métrica Frontend5xx" | `resource "aws_cloudwatch_log_metric_filter" "frontend_5xx" { ... }` |
 | "namespace: BancoPatacon/Monitoreo" | `namespace = "BancoPatacon/Monitoreo"` |
-| "patrón: status code 5xx en logs de nginx" | `pattern = "[ip, user, timestamp, tz, request, status=5*, bytes, referer, agent]"`
+| "patrón: status code 5xx en logs de nginx" | `pattern = "[ip, identity, user, timestamp, request, status=5*, bytes, referer, agent]"` |
 
 El spec es el plano. El código es la construcción. No confundirlos.
 

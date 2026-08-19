@@ -249,7 +249,7 @@ Desde **CloudWatch → Log groups → Metric filters**:
 Usá el patrón que detecta status 500–599 en el access log:
 
 ```text
-[ip, user, timestamp, tz, request, status=5*, bytes, referer, agent]
+[ip, identity, user, timestamp, request, status=5*, bytes, referer, agent]
 ```
 
 Creá la métrica:
