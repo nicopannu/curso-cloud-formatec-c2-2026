@@ -304,6 +304,16 @@ Creá dos alarmas, sin SNS:
 
 El dashboard existe y ambas alarmas están en `OK` o `INSUFFICIENT_DATA` antes del incidente.
 
+### Extensión opcional — Alertas en Discord
+
+Una alarma cambia de estado dentro de CloudWatch. Para publicar ese cambio en un canal operativo, completá el [anexo de alertas en Discord](anexo-lab01-alertas-discord.md) después de verificar las alarmas. La extensión conecta:
+
+```text
+CloudWatch Alarm → SNS → Lambda → Discord
+```
+
+El webhook de Discord es un secreto y no debe guardarse en el repositorio.
+
 ---
 
 ## Actividad 9 — Simular e investigar un incidente (10 min)

@@ -54,6 +54,7 @@ flowchart LR
 | # | Guía | Formato | Foco |
 |---|---|---|---|
 | LAB01 | [`guias/guia-monitoreo-lab01-consola.md`](guias/guia-monitoreo-lab01-consola.md) | En vivo | Spec del workflow, deploy, tráfico y monitoreo por consola |
+| Anexo LAB01 | [`guias/anexo-lab01-alertas-discord.md`](guias/anexo-lab01-alertas-discord.md) | Opcional | Alarma → SNS → Lambda → Discord |
 | LAB02 | [`guias/guia-monitoreo-lab02-terraform.md`](guias/guia-monitoreo-lab02-terraform.md) | Tarea | Monitoreo como código con Terraform |
 
 ## Specs
