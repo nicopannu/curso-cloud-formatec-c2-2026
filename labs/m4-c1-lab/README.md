@@ -97,6 +97,16 @@ Terraform no crea RDS, ALB, endpoints publicos de aplicacion, CloudFront, HTTPS,
 
 ## Antes de Empezar
 
+LAB02 incluye una policy de despliegue reutilizable para el role OIDC:
+
+```text
+labs/m4-c1-lab/policies/terraform-deploy-policy.json
+```
+
+La policy agrupa permisos por servicio (`STS`, `S3`, `EC2` e `IAM`) y usa `Resource: "*"` para no depender del account ID ni de la identidad de un alumno. Está pensada para una cuenta educativa donde Terraform debe crear y destruir los recursos de este lab y puede reutilizarse en otros labs que trabajen con esos mismos servicios.
+
+No es una policy para producción ni debe asociarse a las EC2. Se adjunta al role OIDC que asume GitHub Actions. Las policies runtime de las EC2 continúan separadas porque representan los permisos que la aplicación o instancia necesita durante su ejecución.
+
 El workflow crea automáticamente un role y un instance profile para cada EC2. No hace falta cargar `EC2_INSTANCE_PROFILE_NAME` en GitHub.
 
 Cada role recibe inicialmente:

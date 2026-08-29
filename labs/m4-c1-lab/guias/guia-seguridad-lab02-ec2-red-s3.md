@@ -87,7 +87,7 @@ Antes de comenzar, verificá:
 - `AWS_ROLE_ARN` apunta al role OIDC correcto.
 - `AWS_REGION` tiene el valor `us-east-1`.
 - `STUDENT_IDENTITY` existe y conserva el valor usado en LAB01.
-- El role OIDC tiene permisos suficientes para crear la infraestructura, los roles IAM de EC2 y las policies iniciales de S3.
+- Tenés acceso para adjuntar al role OIDC la policy de despliegue incluida en este lab.
 - Tenés autorización para ejecutar `apply` en la cuenta de laboratorio.
 
 El workflow utiliza estas variables del environment `lab`:
@@ -121,6 +121,7 @@ labs/m4-c1-lab/terraform/ec2.tf
 labs/m4-c1-lab/terraform/iam.tf
 labs/m4-c1-lab/terraform/s3.tf
 labs/m4-c1-lab/terraform/outputs.tf
+labs/m4-c1-lab/policies/terraform-deploy-policy.json
 .github/workflows/m4-c1-infra-deploy.yml
 ```
 
@@ -147,6 +148,46 @@ bash labs/m4-c1-lab/scripts/validar-estructura.sh
 ### Resultado esperado
 
 Todas las validaciones terminan sin errores. `terraform init -backend=false` se usa para la validación local; el workflow de GitHub Actions inicializa el state remoto.
+
+---
+
+## 4.1 Habilitar el role OIDC para desplegar con Terraform
+
+LAB01 dejó el role OIDC con permiso para verificar la identidad temporal. Antes de ejecutar Terraform, agregale la policy de despliegue entregada con LAB02:
+
+```text
+labs/m4-c1-lab/policies/terraform-deploy-policy.json
+```
+
+Desde AWS Console:
+
+1. Abrí **IAM → Policies → Create policy**.
+2. Elegí el editor **JSON**.
+3. Copiá el contenido completo de `terraform-deploy-policy.json`.
+4. Continuá con **Next** y asignale el nombre `formatec-terraform-deploy`.
+5. Creá la policy.
+6. Abrí **IAM → Roles** y seleccioná el role OIDC creado en LAB01.
+7. Elegí **Add permissions → Attach policies**.
+8. Buscá `formatec-terraform-deploy` y adjuntala.
+
+La policy está agrupada por servicio:
+
+| Grupo | Uso en LAB02 |
+|---|---|
+| `STSIdentity` | comprobar la identidad temporal asumida por GitHub Actions |
+| `S3TerraformManagement` | operar el backend remoto y crear o destruir los buckets del lab |
+| `EC2TerraformManagement` | administrar VPC, subnets, rutas, endpoints, Security Groups y EC2 |
+| `IAMReadForTerraform` | leer roles, policies e instance profiles durante `plan` y refresh |
+| `IAMRolesForTerraform` | crear los roles de EC2, policies inline y asociaciones necesarias |
+| `IAMPassRoleToWorkloads` | entregar roles únicamente a EC2, Lambda o ECS Tasks |
+| `IAMInstanceProfilesForTerraform` | crear y asociar instance profiles a las EC2 |
+| `IAMManagedPoliciesForTerraform` | permitir que otros labs creen policies administradas reutilizando el mismo artefacto |
+
+Todos los statements usan `Resource: "*"`. Esto evita hardcodear un account ID o un nombre de alumno y permite reutilizar la policy en otros labs que usen los mismos servicios. A cambio, el alcance es más amplio que el de una policy de producción: utilizala únicamente en la cuenta educativa y no la adjuntes a roles runtime de EC2.
+
+### Resultado esperado
+
+El role OIDC conserva su trust policy restringida al repositorio y environment correctos, y ahora muestra `formatec-terraform-deploy` en la pestaña **Permissions**. No agregues `AdministratorAccess` ni access keys permanentes.
 
 ---
 
@@ -638,16 +679,18 @@ No borres el OIDC Provider, el role OIDC ni el environment `lab` si pertenecen a
 
 Entregá:
 
-1. Captura o enlace del run `plan` exitoso.
-2. Captura o enlace del run `apply` exitoso.
-3. Diagrama de la arquitectura con VPC, subnets públicas/privadas, NAT, endpoint S3 y EC2.
-4. Tabla de rutas indicando el next hop de cada segmento.
-5. Tabla de permisos con acciones permitidas y denegadas por instancia.
-6. Evidencia de una sesión de Systems Manager.
-7. Evidencia de al menos tres operaciones S3 permitidas.
-8. Evidencia de al menos tres operaciones S3 rechazadas con `AccessDenied`.
-9. Captura o enlace del run `destroy` exitoso.
-10. Respuestas breves:
+1. Archivo `policies/terraform-deploy-policy.json` conservado sin account IDs ni nombres de alumno hardcodeados.
+2. Captura de `formatec-terraform-deploy` adjunta al role OIDC utilizado por GitHub Actions.
+3. Captura o enlace del run `plan` exitoso.
+4. Captura o enlace del run `apply` exitoso.
+5. Diagrama de la arquitectura con VPC, subnets públicas/privadas, NAT, endpoint S3 y EC2.
+6. Tabla de rutas indicando el next hop de cada segmento.
+7. Tabla de permisos con acciones permitidas y denegadas por instancia.
+8. Evidencia de una sesión de Systems Manager.
+9. Evidencia de al menos tres operaciones S3 permitidas.
+10. Evidencia de al menos tres operaciones S3 rechazadas con `AccessDenied`.
+11. Captura o enlace del run `destroy` exitoso.
+12. Respuestas breves:
     - ¿Por qué una EC2 privada necesita una ruta hacia la NAT para llegar a SSM?
     - ¿Por qué S3 utiliza además un Gateway Endpoint?
     - ¿Qué diferencia hay entre el ARN del bucket y el ARN de sus objetos?
