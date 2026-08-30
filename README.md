@@ -35,6 +35,16 @@ Los alumnos trabajan desde `main` y entran a la carpeta indicada por la clase. Y
 | `labs/m3-c4-lab` | Pipelines CI/CD con GitHub Actions |
 | `labs/m3-c5-lab` | Monitoreo proactivo con CloudWatch |
 
+## Recursos adicionales
+
+Estos recursos son independientes de los labs y se publican para reutilizarlos desde `main`:
+
+| Recurso | Propósito |
+|---|---|
+| [`recursos/aws-resource-alerts/`](recursos/aws-resource-alerts/) | Stack CloudFormation que revisa recursos AWS diariamente y avisa por email |
+
+El stack de avisos requiere únicamente una dirección de email como parámetro. La suscripción SNS debe confirmarse desde el correo recibido. No elimina recursos y debe eliminarse cuando ya no se necesite.
+
 ## Codespaces
 
 1. Abrí el repositorio.
