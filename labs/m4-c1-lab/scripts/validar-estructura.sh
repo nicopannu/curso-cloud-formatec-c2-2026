@@ -107,4 +107,9 @@ if ! jq -e 'any(.Statement[]; .Sid == "RDSManagedSecretCreation" and .Action == 
   exit 1
 fi
 
+if ! jq -e 'any(.Statement[]; .Sid == "RDSManagedSecretTagging" and .Action == "secretsmanager:TagResource" and .Resource == "*")' "${deploy_policy}" >/dev/null; then
+  printf 'La policy de despliegue no incluye TagResource para el secreto administrado por RDS.\n' >&2
+  exit 1
+fi
+
 printf 'Estructura M4-C1 valida.\n'
