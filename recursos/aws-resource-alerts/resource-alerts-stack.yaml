@@ -248,57 +248,57 @@ Resources:
               grouped = defaultdict(list)
               for resource_type, name, identifier, state in resources:
                   grouped[resource_type].append((name, identifier, state))
+              def section(icon, title):
+                  return ["", f"{icon} {title.upper()}", "─" * 58]
+
               lines = [
-                  "AWS RESOURCE ALERT",
-                  "==================",
+                  "╔══════════════════════════════════════════════════════════╗",
+                  "║              🚨 AWS RESOURCE ALERT                      ║",
+                  "╚══════════════════════════════════════════════════════════╝",
                   "",
-                  f"Cuenta: {ACCOUNT_ID}",
-                  f"Region revisada: {REGION}",
-                  f"Revision UTC: {now}",
-                  "",
-                  "RESUMEN DE FACTURACION",
-                  "----------------------",
+                  f"📍 Cuenta       : {ACCOUNT_ID}",
+                  f"🌎 Región       : {REGION}",
+                  f"🕒 Revisión UTC : {now}",
               ]
+              lines.extend(section("💰", "Resumen de facturación"))
               if finances is None:
-                  lines.append(f"Datos de Cost Explorer no disponibles: {billing_error}")
+                  lines.append(f"⚠️  Cost Explorer no disponible: {billing_error}")
               else:
                   lines.extend([
-                      f"Periodo acumulado: {finances['period']}",
-                      f"Uso acumulado: {money(finances['usage'])}",
-                      f"Creditos aplicados: {money(finances['credits'])}",
-                      f"Impuestos: {money(finances['tax'])}",
-                      f"Neto estimado del periodo: {money(finances['net'])}",
+                      f"📅 Período acumulado       : {finances['period']}",
+                      f"💵 Uso acumulado           : {money(finances['usage'])}",
+                      f"🎁 Créditos aplicados      : {money(finances['credits'])}",
+                      f"🧾 Impuestos               : {money(finances['tax'])}",
+                      f"✅ Neto estimado           : {money(finances['net'])}",
                   ])
                   if finances["forecast"] is None:
-                      lines.append(f"Forecast proximo periodo ({finances['forecast_period']}): no disponible")
+                      lines.append(f"📈 Forecast próximo período: no disponible ({finances['forecast_period']})")
                   else:
-                      lines.append(f"Forecast proximo periodo ({finances['forecast_period']}): {money(finances['forecast'])}")
-                  lines.append("Saldo de creditos disponibles: no expuesto por esta API; revisar Billing.")
-              lines.extend([
-                  "",
-                  f"RECURSOS PARA REVISAR ({len(resources)})",
-                  "-------------------------",
-              ])
+                      lines.append(f"📈 Forecast próximo período: {money(finances['forecast'])}")
+                  lines.append("💳 Saldo de créditos disponibles: revisar Billing; esta API no expone el saldo restante.")
+
+              lines.extend(section("🔍", f"Recursos para revisar ({len(resources)})"))
               if not resources:
-                  lines.append("No se detectaron recursos en esta region.")
+                  lines.append("✅ No se detectaron recursos en esta región según las consultas realizadas.")
               else:
                   for resource_type in sorted(grouped):
                       entries = sorted(grouped[resource_type], key=lambda item: (item[0], item[1]))
-                      lines.append(f"{resource_type} ({len(entries)})")
+                      lines.append(f"\n🔹 {resource_type} · {len(entries)} recurso(s)")
                       for name, identifier, state in entries:
-                          lines.append(f"  - Nombre: {name} | ID/ARN: {identifier} | Estado: {state}")
+                          lines.append(f"   • Nombre : {name}")
+                          lines.append(f"     ID/ARN : {identifier}")
+                          lines.append(f"     Estado : {state}")
+              lines.extend(section("ℹ️", "Notas importantes"))
               lines.extend([
-                  "",
-                  "NOTAS",
-                  "-----",
-                  "El inventario no es una medicion de costo en tiempo real y Cost Explorer puede tener demora.",
-                  "Los creditos informados son los aplicados al periodo, no un saldo disponible restante.",
-                  "Revisá Billing y la consola del servicio antes de eliminar algo.",
-                  "La automatizacion nunca elimina recursos.",
+                  "⚠️ El inventario no es una medición de costo en tiempo real.",
+                  "⚠️ Cost Explorer puede tener demora y el forecast es una estimación.",
+                  "⚠️ Los créditos informados son los aplicados al período.",
+                  "🧹 Revisá Billing y la consola antes de eliminar algo.",
+                  "🛡️ Esta automatización nunca elimina recursos.",
               ])
               sns.publish(
                   TopicArn=TOPIC_ARN,
-                  Subject=f"AWS report - {REGION} - {len(resources)} recurso(s)",
+                  Subject=f"📊 AWS | Reporte diario | {REGION} | {len(resources)} recurso(s)",
                   Message="\n".join(lines),
               )
               return {"alert_sent": True, "resource_count": len(resources), "billing_available": finances is not None}

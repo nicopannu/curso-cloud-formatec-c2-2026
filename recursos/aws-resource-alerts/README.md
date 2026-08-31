@@ -16,6 +16,8 @@ Lambda de inventario -----> SNS -----> tu email
 
 El stack no elimina recursos y no necesita access keys. La Lambda usa un role propio con permisos de lectura de inventario y permiso para publicar solamente en el topic SNS del stack.
 
+Los avisos usan el endpoint email de SNS y se entregan como texto plano. Para mejorar la lectura se utilizan secciones, separadores, iconos y etiquetas alineadas; la negrita HTML requeriría migrar el envío a SES y verificar una identidad de correo o dominio.
+
 Además de consultar los servicios regionales, el role tiene `ce:GetCostAndUsage` y `ce:GetCostForecast` para leer el resumen financiero de Cost Explorer desde su endpoint regional de Billing.
 
 ## Importante: confirmacion del email
