@@ -95,13 +95,15 @@
       "Resource": "*"
     },
     {
-      "Sid": "RDSKmsAccess",
+      "Sid": "RDSKmsDescribeKey",
       "Effect": "Allow",
-      "Action": [
-        "kms:CreateGrant",
-        "kms:DescribeKey",
-        "kms:ListGrants"
-      ],
+      "Action": "kms:DescribeKey",
+      "Resource": "*"
+    },
+    {
+      "Sid": "RDSKmsCreateGrant",
+      "Effect": "Allow",
+      "Action": "kms:CreateGrant",
       "Resource": "*",
       "Condition": {
         "Bool": {
