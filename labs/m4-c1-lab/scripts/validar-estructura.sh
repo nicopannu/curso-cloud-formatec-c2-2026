@@ -102,4 +102,9 @@ if ! jq -e 'any(.Statement[]; .Sid == "RDSKmsCreateGrant" and .Action == "kms:Cr
   exit 1
 fi
 
+if ! jq -e 'any(.Statement[]; .Sid == "RDSManagedSecretCreation" and (.Action | index("secretsmanager:CreateSecret")) and (.Condition.StringLike["secretsmanager:Name"] == "rds!db-*"))' "${deploy_policy}" >/dev/null; then
+  printf 'La policy de despliegue no limita la creacion del secreto administrado por RDS.\n' >&2
+  exit 1
+fi
+
 printf 'Estructura M4-C1 valida.\n'
