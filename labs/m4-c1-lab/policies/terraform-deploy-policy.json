@@ -87,6 +87,12 @@
         "iam:UntagPolicy"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "RDSTerraformManagement",
+      "Effect": "Allow",
+      "Action": "rds:*",
+      "Resource": "*"
     }
   ]
 }
