@@ -26,6 +26,18 @@ SNS envia un mensaje de confirmacion a la direccion indicada durante la creacion
 
 Hasta confirmar la suscripcion, la Lambda puede ejecutarse correctamente pero no vas a recibir el aviso. La confirmacion es un paso externo a CloudFormation.
 
+### Referencia visual: confirmacion SNS
+
+Cuando crees el stack, vas a recibir un mensaje similar a este:
+
+![Email de AWS Notifications con el enlace Confirm subscription](assets/sns1.png)
+
+Abrí el enlace **Confirm subscription** del email más reciente. AWS mostrará una página de confirmación similar a la siguiente:
+
+![Página de SNS con la suscripción confirmada](assets/sns2.png)
+
+Después de confirmar, en **SNS → Topics → tu topic → Subscriptions** el estado debe aparecer como `Confirmed`. Si abrís un enlace viejo de un stack eliminado o de una suscripción anterior, AWS puede mostrar un error; en ese caso solicitá una nueva suscripción desde el stack activo.
+
 ## Desplegar desde AWS Console
 
 1. Descargá `resource-alerts-stack.yaml` desde este repositorio.
