@@ -83,6 +83,7 @@ resource "aws_db_instance" "rds" {
   max_allocated_storage       = 20
   storage_type                = "gp3"
   storage_encrypted           = true
+  kms_key_id                  = data.aws_kms_key.rds.arn
   db_name                     = "securitylab"
   username                    = "labadmin"
   manage_master_user_password = true

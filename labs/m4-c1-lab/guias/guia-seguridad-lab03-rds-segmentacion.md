@@ -14,7 +14,7 @@ En LAB02 desplegaste una VPC con subnets públicas, subnets privadas para `backe
 
 En este laboratorio vas a agregar una base de datos PostgreSQL administrada por Amazon RDS. La base de datos no tendrá IP pública. El acceso se controla en dos capas diferentes:
 
-- **Red:** `SG-RDS` permite TCP 5432 únicamente desde `SG-BACKEND-B`.
+- **Red:** `SG-RDS` permite TCP 5432 únicamente desde el SG fuente dedicado asociado a `backend-b`.
 - **Identidad:** solo los roles de `backend-b` pueden leer el secreto administrado por RDS.
 
 La misma prueba se ejecuta desde instancias con el mismo sistema operativo y las mismas herramientas. El resultado cambia por la ruta de red y el role IAM, no por una diferencia de software.
@@ -391,7 +391,7 @@ No elimines el OIDC Provider compartido ni el role de despliegue sin autorizaci�
 1. Link del run `plan` de RDS.
 2. Link del run `apply` de RDS.
 3. Outputs sin valores sensibles.
-4. Diagrama con subnets db, `SG-BACKEND`, `SG-RDS` y RDS.
+4. Diagrama con subnets db, `SG-BACKEND`, SG fuente de backend-b, `SG-RDS` y RDS.
 5. Tabla de reglas de Security Groups.
 6. Evidencia de RDS privado y cifrado.
 7. Evidencia de Secrets Manager sin mostrar el valor secreto.
