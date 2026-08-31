@@ -19,8 +19,11 @@ M4-C1 se desarrolla en dos guías relacionadas:
 |---|---|---|
 | [LAB01 — OIDC desde AWS Console](guias/guia-seguridad-lab01-oidc.md) | GitHub Actions, OIDC, IAM y credenciales temporales | GitHub Actions puede asumir un role AWS sin access keys permanentes |
 | [LAB02 — EC2 privadas, red, S3 y permisos IAM](guias/guia-seguridad-lab02-ec2-red-s3.md) | VPC, subnets, NAT, SSM, S3 y mínimo privilegio | cuatro EC2 privadas acceden a S3 según su role IAM |
+| [LAB03 — RDS privado y segmentación de red](guias/guia-seguridad-lab03-rds-segmentacion.md) | Security Groups, RDS PostgreSQL, Secrets Manager y TLS | solo backend-b alcanza y consulta RDS |
 
 LAB01 se completa primero porque deja preparados el OIDC Provider, el role de GitHub Actions, el environment `lab` y `STUDENT_IDENTITY`. LAB02 utiliza esa continuidad para desplegar la infraestructura y observar la diferencia entre conectividad de red y autorización IAM.
+
+LAB03 reutiliza la infraestructura de LAB02 y se administra con un workflow separado. Su state remoto usa otra key para que el destroy de RDS no destruya la VPC, las EC2 ni los buckets fundacionales.
 
 La infraestructura de LAB02 se administra con Terraform. Los permisos de acceso de las EC2 a S3 se revisan y ajustan manualmente desde IAM Console para que la relación entre identidad, acción y recurso quede visible durante el ejercicio.
 
@@ -72,10 +75,13 @@ El repositorio separa la validación de identidad del despliegue de infraestruct
 |---|---|---|
 | `M4-C1 OIDC Verify` | comprobar que GitHub Actions asume el role AWS mediante OIDC y mostrar `sts:GetCallerIdentity` | No |
 | `M4-C1 Infra Deploy` | ejecutar `plan`, `apply` o `destroy` sobre Terraform | Sí, cuando se elige `apply` |
+| `M4-C1 RDS Network Security` | desplegar, probar y destruir RDS y sus reglas de red | Sí, cuando se elige `apply` |
 
 `M4-C1 Infra Deploy` también utiliza OIDC antes de ejecutar Terraform. La autenticación no se realiza con access keys guardadas en GitHub.
 
 Para completar LAB01, ejecutá primero `M4-C1 OIDC Verify` con `workflow_dispatch`. Para LAB02, ejecutá `M4-C1 Infra Deploy` con `plan`, revisá el resultado y luego `apply`.
+
+Para LAB03, completá LAB02 y ejecutá `M4-C1 RDS Network Security`. No uses `M4-C1 Infra Deploy` para administrar el RDS.
 
 ## Que Crea Terraform
 
@@ -94,6 +100,8 @@ Para completar LAB01, ejecutá primero `M4-C1 OIDC Verify` con `workflow_dispatc
 - Policy inline inicial `s3-lab02-full-buckets` en cada role, limitada a los dos buckets del laboratorio.
 
 Terraform no crea RDS, ALB, endpoints publicos de aplicacion, CloudFront, HTTPS, SSH keys ni objetos S3. Terraform crea los roles IAM de las EC2 porque LAB02 comienza con acceso amplio y luego lo reemplaza por policies segmentadas desde IAM Console.
+
+El root separado `terraform-rds/` agrega RDS PostgreSQL privado, DB subnet group, `SG-RDS`, regla egress backend→RDS, parameter group TLS y policies `rds-secret-read-only` para backend-b.
 
 ## Antes de Empezar
 

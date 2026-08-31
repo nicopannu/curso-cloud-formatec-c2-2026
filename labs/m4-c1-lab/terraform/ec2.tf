@@ -113,7 +113,7 @@ resource "aws_instance" "backend" {
     set -euxo pipefail
 
     if command -v dnf >/dev/null 2>&1; then
-      dnf install -y amazon-ssm-agent awscli jq
+      dnf install -y amazon-ssm-agent awscli jq postgresql15
     else
       yum install -y amazon-ssm-agent awscli jq
     fi

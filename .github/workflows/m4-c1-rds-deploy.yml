@@ -1,0 +1,81 @@
+name: M4-C1 RDS Network Security
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action to run"
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-rds:
+    name: RDS ${{ inputs.action }}
+    runs-on: ubuntu-latest
+    environment: lab
+    defaults:
+      run:
+        working-directory: labs/m4-c1-lab/terraform-rds
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_student_identity: ${{ vars.STUDENT_IDENTITY }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Show assumed AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init with remote state
+        run: |
+          test -n "${TF_STATE_BUCKET}"
+          aws s3api head-bucket --bucket "${TF_STATE_BUCKET}"
+          terraform init -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=m4-c1/${TF_VAR_student_identity}/rds.tfstate" \
+            -backend-config="region=${TF_VAR_aws_region}" \
+            -backend-config="use_lockfile=true"
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        if: inputs.action == 'plan' || inputs.action == 'apply'
+        run: terraform plan -out=tfplan
+
+      - name: Terraform apply
+        if: inputs.action == 'apply'
+        run: terraform apply -auto-approve tfplan
+
+      - name: Terraform plan for destroy
+        if: inputs.action == 'destroy'
+        run: terraform plan -destroy -out=tfplan
+
+      - name: Terraform destroy
+        if: inputs.action == 'destroy'
+        run: terraform apply -auto-approve tfplan
