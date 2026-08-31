@@ -97,4 +97,9 @@ if ! jq -e 'any(.Statement[]; .Sid == "RDSTerraformManagement" and .Action == "r
   exit 1
 fi
 
+if ! jq -e 'any(.Statement[]; .Sid == "RDSKmsAccess" and (.Action | index("kms:CreateGrant")) and (.Condition.Bool["kms:GrantIsForAWSResource"] == "true"))' "${deploy_policy}" >/dev/null; then
+  printf 'La policy de despliegue no incluye el grant KMS condicionado para RDS.\n' >&2
+  exit 1
+fi
+
 printf 'Estructura M4-C1 valida.\n'

@@ -93,6 +93,21 @@
       "Effect": "Allow",
       "Action": "rds:*",
       "Resource": "*"
+    },
+    {
+      "Sid": "RDSKmsAccess",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateGrant",
+        "kms:DescribeKey",
+        "kms:ListGrants"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "Bool": {
+          "kms:GrantIsForAWSResource": "true"
+        }
+      }
     }
   ]
 }
