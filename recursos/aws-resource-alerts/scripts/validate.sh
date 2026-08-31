@@ -35,7 +35,7 @@ if re.search(r"\b(delete|terminate|stop|put|create|update|modify)\w*", text, re.
             errors.append(f"aparece API potencialmente destructiva {forbidden}")
 if "sns:Publish" not in text or "Resource: !Ref ResourceAlertTopic" not in text:
     errors.append("la publicacion SNS no esta limitada al topic del stack")
-for action in ("ec2:DescribeInstances", "ec2:DescribeVolumes", "elasticloadbalancing:DescribeLoadBalancers", "rds:DescribeDBInstances", "s3:ListAllMyBuckets"):
+for action in ("ec2:DescribeInstances", "ec2:DescribeVolumes", "elasticloadbalancing:DescribeLoadBalancers", "rds:DescribeDBInstances", "s3:ListAllMyBuckets", "ce:GetCostAndUsage", "ce:GetCostForecast"):
     if action not in text:
         errors.append(f"falta permiso de lectura {action}")
 
