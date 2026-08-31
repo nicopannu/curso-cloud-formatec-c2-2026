@@ -16,6 +16,8 @@ Lambda de inventario -----> SNS -----> tu email
 
 El stack no elimina recursos y no necesita access keys. La Lambda usa un role propio con permisos de lectura de inventario y permiso para publicar solamente en el topic SNS del stack.
 
+Además de consultar los servicios regionales, el role tiene `ce:GetCostAndUsage` y `ce:GetCostForecast` para leer el resumen financiero de Cost Explorer desde su endpoint regional de Billing.
+
 ## Importante: confirmacion del email
 
 SNS envia un mensaje de confirmacion a la direccion indicada durante la creacion del stack. Tenes que abrir ese mensaje y seleccionar **Confirm subscription**.
@@ -62,6 +64,18 @@ aws cloudformation describe-stacks \
 
 Después confirmá la suscripcion SNS desde tu email.
 
+## Resumen financiero
+
+Cada aviso incluye un resumen de Cost Explorer:
+
+- uso acumulado del período actual;
+- créditos aplicados al período;
+- impuestos informados por Cost Explorer;
+- neto estimado del período;
+- forecast estimado para el próximo período de facturación.
+
+El saldo de créditos disponibles no se muestra como un número inventado: la API utilizada por esta herramienta no expone un saldo restante general. Para ese dato, revisá **Billing → Credits** en la consola de AWS. Cost Explorer puede tener demora y el forecast es una estimación, no un límite de gasto.
+
 ## Que informa la Lambda
 
 La revisión busca recursos existentes o activos que pueden producir costo o requerir limpieza:
@@ -77,7 +91,7 @@ La revisión busca recursos existentes o activos que pueden producir costo o req
 - buckets S3;
 - repositorios ECR.
 
-Si no encuentra elementos, no envía un email. Si encuentra uno o más, envía un listado con tipo, identificador, estado, región y momento de la revisión.
+Siempre envía el resumen financiero cuando la consulta está disponible. Si encuentra recursos, agrega un listado agrupado por tipo con nombre, ID/ARN y estado. Si no encuentra elementos, informa que la región está limpia según las consultas realizadas.
 
 ## Probar sin esperar un día
 
@@ -94,13 +108,13 @@ cat /tmp/resource-alert-response.json
 No ejecutes la prueba manual hasta que la suscripción SNS esté confirmada. La respuesta esperada es similar a:
 
 ```json
-{"alert_sent": true, "resource_count": 1}
+{"alert_sent": true, "resource_count": 1, "billing_available": true}
 ```
 
 Si la cuenta no tiene recursos detectables, la respuesta esperada es:
 
 ```json
-{"alert_sent": false, "resource_count": 0}
+{"alert_sent": true, "resource_count": 0, "billing_available": true}
 ```
 
 También podés revisar el log de la función en CloudWatch Logs.
