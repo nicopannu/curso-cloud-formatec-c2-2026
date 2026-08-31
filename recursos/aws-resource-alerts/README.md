@@ -109,15 +109,27 @@ Siempre envía el resumen financiero cuando la consulta está disponible. Si enc
 
 ## Probar sin esperar un día
 
-La ejecución manual sirve para comprobar la Lambda y el email después de confirmar la suscripción:
+La ejecución manual sirve para comprobar la Lambda y el email después de confirmar la suscripción. Primero obtené el nombre físico de la función desde el stack:
 
 ```bash
+STACK_NAME="resource-alerts-<tu-identidad>"
+REGION="us-east-1"
+FUNCTION_NAME=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --query 'Stacks[0].Outputs[?OutputKey==`InventoryFunctionName`].OutputValue' \
+  --output text \
+  --region "$REGION")
+
 aws lambda invoke \
-  --function-name resource-alerts-<nombre-del-stack> \
-  --region us-east-1 \
+  --function-name "$FUNCTION_NAME" \
+  --payload '{}' \
+  --cli-binary-format raw-in-base64-out \
+  --region "$REGION" \
   /tmp/resource-alert-response.json
-cat /tmp/resource-alert-response.json
+python3 -m json.tool /tmp/resource-alert-response.json
 ```
+
+El nombre físico es generado por el template a partir de la cuenta y región; no lo armes manualmente. El flag `--cli-binary-format raw-in-base64-out` permite enviar el payload JSON directamente con AWS CLI v2.
 
 No ejecutes la prueba manual hasta que la suscripción SNS esté confirmada. La respuesta esperada es similar a:
 
