@@ -116,6 +116,12 @@
       "Effect": "Allow",
       "Action": "secretsmanager:CreateSecret",
       "Resource": "*"
+    },
+    {
+      "Sid": "RDSManagedSecretTagging",
+      "Effect": "Allow",
+      "Action": "secretsmanager:TagResource",
+      "Resource": "*"
     }
   ]
 }
