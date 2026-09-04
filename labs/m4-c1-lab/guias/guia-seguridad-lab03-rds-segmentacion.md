@@ -1,30 +1,53 @@
-# LAB03 — RDS privado y segmentación de red
+# LAB03 — RDS privado: Security Groups, secretos e IAM
 
 **Curso:** Arquitectura e Ingeniería Cloud | C2 — FormaTEC 2026
 **Duración estimada:** 120 minutos
 **Modalidad:** individual o en parejas
 **Región de referencia:** `us-east-1`
-**Tema:** Security Groups, RDS privado, Secrets Manager, TLS y pruebas desde EC2
+**Tema:** conectividad de red, Security Groups, RDS PostgreSQL, Secrets Manager, IAM y TLS
 
 ---
 
 ## 1. Contexto
 
-En LAB02 desplegaste una VPC con subnets públicas, subnets privadas para `backend-a` y `backend-b`, dos subnets reservadas para base de datos y cuatro EC2 privadas.
+La infraestructura de LAB02 ya tiene cuatro EC2 privadas distribuidas en dos grupos:
 
-En este laboratorio vas a agregar una base de datos PostgreSQL administrada por Amazon RDS. La base de datos no tendrá IP pública. El acceso se controla en dos capas diferentes:
+- `backend-a-01` y `backend-a-02`;
+- `backend-b-01` y `backend-b-02`.
 
-- **Red:** `SG-RDS` permite TCP 5432 únicamente desde el SG fuente dedicado asociado a `backend-b`.
-- **Identidad:** solo los roles de `backend-b` pueden leer el secreto administrado por RDS.
+En este laboratorio se agrega una base PostgreSQL privada en Amazon RDS. El ejercicio comienza con una regla de conectividad demasiado amplia: las cuatro EC2 pueden alcanzar el puerto TCP `5432` de RDS.
 
-La misma prueba se ejecuta desde instancias con el mismo sistema operativo y las mismas herramientas. El resultado cambia por la ruta de red y el role IAM, no por una diferencia de software.
+El objetivo es aplicar controles progresivos hasta obtener esta matriz:
+
+| Instancia | TCP 5432 hacia RDS | Recuperar secreto | Consultar PostgreSQL |
+|---|---:|---:|---:|
+| `backend-a-01` | Denegado | Denegado | Denegado |
+| `backend-a-02` | Denegado | Denegado | Denegado |
+| `backend-b-01` | Permitido | Permitido | Permitido |
+| `backend-b-02` | Permitido | Permitido | Permitido |
+
+Arquitectura inicial:
 
 ```text
-backend-a ──X── TCP 5432 ──> SG-RDS ──> RDS PostgreSQL
-backend-b ───── TCP 5432 ──> SG-RDS ──> RDS PostgreSQL
-     │                              │
-     └── GetSecretValue permitido   └── secreto administrado por RDS
+backend-a-01 ─┐
+backend-a-02 ─┼── TCP 5432 permitido inicialmente ──> RDS PostgreSQL privada
+backend-b-01 ─┤
+backend-b-02 ─┘
 ```
+
+Arquitectura objetivo:
+
+```text
+backend-a-01 ──X
+backend-a-02 ──X                         ┌──────────────┐
+                                         │ RDS privada  │
+backend-b-01 ── SG-BACKEND-B ──────────>│ SG-RDS:5432  │
+backend-b-02 ── SG-BACKEND-B            └──────────────┘
+```
+
+La conectividad de red, los permisos IAM y la autenticación PostgreSQL son controles diferentes. Una instancia puede resolver el endpoint, pero no tener permiso para leer el secreto. También puede leer un secreto, pero no tener conectividad hacia RDS.
+
+> Una regla con `/32` no es la única forma de limitar una EC2. En una misma VPC, la solución recomendada es referenciar un Security Group como origen lógico. Así no se depende de una IP privada que puede cambiar al reemplazar una instancia.
 
 ---
 
@@ -32,255 +55,290 @@ backend-b ───── TCP 5432 ──> SG-RDS ──> RDS PostgreSQL
 
 Al finalizar podrás:
 
-1. desplegar un RDS privado en un DB subnet group dedicado;
-2. restringir el ingreso mediante un Security Group como origen lógico;
-3. diferenciar conectividad TCP, autorización IAM y autenticación PostgreSQL;
-4. usar un secreto administrado por RDS sin guardar passwords en Terraform;
-5. exigir TLS con el parámetro `rds.force_ssl`;
-6. probar un acceso permitido desde `backend-b`;
-7. probar un bloqueo de red desde `backend-a`;
-8. verificar que solo los roles de backend-b recuperen el secreto;
-9. interpretar evidencia de red e identidad antes de corregir permisos;
-10. destruir el root de RDS y verificar que no queden recursos sensibles.
+1. identificar el riesgo de una regla de red demasiado amplia;
+2. construir una matriz de acceso antes de modificar la infraestructura;
+3. restringir TCP `5432` usando un Security Group como origen lógico;
+4. diferenciar CIDR, `/32` y referencia a Security Group;
+5. verificar conectividad positiva y negativa desde las cuatro EC2;
+6. utilizar un secreto administrado por RDS en Secrets Manager;
+7. asignar `GetSecretValue` únicamente a los roles de `backend-b`;
+8. conectarte a PostgreSQL mediante TLS sin imprimir la password;
+9. diferenciar Secrets Manager de IAM Database Authentication;
+10. interpretar si un error pertenece a red, IAM, TLS o SQL;
+11. limpiar solamente el root de RDS al finalizar.
 
 ---
 
-## 3. Alcance y seguridad
+## 3. Alcance y estado inicial
 
-El workflow de este laboratorio administra únicamente el root `terraform-rds/`. Su state remoto es independiente:
+El workflow administra únicamente:
+
+```text
+labs/m4-c1-lab/terraform-rds/
+```
+
+El state remoto es independiente:
 
 ```text
 m4-c1/<student_identity>/rds.tfstate
 ```
 
-El root descubre la VPC, las subnets `Tier=db`, el Security Group backend y los roles creados por LAB02. No recrea la fundación.
+El root RDS descubre la VPC y los recursos de LAB02. No recrea la fundación.
 
-Controles incluidos:
+Terraform deja preparada una RDS con:
 
+- subnets privadas de base de datos;
 - `publicly_accessible = false`;
-- DB subnet group con las dos subnets `db`;
-- `SG-RDS` con TCP 5432 solo desde un SG fuente dedicado;
-- SG fuente dedicado asociado únicamente a las ENI de backend-b;
-- egress TCP 5432 agregado al SG backend únicamente hacia `SG-RDS`;
-- almacenamiento RDS cifrado;
-- backups con retención de un día para la práctica;
-- password maestro administrado por RDS en Secrets Manager;
-- `rds.force_ssl = 1`;
-- `GetSecretValue` y `DescribeSecret` solo para `backend-b-01` y `backend-b-02`;
-- sin SSH público, passwords en archivos, access keys ni datos sensibles versionados.
+- almacenamiento cifrado;
+- backups con retención de un día;
+- `multi_az = false` por alcance y costo del ejercicio;
+- Security Group de RDS con TCP `5432` permitido inicialmente desde el CIDR de la VPC;
+- Security Group vacío preparado para asociarse a `backend-b`;
+- ese Security Group asociado únicamente a las ENI de `backend-b`;
+- policies IAM para que solo `backend-b` pueda recuperar el secreto administrado por RDS;
+- parámetro `rds.force_ssl = 1`.
 
-`multi_az = false` es una decisión de alcance y costo para esta práctica. No representa una arquitectura productiva de alta disponibilidad.
+El permiso inicial desde el CIDR de la VPC es amplio dentro de la red del laboratorio, pero RDS continúa siendo privada y no tiene exposición pública.
 
 ---
 
 ## 4. Prerrequisitos
 
-Completá LAB01 y LAB02 antes de empezar. Confirmá:
+Completá LAB01 y LAB02 antes de comenzar. Confirmá:
 
-- el workflow `M4-C1 Infra Deploy` ejecutó el foundation;
-- existen cuatro EC2 privadas y sus roles;
-- `STUDENT_IDENTITY` conserva exactamente el valor anterior;
-- `AWS_ROLE_ARN`, `AWS_REGION` y `TF_STATE_BUCKET` existen en el Environment `lab`;
-- el role OIDC tiene la policy `formatec-terraform-deploy`.
+- existen cuatro EC2 privadas;
+- las cuatro aparecen `Online` en Systems Manager;
+- `psql`, `jq` y AWS CLI están disponibles;
+- `STUDENT_IDENTITY` coincide con LAB02;
+- el Environment `lab` contiene `AWS_ROLE_ARN`, `AWS_REGION`, `STUDENT_IDENTITY` y `TF_STATE_BUCKET`;
+- el role OIDC tiene permisos para administrar los recursos RDS del laboratorio.
 
-La policy del role OIDC debe incluir el statement adicional de RDS que se encuentra en:
-
-```text
-labs/m4-c1-lab/policies/terraform-deploy-policy.json
-```
-
-Si el role ya tenía una versión anterior de la policy, actualizá la policy administrada desde IAM antes de ejecutar este workflow. No agregues `AdministratorAccess`.
+No ejecutes el workflow RDS hasta que las cuatro instancias estén disponibles en SSM.
 
 ---
 
-## 5. Actualizar la fundación
-
-El root fundacional instala el cliente PostgreSQL en las EC2 durante el bootstrap. Ejecutá nuevamente el workflow `M4-C1 Infra Deploy` con:
-
-```text
-action = apply
-```
-
-Revisá el plan antes de aprobarlo. El cambio esperado es la instalación del paquete cliente en la configuración de User Data. Después de que las instancias estén listas, verificá por Session Manager que exista `psql`:
-
-```bash
-psql --version
-jq --version
-aws --version
-```
-
-Resultado esperado: se muestran las versiones instaladas y no se abre ningún puerto SSH.
-
-> Si la actualización reemplaza una EC2 por un cambio de User Data, esperá que el SSM Agent vuelva a aparecer antes de continuar. No ejecutes el workflow RDS hasta tener disponibles las cuatro instancias necesarias.
-
----
-
-## 6. Revisar el root RDS
-
-Antes de aplicar, revisá:
-
-```text
-labs/m4-c1-lab/terraform-rds/versions.tf
-labs/m4-c1-lab/terraform-rds/variables.tf
-labs/m4-c1-lab/terraform-rds/locals.tf
-labs/m4-c1-lab/terraform-rds/rds.tf
-labs/m4-c1-lab/terraform-rds/outputs.tf
-.github/workflows/m4-c1-rds-deploy.yml
-```
-
-Identificá:
-
-- cómo se descubren las subnets `Tier=db`;
-- qué Security Group es el origen de TCP 5432;
-- dónde se exige `publicly_accessible = false`;
-- dónde se exige cifrado;
-- dónde se activa `rds.force_ssl`;
-- cómo se obtiene el ARN del secreto sin imprimirlo;
-- qué roles reciben `secretsmanager:GetSecretValue`.
-
-El root no usa una password literal. `manage_master_user_password = true` permite que RDS cree y administre el secreto.
-
----
-
-## 7. Ejecutar el workflow RDS
+## 5. Ejecutar el workflow RDS
 
 En GitHub:
 
 1. Abrí **Actions**.
 2. Seleccioná **M4-C1 RDS Network Security**.
-3. Elegí **Run workflow**.
-4. Ejecutá primero `plan`.
-5. Revisá el plan y confirmá que no intente destruir la fundación.
-6. Ejecutá nuevamente con `apply`.
+3. Ejecutá primero el workflow con `action = plan`.
+4. Revisá que utilice `terraform-rds/` y su state independiente.
+5. Confirmá que no intente destruir la VPC, las EC2 ni los buckets.
+6. Ejecutá nuevamente con `action = apply`.
 
-El workflow usa el backend:
+El plan debe incluir, entre otros:
 
 ```text
-m4-c1/<student_identity>/rds.tfstate
+aws_db_subnet_group.rds
+aws_security_group.rds
+aws_security_group.backend_b_source
+aws_network_interface_sg_attachment.backend_b_source
+aws_vpc_security_group_egress_rule.backend_to_rds
+aws_db_parameter_group.postgres
+aws_db_instance.rds
+aws_iam_role_policy.backend_b_rds_secret
 ```
 
-El plan debe incluir, como mínimo:
-
-- `aws_db_subnet_group.rds`;
-- `aws_security_group.rds`;
-- `aws_security_group.backend_b_source`;
-- dos `aws_network_interface_sg_attachment.backend_b_source`;
-- `aws_vpc_security_group_egress_rule.backend_to_rds`;
-- `aws_db_parameter_group.postgres`;
-- `aws_db_instance.rds`;
-- dos policies inline `rds-secret-read-only`.
-
-Resultado esperado de `apply`:
+Resultado esperado aproximado:
 
 ```text
 Apply complete! Resources: 10 added, 0 changed, 0 destroyed.
 ```
 
-La cantidad puede variar si Terraform agrega dependencias internas, pero no debe destruir la VPC, las EC2 ni los buckets de LAB02.
+La instancia resultante debe ser privada. El root inicial deja TCP `5432` abierto al CIDR de la VPC para que las cuatro EC2 puedan realizar la primera prueba.
 
 ---
 
-## 8. Verificar RDS y la red
+## 6. Fase 1 — Probar el estado permisivo
 
-Desde los outputs del workflow anotá:
-
-- `rds_identifier`;
-- `rds_endpoint`;
-- `rds_port`;
-- `rds_secret_arn`;
-- `rds_security_group_id`;
-- `backend_security_group_id`.
-
-En AWS Console revisá:
-
-### RDS
-
-- estado `Available`;
-- motor PostgreSQL;
-- `Publicly accessible = No`;
-- subnet group con las dos subnets `db`;
-- Security Group `SG-RDS` asociado;
-- storage encryption habilitado;
-- backup retention de un día;
-- deletion protection deshabilitada solo para permitir cleanup del laboratorio.
-
-### Security Groups
-
-En el inbound de `SG-RDS` debe existir únicamente:
+Anotá los outputs del workflow:
 
 ```text
-TCP 5432
-Source: SG-BACKEND-B-RDS-SOURCE
+rds_endpoint
+rds_port
+rds_secret_arn
+rds_security_group_id
+backend_b_source_security_group_id
 ```
 
-No debe existir:
-
-```text
-0.0.0.0/0
-CIDR de toda la VPC
-IP fija de una EC2
-```
-
-En el outbound de `SG-BACKEND` debe existir una regla TCP 5432 con destino lógico `SG-RDS`. El SG fuente de backend-b debe estar asociado solo a las dos ENI de backend-b. No agregues una regla amplia a todo Internet para resolver un error.
-
-### Secrets Manager
-
-Abrí el secreto creado por RDS y verificá solo sus metadatos:
-
-- pertenece a RDS;
-- está en la región correcta;
-- el ARN coincide con el output;
-- no copies ni publiques su valor.
-
----
-
-## 9. Preparar los scripts en una EC2
-
-Los scripts del repositorio son:
-
-```text
-labs/m4-c1-lab/scripts/inicializar-rds.sh
-labs/m4-c1-lab/scripts/validar-rds.sh
-```
-
-Desde una sesión de Session Manager en cada EC2, descargalos desde la branch `main` del repositorio del curso y hacelos ejecutables. Reemplazá la URL si trabajás con un fork:
-
-```bash
-sudo mkdir -p /opt/security-lab
-sudo curl -fsSL \
-  https://raw.githubusercontent.com/nicopannu/curso-cloud-formatec-c2-2026/main/labs/m4-c1-lab/scripts/inicializar-rds.sh \
-  -o /opt/security-lab/inicializar-rds.sh
-sudo curl -fsSL \
-  https://raw.githubusercontent.com/nicopannu/curso-cloud-formatec-c2-2026/main/labs/m4-c1-lab/scripts/validar-rds.sh \
-  -o /opt/security-lab/validar-rds.sh
-sudo chmod 750 /opt/security-lab/*.sh
-```
-
-No guardes el ARN junto con passwords en archivos permanentes. Usá variables de sesión:
+Definí variables de sesión en una EC2:
 
 ```bash
 export RDS_ENDPOINT="<rds_endpoint>"
+export RDS_PORT="5432"
 export RDS_SECRET_ARN="<rds_secret_arn>"
 export AWS_REGION="us-east-1"
 ```
 
----
-
-## 10. Inicializar el dato de prueba
-
-Abrí Session Manager sobre `backend-b-01` y ejecutá:
+Desde cada una de las cuatro instancias ejecutá una comprobación TCP:
 
 ```bash
-sudo /opt/security-lab/inicializar-rds.sh "$RDS_ENDPOINT" 5432 "$RDS_SECRET_ARN"
+nc -vz "$RDS_ENDPOINT" "$RDS_PORT"
 ```
+
+Si `nc` no está disponible, utilizá:
+
+```bash
+timeout 5 bash -c "</dev/tcp/${RDS_ENDPOINT}/${RDS_PORT}" && echo TCP_REACHABLE
+```
+
+Resultado esperado inicial:
+
+| Instancia | Resultado inicial |
+|---|---|
+| `backend-a-01` | `TCP_REACHABLE` |
+| `backend-a-02` | `TCP_REACHABLE` |
+| `backend-b-01` | `TCP_REACHABLE` |
+| `backend-b-02` | `TCP_REACHABLE` |
+
+Checkpoint:
+
+- ¿Qué permite la regla inicial?
+- ¿Por qué una RDS privada sigue necesitando controles de Security Group?
+- ¿Qué diferencia hay entre alcanzar el puerto y autenticarse en PostgreSQL?
+- ¿Qué riesgo existe si cualquier instancia de la VPC puede alcanzar RDS?
+
+---
+
+## 7. Fase 2 — Construir la matriz requerida
+
+Antes de cambiar reglas, completá la matriz objetivo:
+
+| Instancia | TCP 5432 | `GetSecretValue` | Login PostgreSQL | Consulta SQL |
+|---|---|---|---|---|
+| `backend-a-01` | Denegado | Denegado | Denegado | Denegado |
+| `backend-a-02` | Denegado | Denegado | Denegado | Denegado |
+| `backend-b-01` | Permitido | Permitido | Permitido | Permitido |
+| `backend-b-02` | Permitido | Permitido | Permitido | Permitido |
+
+Esta matriz será el criterio de aceptación del laboratorio.
+
+---
+
+## 8. Fase 3 — Restringir el acceso mediante Security Groups
+
+El root ya creó un Security Group dedicado y lo asoció a las ENI de `backend-b`:
+
+```text
+SG-BACKEND-B-RDS-SOURCE
+├── ENI de backend-b-01
+└── ENI de backend-b-02
+```
+
+En la consola de EC2 modificá el Security Group de RDS:
+
+1. Identificá la regla inbound TCP `5432` cuyo origen es el CIDR de la VPC.
+2. Eliminá esa regla amplia.
+3. Agregá una regla inbound:
+
+```text
+Protocol: TCP
+Port: 5432
+Source: SG-BACKEND-B-RDS-SOURCE
+```
+
+No agregues una regla basada en:
+
+```text
+0.0.0.0/0
+La IP /32 de una sola instancia
+El CIDR completo de la VPC
+```
+
+Una referencia a Security Group expresa mejor la pertenencia lógica de las instancias. Si una EC2 se reemplaza y conserva el SG, no es necesario actualizar una IP en RDS.
+
+> Esta modificación se realiza como parte de la actividad del alumno. Si después se ejecuta un nuevo `terraform apply` sobre el mismo root, Terraform puede restaurar el estado declarado inicialmente. Primero completá las pruebas y luego ejecutá cleanup.
+
+---
+
+## 9. Fase 4 — Verificar la segmentación de red
+
+Ejecutá nuevamente la prueba TCP desde las cuatro instancias.
 
 Resultado esperado:
 
+| Instancia | Resultado final de red |
+|---|---|
+| `backend-a-01` | `TCP_BLOCKED_OR_UNREACHABLE` |
+| `backend-a-02` | `TCP_BLOCKED_OR_UNREACHABLE` |
+| `backend-b-01` | `TCP_REACHABLE` |
+| `backend-b-02` | `TCP_REACHABLE` |
+
+Este resultado prueba únicamente la capa de red:
+
+> Solo `backend-b-01` y `backend-b-02` pueden alcanzar RDS por TCP `5432`.
+
+Todavía no demuestra que tengan permiso para recuperar el secreto ni que puedan ejecutar SQL.
+
+---
+
+## 10. Fase 5 — Secrets Manager e IAM
+
+RDS crea y administra el secreto mediante:
+
+```hcl
+manage_master_user_password = true
+```
+
+La password no debe guardarse en Terraform ni en el repositorio.
+
+El role IAM de cada instancia `backend-b` recibe únicamente:
+
 ```text
-Inicializando tabla lab_access con conexión TLS. La contraseña no se imprime.
-CREATE TABLE
-INSERT 0 1
-Inicialización completada.
+secretsmanager:DescribeSecret
+secretsmanager:GetSecretValue
+```
+
+El recurso está limitado al secreto de esta RDS.
+
+Desde `backend-b-01` verificá el acceso sin imprimir el valor:
+
+```bash
+aws secretsmanager describe-secret \
+  --secret-id "$RDS_SECRET_ARN" \
+  --region "$AWS_REGION" \
+  --query '{Name:Name,ARN:ARN,RotationEnabled:RotationEnabled}'
+```
+
+El script de validación recupera el secreto en memoria y no imprime la password.
+
+Para probar la separación IAM, ejecutá desde una instancia `backend-a` solamente una consulta de metadata o recuperación controlada. El resultado esperado para `GetSecretValue` es:
+
+```text
+AccessDenied
+```
+
+No copies ni imprimas el contenido del secreto.
+
+---
+
+## 11. Fase 6 — Inicializar y consultar PostgreSQL
+
+Descargá los scripts:
+
+```bash
+sudo mkdir -p /opt/security-lab
+
+sudo curl -fsSL \
+  https://raw.githubusercontent.com/nicopannu/curso-cloud-formatec-c2-2026/main/labs/m4-c1-lab/scripts/inicializar-rds.sh \
+  -o /opt/security-lab/inicializar-rds.sh
+
+sudo curl -fsSL \
+  https://raw.githubusercontent.com/nicopannu/curso-cloud-formatec-c2-2026/main/labs/m4-c1-lab/scripts/validar-rds.sh \
+  -o /opt/security-lab/validar-rds.sh
+
+sudo chmod 750 /opt/security-lab/*.sh
+```
+
+Desde `backend-b-01`, inicializá el dato de prueba:
+
+```bash
+sudo /opt/security-lab/inicializar-rds.sh \
+  "$RDS_ENDPOINT" \
+  "$RDS_PORT" \
+  "$RDS_SECRET_ARN"
 ```
 
 El script crea o actualiza:
@@ -289,28 +347,16 @@ El script crea o actualiza:
 lab_access(id integer primary key, mensaje text not null)
 ```
 
-No se imprime el contenido del secreto ni la password.
-
----
-
-## 11. Ejecutar la matriz de pruebas
-
-Ejecutá el mismo comando desde cada instancia:
+Luego ejecutá desde cada instancia:
 
 ```bash
-sudo /opt/security-lab/validar-rds.sh "$RDS_ENDPOINT" 5432 "$RDS_SECRET_ARN"
+sudo /opt/security-lab/validar-rds.sh \
+  "$RDS_ENDPOINT" \
+  "$RDS_PORT" \
+  "$RDS_SECRET_ARN"
 ```
 
-Resultados esperados:
-
-| Instancia | TCP 5432 | Secreto | SQL |
-|---|---|---|---|
-| `backend-a-01` | bloqueado/timeout | no se intenta | no aplica |
-| `backend-a-02` | bloqueado/timeout | no se intenta | no aplica |
-| `backend-b-01` | `TCP_REACHABLE` | permitido | fila visible |
-| `backend-b-02` | `TCP_REACHABLE` | permitido | fila visible |
-
-En backend-b debe aparecer:
+En `backend-b` se espera:
 
 ```text
 TCP_REACHABLE
@@ -318,90 +364,132 @@ SECRET_RETRIEVED_WITHOUT_PRINTING_PASSWORD
 1|dato de prueba del laboratorio
 ```
 
-La conexión utiliza `sslmode=require`. Si se prueba con `sslmode=disable`, PostgreSQL debe rechazar la conexión por `rds.force_ssl`.
+En `backend-a`, la validación debe detenerse en la capa TCP y no intentar leer el secreto.
 
-La secuencia de interpretación es importante:
+La conexión utiliza:
 
-1. si TCP está bloqueado, el problema está en Security Groups, rutas o endpoint;
-2. si TCP llega pero el secreto falla, el problema está en IAM;
-3. si el secreto funciona pero SQL falla, revisá credenciales, base, tabla o TLS.
+```text
+sslmode=require
+```
 
----
-
-## 12. Checkpoints
-
-Respondé antes de avanzar:
-
-1. ¿Por qué `backend-a` queda bloqueado antes de intentar autenticarse?
-2. ¿Por qué el origen del inbound es un Security Group y no una IP?
-3. ¿Qué diferencia hay entre el SG backend y el role IAM de una EC2?
-4. ¿Por qué RDS no necesita IP pública para que backend-b lo alcance?
-5. ¿Qué evidencia demuestra que la password no está en Terraform?
-6. ¿Qué evidencia demuestra que la conexión usa TLS?
-7. ¿Qué permiso permite recuperar el secreto?
-8. ¿Qué riesgo quedaría si el secreto se pudiera leer desde backend-a?
-9. ¿Qué significa que `multi_az = false` en este ejercicio?
-10. ¿Qué dato deberías ocultar al compartir la evidencia?
+Si se prueba con TLS deshabilitado, PostgreSQL debe rechazar la conexión debido a `rds.force_ssl = 1`.
 
 ---
 
-## 13. Troubleshooting
+## 12. Secrets Manager e IAM Database Authentication
 
-| Síntoma | Posible causa | Revisión |
-|---|---|---|
-| El workflow falla al leer VPC | `student_identity` no coincide con LAB02 | comparar tags y Environment `lab` |
-| RDS queda en `creating` | creación normal o subnet/SG incompletos | esperar y revisar eventos de RDS |
-| Backend-b tiene timeout | falta egress 5432 o inbound de SG-RDS | revisar ambos SG, no abrir `0.0.0.0/0` |
-| Backend-a llega a TCP | SG-RDS tiene origen incorrecto | dejar solo SG backend como origen |
-| `GetSecretValue AccessDenied` en backend-b | policy inline ausente o ARN incorrecto | revisar role, policy y output del secreto |
-| Backend-a puede leer el secreto | policy adjuntada al role equivocado | quitarla y conservarla solo en backend-b |
-| `psql` no existe | foundation no fue actualizado | repetir apply fundacional y esperar SSM |
-| SQL rechaza conexión sin TLS | comportamiento esperado | usar `sslmode=require` |
-| Terraform quiere destruir VPC/EC2 | se está usando el root equivocado | detenerse y ejecutar solo `terraform-rds` |
+Estas son dos estrategias diferentes.
+
+### Password administrada por RDS y Secrets Manager
+
+```text
+Role IAM de la EC2
+    ↓ secretsmanager:GetSecretValue
+Secrets Manager
+    ↓ password administrada por RDS
+PostgreSQL
+```
+
+En este laboratorio se implementa esta estrategia.
+
+IAM autoriza a la EC2 a recuperar el secreto, pero PostgreSQL recibe una password para autenticar el login.
+
+### IAM Database Authentication
+
+```text
+Role IAM de la EC2
+    ↓ rds-db:connect
+Token temporal
+    ↓
+Usuario PostgreSQL habilitado para IAM
+```
+
+Esta alternativa no recupera una password permanente desde Secrets Manager. Requiere habilitar IAM Database Authentication, crear un usuario PostgreSQL adecuado y asignar el permiso `rds-db:connect` al role.
+
+Queda como extensión conceptual de este laboratorio. No forma parte del flujo obligatorio.
+
+Checkpoint:
+
+- ¿Qué permiso se utiliza con Secrets Manager?
+- ¿Qué permiso se utilizaría con IAM Database Authentication?
+- ¿Dónde se autentica el usuario en cada estrategia?
+- ¿Qué control corresponde a red y cuál corresponde a identidad?
+- ¿Qué ocurre si TCP está permitido pero `GetSecretValue` está denegado?
 
 ---
 
-## 14. Limpieza obligatoria
+## 13. Interpretación de resultados
 
-Primero destruí RDS desde el workflow **M4-C1 RDS Network Security**:
+| Síntoma | Capa a revisar |
+|---|---|
+| Timeout TCP desde `backend-a` | Security Groups, rutas o endpoint |
+| TCP funciona desde `backend-b` | La conectividad de red está permitida |
+| `GetSecretValue AccessDenied` | Role IAM o policy del secreto |
+| Login PostgreSQL rechazado | Usuario, password, base o TLS |
+| Error de TLS | `sslmode` o `rds.force_ssl` |
+| Backend-a puede leer el secreto | Policy IAM asociada al role equivocado |
+| Backend-a puede llegar a RDS | Regla inbound demasiado amplia |
+| Terraform quiere destruir la VPC | Se ejecutó el root equivocado |
 
-1. ejecutá el workflow con `action = destroy`;
-2. revisá que afecte solo RDS, SG-RDS, subnet group, parameter group, regla egress y policies de secreto;
-3. ejecutá `destroy`;
-4. esperá el resultado exitoso.
+No abras `0.0.0.0/0` ni SSH público para resolver un error.
 
-Después verificá que no queden:
+---
 
-- instancia RDS;
-- DB subnet group;
-- parameter group personalizado;
-- SG-RDS y el SG fuente dedicado de backend-b;
-- regla backend→RDS;
-- policies inline `rds-secret-read-only`;
-- secreto administrado por RDS.
+## 14. Cleanup
 
-No destruyas la fundación hasta completar la clase si LAB02 se reutiliza. Si finaliza el ciclo completo del módulo, ejecutá luego `destroy` en **M4-C1 Infra Deploy** y verificá VPC, EC2, buckets y roles.
+Al finalizar las pruebas:
 
-No elimines el OIDC Provider compartido ni el role de despliegue sin autorización.
+1. Ejecutá el workflow **M4-C1 RDS Network Security** con:
+
+```text
+action = destroy
+```
+
+2. Revisá el plan de destrucción.
+3. Confirmá que afecte solamente el root RDS:
+   - instancia RDS;
+   - DB subnet group;
+   - parameter group;
+   - Security Groups del ejercicio;
+   - attachments de `backend-b`;
+   - regla egress backend→RDS;
+   - policies IAM del secreto;
+   - secreto administrado por RDS.
+
+4. Ejecutá el destroy.
+5. Verificá que no quede ninguna instancia RDS ni secreto del ejercicio.
+
+No ejecutes el destroy de **M4-C1 Infra Deploy** mientras LAB02 siga siendo necesario.
 
 ---
 
 ## 15. Entregables
 
-1. Link del run `plan` de RDS.
-2. Link del run `apply` de RDS.
+1. Link del run `plan`.
+2. Link del run `apply`.
 3. Outputs sin valores sensibles.
-4. Diagrama con subnets db, `SG-BACKEND`, SG fuente de backend-b, `SG-RDS` y RDS.
-5. Tabla de reglas de Security Groups.
-6. Evidencia de RDS privado y cifrado.
-7. Evidencia de Secrets Manager sin mostrar el valor secreto.
-8. Salida de `validar-rds.sh` en las cuatro EC2.
-9. Evidencia de `TCP_REACHABLE` solo en backend-b.
-10. Evidencia de la fila SQL desde backend-b.
-11. Evidencia de cleanup del root RDS.
-12. Respuestas de los checkpoints.
+4. Matriz inicial y matriz final.
+5. Diagrama con las cuatro EC2, el SG fuente de `backend-b`, el SG de RDS y RDS.
+6. Evidencia de que las cuatro EC2 alcanzaban inicialmente TCP `5432`.
+7. Evidencia de que solo `backend-b` alcanza TCP `5432` después del cambio.
+8. Evidencia de RDS privada y cifrada.
+9. Evidencia de Secrets Manager sin mostrar la password.
+10. Evidencia de `AccessDenied` desde un role de `backend-a`.
+11. Salida de `validar-rds.sh` desde las cuatro EC2.
+12. Evidencia de la fila SQL desde `backend-b`.
+13. Respuestas de los checkpoints.
+14. Link o evidencia del cleanup.
 
-No entregues passwords, tokens, valores de secretos, access keys, archivos `.tfstate`, planes Terraform ni datos personales.
+No entregues:
+
+```text
+Passwords
+Valores de secretos
+Access keys
+Tokens
+Archivos .tfstate
+Planes Terraform
+```
 
 ---
 
@@ -409,21 +497,23 @@ No entregues passwords, tokens, valores de secretos, access keys, archivos `.tfs
 
 | Criterio | Evidencia | Ponderación |
 |---|---|---:|
-| RDS privado | subnet group db, `publicly_accessible = false`, cifrado | 20% |
-| Seguridad de red | SG-RDS solo desde SG backend y egress 5432 explícito | 25% |
-| IAM y secretos | GetSecretValue solo en backend-b, sin passwords versionadas | 20% |
-| TLS y SQL | conexión `sslmode=require` y lectura de tabla | 15% |
-| Pruebas negativas | backend-a bloqueado y permisos interpretados | 10% |
-| Cleanup | destroy y verificación de recursos sensibles | 10% |
+| Matriz de acceso | Estado inicial y objetivo correctamente definidos | 15% |
+| Security Groups | Solo `backend-b` alcanza TCP `5432` mediante referencia lógica | 30% |
+| Pruebas negativas | `backend-a` queda bloqueado y el resultado se interpreta correctamente | 15% |
+| IAM y Secrets Manager | Solo `backend-b` recupera el secreto sin exponer la password | 20% |
+| PostgreSQL y TLS | Login, consulta SQL y `sslmode=require` funcionando | 10% |
+| Cleanup | RDS y recursos sensibles eliminados sin destruir la fundación | 10% |
 
 Errores críticos:
 
-- permitir RDS desde `0.0.0.0/0`;
-- publicar o guardar la password del RDS;
-- asignar `GetSecretValue` a backend-a;
-- abrir SSH público como solución;
-- ejecutar el destroy del root fundacional antes del root RDS;
-- afirmar que RDS es Multi-AZ cuando este ejercicio usa `multi_az = false`.
+- dejar RDS accesible desde `0.0.0.0/0`;
+- resolver el problema agregando una `/32` fija sin explicar su limitación;
+- asignar `GetSecretValue` a `backend-a`;
+- guardar passwords en Terraform o en el repositorio;
+- abrir SSH público;
+- destruir la fundación antes de terminar el laboratorio;
+- confundir Secrets Manager con IAM Database Authentication;
+- afirmar que `multi_az = false` representa alta disponibilidad productiva.
 
 ---
 
@@ -431,4 +521,4 @@ Errores críticos:
 
 Completá la frase:
 
-> `backend-a` no puede consultar RDS porque __________. `backend-b` llega a RDS porque __________. La red no reemplaza IAM porque __________. El secreto no se guarda en Terraform porque __________. TLS aporta __________. Una mejora para producción sería __________.
+> Al inicio, las cuatro EC2 podían alcanzar RDS porque __________. Después de modificar los Security Groups, solo `backend-b` llega porque __________. Secrets Manager resuelve __________. IAM controla __________. La conexión PostgreSQL todavía usa __________. IAM Database Authentication se diferencia porque __________.

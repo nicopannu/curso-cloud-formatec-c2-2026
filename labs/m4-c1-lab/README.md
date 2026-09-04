@@ -19,7 +19,7 @@ M4-C1 se desarrolla en dos guías relacionadas:
 |---|---|---|
 | [LAB01 — OIDC desde AWS Console](guias/guia-seguridad-lab01-oidc.md) | GitHub Actions, OIDC, IAM y credenciales temporales | GitHub Actions puede asumir un role AWS sin access keys permanentes |
 | [LAB02 — EC2 privadas, red, S3 y permisos IAM](guias/guia-seguridad-lab02-ec2-red-s3.md) | VPC, subnets, NAT, SSM, S3 y mínimo privilegio | cuatro EC2 privadas acceden a S3 según su role IAM |
-| [LAB03 — RDS privado y segmentación de red](guias/guia-seguridad-lab03-rds-segmentacion.md) | Security Groups, RDS PostgreSQL, Secrets Manager y TLS | solo backend-b alcanza y consulta RDS |
+| [LAB03 — RDS, Security Groups, secretos e IAM](guias/guia-seguridad-lab03-rds-segmentacion.md) | matriz permisiva → segmentación por SG → Secrets Manager/IAM → PostgreSQL TLS | solo backend-b alcanza, recupera el secreto y consulta RDS |
 
 LAB01 se completa primero porque deja preparados el OIDC Provider, el role de GitHub Actions, el environment `lab` y `STUDENT_IDENTITY`. LAB02 utiliza esa continuidad para desplegar la infraestructura y observar la diferencia entre conectividad de red y autorización IAM.
 

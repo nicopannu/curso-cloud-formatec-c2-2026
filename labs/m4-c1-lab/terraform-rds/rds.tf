@@ -9,15 +9,15 @@ resource "aws_db_subnet_group" "rds" {
 
 resource "aws_security_group" "rds" {
   name        = "${local.name_prefix}-rds-sg"
-  description = "RDS PostgreSQL: access only from backend Security Group"
+  description = "RDS PostgreSQL lab: initial VPC-wide connectivity before SG hardening"
   vpc_id      = data.aws_vpc.foundation.id
 
   ingress {
-    description     = "PostgreSQL only from backend Security Group"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.backend_b_source.id]
+    description = "Initial lab state: PostgreSQL reachable from the foundation VPC"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.foundation.cidr_block]
   }
 
   egress {
