@@ -104,6 +104,8 @@ export NOTIFICATION_TIMEOUT_SECONDS="1.5"
 envsubst '${PAYMENTS_IMAGE} ${NOTIFICATIONS_IMAGE} ${APP_VERSION} ${NOTIFICATION_TIMEOUT_SECONDS}' \
   < k8s/workloads.yaml.tpl > /tmp/tp-final-ej3-workloads.yaml
 kubectl apply -f k8s/namespace.yaml
+# Una vez por namespace, usando una identidad administradora del cluster:
+kubectl apply -f k8s/prometheus-rbac.yaml
 kubectl apply -f /tmp/tp-final-ej3-workloads.yaml
 kubectl apply -f k8s/prometheus.yaml
 kubectl rollout status deployment/pagos-api -n tp-final-ej3 --timeout=5m
@@ -202,11 +204,11 @@ La validación autorizada crea un cluster EKS temporal y un managed node group p
 
 - Cuenta y región verificadas: perfil `curso`, `us-east-1`.
 - Cluster EKS temporal, nodos disponibles y permiso ECR de pull para el rol de los nodos.
-- Namespace `tp-final-ej3` creado una vez por el administrador.
+- Namespace `tp-final-ej3` y los objetos `ServiceAccount`, `Role` y `RoleBinding` de `k8s/prometheus-rbac.yaml` creados una vez por un administrador del cluster.
 - Repositorio ECR privado con **tag mutability `IMMUTABLE`**.
 - Environment de GitHub `tp-final-ej3` con variables `AWS_REGION`, `AWS_ROLE_ARN`, `EKS_CLUSTER_NAME`, `ECR_REPOSITORY` y `KUBECTL_VERSION`, protegido con reviewers requeridos y allowlist de branch `demo/tp-final-ej3-resiliencia`; el `sub` OIDC limitado a un Environment no reemplaza esa protección.
 - Proveedor OIDC de GitHub y rol con trust limitado a `repo:nicopannu/curso-cloud-formatec-c2-2026:environment:tp-final-ej3` y audiencia `sts.amazonaws.com`.
-- El rol debe poder subir imágenes sólo al repositorio ECR elegido, describir el cluster, actualizar/restaurar su allowlist (`eks:UpdateClusterConfig`, `eks:DescribeUpdate`) y autenticarse en Kubernetes con permisos limitados al namespace de la demo.
+- El rol de GitHub Actions debe poder subir imágenes sólo al repositorio ECR elegido, describir/actualizar la allowlist del cluster y operar objetos de aplicación en `tp-final-ej3` mediante `AmazonEKSEditPolicy`. No crea namespaces ni bindings RBAC.
 - El endpoint público EKS debe iniciar con una allowlist restringida. El workflow agrega temporalmente sólo el IPv4 `/32` del runner, conserva los CIDRs originales y los restaura al final incluso si falla un paso posterior. Si la ejecución se interrumpe abruptamente, queda el CIDR original más el `/32` del runner; nunca se abre a `0.0.0.0/0`.
 
 Comprobación de identidad antes de cualquier acción AWS:

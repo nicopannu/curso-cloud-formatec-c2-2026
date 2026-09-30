@@ -12,6 +12,8 @@ command -v kubectl >/dev/null || { echo "Falta kubectl" >&2; exit 1; }
 
 export PAYMENTS_IMAGE NOTIFICATIONS_IMAGE APP_VERSION NOTIFICATION_TIMEOUT_SECONDS
 kubectl apply -f "$DEMO_DIR/k8s/namespace.yaml"
+# Requiere identidad administradora del cluster; una vez por namespace.
+kubectl apply -f "$DEMO_DIR/k8s/prometheus-rbac.yaml"
 envsubst '${PAYMENTS_IMAGE} ${NOTIFICATIONS_IMAGE} ${APP_VERSION} ${NOTIFICATION_TIMEOUT_SECONDS}' \
   < "$DEMO_DIR/k8s/workloads.yaml.tpl" > /tmp/tp-final-ej3-workloads.yaml
 kubectl apply -f /tmp/tp-final-ej3-workloads.yaml

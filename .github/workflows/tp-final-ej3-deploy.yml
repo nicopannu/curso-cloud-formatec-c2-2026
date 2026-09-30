@@ -115,6 +115,7 @@ jobs:
           aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
           kubectl version --client
           kubectl get namespace "$K8S_NAMESPACE"
+          kubectl get serviceaccount/prometheus -n "$K8S_NAMESPACE"
 
       - name: 8. Renderizar manifests con las imágenes inmutables y aplicar
         working-directory: labs/tp-final
