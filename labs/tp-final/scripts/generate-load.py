@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://127.0.0.1:18080/payments")
-    parser.add_argument("--concurrency", type=int, default=12)
+    parser.add_argument("--concurrency", type=int, default=7)
     parser.add_argument("--duration", type=int, default=75)
     parser.add_argument("--request-timeout", type=float, default=60)
     args = parser.parse_args()

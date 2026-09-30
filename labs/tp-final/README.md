@@ -26,7 +26,7 @@ La demo permite observar la saturación antes del colapso, recuperarse con lími
 Generador de tráfico
         |
         v
-Service pagos-api → Deployment pagos-api (2 Pods; 1 worker × 5 threads)
+Service pagos-api → Deployment pagos-api (2 Pods; 1 worker × 10 threads)
         |                                      |
         |                                      +-- /metrics
         v
@@ -37,7 +37,7 @@ Prometheus descubre Pods de pagos y evalúa alerta por solicitudes en curso
 GitHub Actions CI → ECR (tags inmutables con SHA) → EKS (RollingUpdate)
 ```
 
-**Métrica de saturación:** `payment_requests_in_flight`, solicitudes que están esperando a Notificaciones. Cada Pod de pagos sirve hasta cinco threads de aplicación. Prometheus genera `PagoApiCercaDeSaturacion` si algún Pod mantiene **4 o más solicitudes en curso durante 15 segundos**. Es un umbral temprano de advertencia: 4/5 threads ocupados deja poco margen, sin esperar a que el proceso quede totalmente bloqueado.
+**Métrica de saturación:** `payment_requests_in_flight`, solicitudes que están esperando a Notificaciones. Cada Pod de pagos sirve hasta diez threads de aplicación. Prometheus genera `PagoApiCercaDeSaturacion` si algún Pod mantiene **7 o más solicitudes en curso durante 15 segundos**. El umbral alerta antes de saturar el proceso y deja threads para probes y scraping.
 
 La regla sólo muestra el estado en la interfaz de Prometheus. No hay Alertmanager ni canal de notificación; para que la señal sea accionable hay que agregar routing, responsable y runbook. En producción también correlacionaríamos latencia, errores, saturación del pool, resultados funcionales y experiencia del usuario.
 
@@ -141,7 +141,7 @@ Generá tráfico desde la raíz del repositorio:
 
 ```bash
 python3 labs/tp-final/scripts/generate-load.py \
-  --concurrency 12 --duration 75
+  --concurrency 7 --duration 75
 ```
 
 En <http://localhost:9090/alerts>, observá `PagoApiCercaDeSaturacion`. En la vista **Graph**, consultá:
@@ -150,7 +150,7 @@ En <http://localhost:9090/alerts>, observá `PagoApiCercaDeSaturacion`. En la vi
 max by (pod) (payment_requests_in_flight{namespace="tp-final-ej3"})
 ```
 
-**Checkpoint:** antes de que todos los threads queden retenidos, identificar qué Pod alcanzó 4 solicitudes en curso, cuánto tiempo lleva la condición y qué dependencia explica la espera. El alert expresa saturación del proceso; no prueba por sí solo que todos los pagos hayan fallado.
+**Checkpoint:** antes de que todos los threads queden retenidos, identificar qué Pod alcanzó 7 solicitudes en curso, cuánto tiempo lleva la condición y qué dependencia explica la espera. El alert expresa saturación del proceso; no prueba por sí solo que todos los pagos hayan fallado.
 
 ### 3. Aplicar una mitigación segura
 

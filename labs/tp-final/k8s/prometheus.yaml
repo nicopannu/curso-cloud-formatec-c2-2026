@@ -40,13 +40,13 @@ data:
       - name: pago-api-saturacion
         rules:
           - alert: PagoApiCercaDeSaturacion
-            expr: max by (pod) (payment_requests_in_flight{namespace="tp-final-ej3"}) >= 4
+            expr: max by (pod) (payment_requests_in_flight{namespace="tp-final-ej3"}) >= 7
             for: 15s
             labels:
               severity: warning
             annotations:
-              summary: "Un pod de pagos tiene 4 o más solicitudes en curso"
-              description: "El límite del proceso de demo es 5 threads por pod; revisar dependencia de notificaciones, latencia y errores."
+              summary: "Un pod de pagos tiene 7 o más solicitudes en curso"
+              description: "El proceso de demo dispone de 10 threads; revisar dependencia, latencia y errores antes de ocupar el pool."
 ---
 apiVersion: apps/v1
 kind: Deployment

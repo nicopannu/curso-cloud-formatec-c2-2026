@@ -15,4 +15,4 @@ LABEL org.opencontainers.image.title="pagodigital-pagos" \
 
 EXPOSE 8000
 USER 10001:10001
-CMD ["gunicorn", "--bind=0.0.0.0:8000", "--workers=1", "--threads=5", "--timeout=0", "app:app"]
+CMD ["gunicorn", "--bind=0.0.0.0:8000", "--workers=1", "--threads=10", "--timeout=0", "app:app"]
