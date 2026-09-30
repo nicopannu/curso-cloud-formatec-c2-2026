@@ -1,0 +1,49 @@
+name: TP final E3 - CI de aplicaciones
+
+on:
+  push:
+    paths:
+      - "labs/tp-final/**"
+      - ".github/workflows/tp-final-ej3-ci.yml"
+  pull_request:
+    paths:
+      - "labs/tp-final/**"
+      - ".github/workflows/tp-final-ej3-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tp-final-ej3-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: Probar y construir imágenes inmutables
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 1. Descargar el repositorio
+        uses: actions/checkout@v7
+
+      - name: 2. Ejecutar pruebas unitarias
+        working-directory: labs/tp-final
+        run: |
+          python3 -m pip install --disable-pip-version-check --requirement app/pagos/requirements.txt
+          python3 -m unittest discover -s tests -v
+
+      - name: 3. Construir ambas imágenes con el SHA del commit
+        working-directory: labs/tp-final
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker build --build-arg APP_VERSION="$IMAGE_TAG" \
+            --tag "pagodigital-pagos:$IMAGE_TAG" app/pagos
+          docker build --build-arg APP_VERSION="$IMAGE_TAG" \
+            --tag "pagodigital-notificaciones:$IMAGE_TAG" app/notificaciones
+          docker image inspect "pagodigital-pagos:$IMAGE_TAG" \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
+          docker image inspect "pagodigital-notificaciones:$IMAGE_TAG" \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'

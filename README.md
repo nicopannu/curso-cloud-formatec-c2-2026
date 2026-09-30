@@ -17,7 +17,8 @@ labs/
 ├── m3-c1-lab/
 ├── m3-c2-lab/
 ├── m3-c4-lab/
-└── m3-c5-lab/
+├── m3-c5-lab/
+└── tp-final/
 ```
 
 Los alumnos trabajan desde `main` y entran a la carpeta indicada por la clase. Ya no es necesario cambiar de branch para encontrar el material de cada lab.
@@ -34,6 +35,7 @@ Los alumnos trabajan desde `main` y entran a la carpeta indicada por la clase. Y
 | `labs/m3-c2-lab` | Gestión de configuración con Ansible |
 | `labs/m3-c4-lab` | Pipelines CI/CD con GitHub Actions |
 | `labs/m3-c5-lab` | Monitoreo proactivo con CloudWatch |
+| `labs/tp-final` | Demo docente del Ejercicio 3 del TP final |
 
 ## Recursos adicionales
 

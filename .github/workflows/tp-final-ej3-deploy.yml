@@ -1,0 +1,181 @@
+name: TP final E3 - Despliegue manual a EKS
+
+on:
+  push:
+    branches:
+      - demo/tp-final-ej3-resiliencia
+    paths:
+      - "labs/tp-final/**"
+      - ".github/workflows/tp-final-ej3-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: tp-final-ej3-eks
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Construir, publicar y actualizar EKS
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    environment: tp-final-ej3
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      KUBECTL_VERSION: ${{ vars.KUBECTL_VERSION }}
+      K8S_NAMESPACE: tp-final-ej3
+    steps:
+      - name: 1. Descargar el repositorio
+        uses: actions/checkout@v7
+
+      - name: 2. Obtener credenciales AWS temporales por OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: tp-final-ej3-${{ github.run_id }}
+          role-duration-seconds: 3600
+
+      - name: 3. Instalar kubectl compatible con el cluster
+        uses: azure/setup-kubectl@v5
+        with:
+          version: ${{ vars.KUBECTL_VERSION }}
+
+      - name: 4. Autenticarse en Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 5. Construir y publicar tags por SHA sin sobrescribirlos
+        working-directory: labs/tp-final
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$ECR_REPOSITORY" || { echo "Falta la variable ECR_REPOSITORY" >&2; exit 1; }
+          for service in pagos notificaciones; do
+            tag="${service}-${IMAGE_TAG}"
+            if aws ecr describe-images --region "$AWS_REGION" \
+              --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$tag" >/dev/null 2>&1; then
+              echo "Se reutiliza el tag inmutable existente: $tag"
+              continue
+            fi
+            docker build --build-arg APP_VERSION="$IMAGE_TAG" \
+              --tag "$REGISTRY/$ECR_REPOSITORY:$tag" "app/$service"
+            docker push "$REGISTRY/$ECR_REPOSITORY:$tag"
+          done
+          echo "PAYMENTS_IMAGE=$REGISTRY/$ECR_REPOSITORY:pagos-$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "NOTIFICATIONS_IMAGE=$REGISTRY/$ECR_REPOSITORY:notificaciones-$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "APP_VERSION=$IMAGE_TAG" >> "$GITHUB_ENV"
+
+      - name: 6. Permitir temporalmente el IP del runner en el endpoint EKS
+        id: endpoint
+        run: |
+          set -euo pipefail
+          test -n "$EKS_CLUSTER_NAME" || { echo "Falta EKS_CLUSTER_NAME" >&2; exit 1; }
+          runner_ip="$(curl --ipv4 --fail --silent https://checkip.amazonaws.com | tr -d '\r\n')"
+          runner_cidr="$(python3 -c 'import ipaddress,sys; ip=ipaddress.ip_address(sys.argv[1]); assert ip.version == 4; print(f"{ip}/32")' "$runner_ip")"
+          raw_config="$(aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --query cluster.resourcesVpcConfig --output json)"
+          original_config="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(json.dumps({"endpointPublicAccess":d["endpointPublicAccess"],"endpointPrivateAccess":d["endpointPrivateAccess"],"publicAccessCidrs":d["publicAccessCidrs"]}))' "$raw_config")"
+          if python3 -c 'import json,sys; raise SystemExit(1 if {"0.0.0.0/0","::/0"}.intersection(json.loads(sys.argv[1])["publicAccessCidrs"]) else 0)' "$original_config"; then
+            :
+          else
+            echo "El endpoint EKS ya permite acceso global; se rechaza continuar." >&2
+            exit 1
+          fi
+          original_b64="$(printf '%s' "$original_config" | base64 -w0)"
+          echo "original_config_b64=$original_b64" >> "$GITHUB_OUTPUT"
+          temporary_config="$(python3 -c 'import json,sys; c=json.loads(sys.argv[1]); cidrs=list(c["publicAccessCidrs"]); runner=sys.argv[2]; cidrs=sorted(set(cidrs+[runner])); print(json.dumps({"endpointPublicAccess":True,"endpointPrivateAccess":c["endpointPrivateAccess"],"publicAccessCidrs":cidrs}))' "$original_config" "$runner_cidr")"
+          printf '%s\n' "$temporary_config" > /tmp/tp-final-ej3-vpc-config.json
+          update_id="$(aws eks update-cluster-config --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --resources-vpc-config file:///tmp/tp-final-ej3-vpc-config.json --query update.id --output text)"
+          for attempt in $(seq 1 60); do
+            status="$(aws eks describe-update --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --update-id "$update_id" --query update.status --output text)"
+            if [ "$status" = "Successful" ]; then
+              echo "Endpoint EKS permite temporalmente $runner_cidr (CIDR original conservado)."
+              exit 0
+            fi
+            if [ "$status" = "Failed" ]; then
+              aws eks describe-update --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --update-id "$update_id" --output json
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Timeout esperando la allowlist temporal del endpoint EKS" >&2
+          exit 1
+
+      - name: 7. Configurar acceso al cluster EKS
+        run: |
+          set -euo pipefail
+          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+          kubectl version --client
+          kubectl get namespace "$K8S_NAMESPACE"
+
+      - name: 8. Renderizar manifests con las imágenes inmutables y aplicar
+        working-directory: labs/tp-final
+        env:
+          NOTIFICATION_TIMEOUT_SECONDS: "1.5"
+        run: |
+          set -euo pipefail
+          envsubst '${PAYMENTS_IMAGE} ${NOTIFICATIONS_IMAGE} ${APP_VERSION} ${NOTIFICATION_TIMEOUT_SECONDS}' \
+            < k8s/workloads.yaml.tpl > /tmp/tp-final-ej3-workloads.yaml
+          kubectl apply -f /tmp/tp-final-ej3-workloads.yaml
+          kubectl apply -f k8s/prometheus.yaml
+          kubectl rollout status deployment/pagos-api -n "$K8S_NAMESPACE" --timeout=5m
+          kubectl rollout status deployment/notificaciones -n "$K8S_NAMESPACE" --timeout=5m
+          kubectl rollout status deployment/prometheus -n "$K8S_NAMESPACE" --timeout=5m
+
+      - name: 9. Comprobar readiness y respuesta HTTP
+        run: |
+          set -euo pipefail
+          kubectl get pods,services -n "$K8S_NAMESPACE" -o wide
+          kubectl port-forward -n "$K8S_NAMESPACE" service/pagos-api 18080:80 \
+            >/tmp/tp-final-ej3-port-forward.log 2>&1 &
+          port_forward_pid=$!
+          cleanup() { kill "$port_forward_pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/readyz >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = 1 || { cat /tmp/tp-final-ej3-port-forward.log; exit 1; }
+          curl --fail --silent http://127.0.0.1:18080/version
+          curl --fail --silent --show-error -X POST http://127.0.0.1:18080/payments \
+            -H 'Content-Type: application/json' -d '{"payment_id":"pipeline-smoke-test"}'
+
+      - name: 10. Restaurar la allowlist original del endpoint EKS
+        if: always()
+        env:
+          ORIGINAL_CONFIG_B64: ${{ steps.endpoint.outputs.original_config_b64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ORIGINAL_CONFIG_B64:-}" ]; then
+            echo "No se modificó el endpoint EKS; no hay allowlist que restaurar."
+            exit 0
+          fi
+          original_config="$(printf '%s' "$ORIGINAL_CONFIG_B64" | base64 -d)"
+          printf '%s\n' "$original_config" > /tmp/tp-final-ej3-vpc-config.json
+          update_id="$(aws eks update-cluster-config --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --resources-vpc-config file:///tmp/tp-final-ej3-vpc-config.json --query update.id --output text)"
+          for attempt in $(seq 1 60); do
+            status="$(aws eks describe-update --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --update-id "$update_id" --query update.status --output text)"
+            if [ "$status" = "Successful" ]; then
+              echo "Allowlist original restaurada."
+              exit 0
+            fi
+            if [ "$status" = "Failed" ]; then
+              aws eks describe-update --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --update-id "$update_id" --output json
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Timeout restaurando la allowlist original del endpoint EKS" >&2
+          exit 1
